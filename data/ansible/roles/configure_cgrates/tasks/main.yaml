@@ -1,35 +1,4 @@
 ---
-- name: Install CGRateS dependencies
-  become: yes
-  ansible.builtin.package:
-    name: '{{ cgrates_dependencies }}'
-    state: present
-    update_cache: yes
-    cache_valid_time: 86400
-
-- name: Create cgrates directory
-  ansible.builtin.file:
-    state: directory
-    mode: 'u=rwx,go=rx'
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    dest: '{{ cgrates_dir }}'
-
-- name: Git clone cgrates
-  ansible.builtin.git:
-    repo: https://github.com/cgrates/cgrates.git
-    dest: '{{ cgrates_dir }}'
-    update: yes
-    force: yes
-    version: '{{ git_version }}'
-
-- name: Build cgrates
-  ansible.builtin.command:
-    cmd: bash -lc "source /etc/profile.d/golang.sh && sh {{ cgrates_dir }}/build.sh"
-  args:
-    chdir: '{{ cgrates_dir }}'
-  become_user: '{{ ansible_user }}'
-
 - name: Create symbolic links
   ansible.builtin.file:
     src: "{{ item.src }}"
@@ -39,14 +8,6 @@
   loop:
     - { src: "{{ cgrates_dir }}/data", dest: "/usr/share/cgrates" }
     - { src: "{{ golang_gopath }}/bin/cgr-engine", dest: "/usr/bin/cgr-engine" }
-
-- name: Start PostgreSQL service
-  become: yes
-  command: service postgresql start
-
-- name: Start MariaDB service
-  become: yes
-  command: service mariadb start
 
 - name: Run post install scripts
   ansible.builtin.shell:
@@ -65,4 +26,3 @@
     cmd: 'cgr-migrator -exec=*set_versions -config_path=/usr/share/cgrates/conf/samples/tutmysql'
   environment:
     PATH: "{{ lookup('env','PATH') }}:{{ golang_gopath }}/bin:/usr/local/go/bin:{{ ansible_env.PATH }}"
-
