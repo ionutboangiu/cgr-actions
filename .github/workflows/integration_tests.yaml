@@ -1,0 +1,42 @@
+name: Go Build and Test
+
+on:
+  push:
+    branches: [ v0.10 ]
+  pull_request:
+    branches: [ v0.10 ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v3
+      with:
+        ref: 'v0.10'
+        
+    - name: Set up Docker container
+      run: |
+        docker run -d --name debian-container -v $PWD:/workspace debian:11 sleep infinity
+
+    - name: Copy files to Docker container
+      run: |
+        docker cp . debian-container:/workspace
+
+    - name: Install Ansible on Runner
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ansible
+
+    - name: Run Ansible Playbook inside Docker container
+      run: |
+        ansible-playbook -i debian-container, --extra-vars "ansible_user=root ansible_ssh_pass=root" data/ansible/integration_tests/main.yaml
+
+    - name: Run test script inside Docker container
+      run: |
+        docker exec -it debian-container bash /workspace/integration_tests.sh -dbtype=mysql
+
+    - name: Cleanup Docker container
+      run: |
+        docker rm -f debian-container
