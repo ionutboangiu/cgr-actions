@@ -50,7 +50,7 @@
 
 - name: Start Redis service
   become: yes
-  command: service redis start
+  command: service redis-server start
 
 - name: Run post install scripts
   ansible.builtin.shell:
