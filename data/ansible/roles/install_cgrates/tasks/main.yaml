@@ -48,6 +48,10 @@
   become: yes
   command: service mariadb start
 
+- name: Start Redis service
+  become: yes
+  command: service redis start
+
 - name: Run post install scripts
   ansible.builtin.shell:
     cmd: "{{ item.cmd }}"
