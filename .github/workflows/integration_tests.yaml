@@ -1,4 +1,4 @@
-name: CGRateS Integration Tests
+name: Integration Test
 
 on:
   push:
@@ -7,36 +7,11 @@ on:
     branches: [ v0.10 ]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
+  test:
+    runs-on: self-hosted
     steps:
-      - name: Check out code
-        uses: actions/checkout@v3
-        with:
-          ref: 'v0.10'
-          
-      - name: Set up Docker container
-        run: |
-          docker run -d --name debian-container -v $PWD:/workspace debian:11 sleep infinity
-
-      - name: Copy files to Docker container
-        run: |
-          docker cp . debian-container:/workspace
-
-      - name: Install Ansible and sudo inside Docker container
-        run: |
-          docker exec debian-container bash -c "apt-get update && apt-get install -y python3 python3-pip sudo && pip3 install ansible"
-
-
-      - name: Run Ansible Playbook inside Docker container
-        run: |
-          docker exec debian-container bash -c "ansible-playbook -i localhost, --connection=local --extra-vars \"ansible_user=root ansible_ssh_pass=root\" /workspace/data/ansible/integration_tests/main.yaml"
-
-      - name: Run test script inside Docker container
-        run: |
-          docker exec -e GOPATH=$HOME/go -e PATH=$HOME/go/bin:$PATH debian-container bash -c "source /etc/profile && /workspace/integration_test.sh -dbtype=mysql"
-
-      - name: Cleanup Docker container
-        run: |
-          docker rm -f debian-container
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Run integration tests
+      run: ./integration_test.sh -dbtype=*mysql
