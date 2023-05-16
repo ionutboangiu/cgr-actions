@@ -32,11 +32,11 @@ jobs:
 
     - name: Run Ansible Playbook inside Docker container
       run: |
-        docker exec -it debian-container bash -c "ansible-playbook -i localhost, --connection=local --extra-vars \"ansible_user=root ansible_ssh_pass=root\" /workspace/data/ansible/integration_tests/main.yaml"
+        docker exec debian-container bash -c "ansible-playbook -i localhost, --connection=local --extra-vars \"ansible_user=root ansible_ssh_pass=root\" /workspace/data/ansible/integration_tests/main.yaml"
 
     - name: Run test script inside Docker container
       run: |
-        docker exec -it debian-container bash /workspace/integration_tests.sh -dbtype=mysql
+        docker exec debian-container bash /workspace/integration_tests.sh -dbtype=mysql
 
     - name: Cleanup Docker container
       run: |
