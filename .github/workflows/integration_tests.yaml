@@ -35,7 +35,7 @@ jobs:
 
     - name: Run test script inside Docker container
       run: |
-        docker exec debian-container bash /workspace/integration_tests.sh -dbtype=mysql
+        docker exec debian-container bash /workspace/integration_test.sh -dbtype=mysql
 
     - name: Cleanup Docker container
       run: |
