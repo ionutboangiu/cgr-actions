@@ -44,6 +44,14 @@
   become: yes
   command: service postgresql start
 
+- name: Start MongoDB service
+  become: yes
+  command: service mongod start
+
+- name: Start MariaDB service
+  become: yes
+  command: service mariadb start
+
 - name: Run post install scripts
   ansible.builtin.shell:
     cmd: "{{ item.cmd }}"
