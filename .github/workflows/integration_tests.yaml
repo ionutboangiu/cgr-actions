@@ -24,9 +24,10 @@ jobs:
       run: |
         docker cp . debian-container:/workspace
 
-    - name: Install Ansible inside Docker container
+    - name: Install Ansible and sudo inside Docker container
       run: |
-        docker exec debian-container bash -c "apt-get update && apt-get install -y python3 python3-pip && pip3 install ansible"
+        docker exec debian-container bash -c "apt-get update && apt-get install -y python3 python3-pip sudo && pip3 install ansible"
+
 
     - name: Run Ansible Playbook inside Docker container
       run: |
