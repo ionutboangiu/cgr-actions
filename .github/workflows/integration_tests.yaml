@@ -32,7 +32,7 @@ jobs:
 
     - name: Run Ansible Playbook inside Docker container
       run: |
-        ansible-playbook -i debian-container, --extra-vars "ansible_user=root ansible_ssh_pass=root" data/ansible/integration_tests/main.yaml
+        docker exec -it debian-container bash -c "ansible-playbook -i localhost, --connection=local --extra-vars \"ansible_user=root ansible_ssh_pass=root\" /workspace/data/ansible/integration_tests/main.yaml"
 
     - name: Run test script inside Docker container
       run: |
