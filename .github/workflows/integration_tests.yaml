@@ -14,8 +14,8 @@ jobs:
       uses: actions/checkout@v3
       
     - name: Run integration tests
-      run: |
-        sudo su <<EOF
-        source /etc/profile
-        ./integration_test.sh -dbtype=*mysql
-        EOF
+      run: sudo ./integration_test.sh -dbtype=*mysql
+      env:
+        PATH: ${{ env.PATH }}:/usr/local/go/bin:/home/boangiu/go/bin
+        GOPATH: /home/boangiu/go
+        GOROOT: /usr/local/go
