@@ -8,14 +8,27 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
       
+    - name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    
+    - name: Install Ansible
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible
+
+    - name: Run Ansible playbook
+      run: ansible-playbook ./data/ansible/integration_tests/main.yml
+      
     - name: Run integration tests
-      run: sudo ./integration_test.sh -dbtype=*mysql
-      env:
-        PATH: ${{ env.PATH }}:/usr/local/go/bin:/home/boangiu/go/bin
-        GOPATH: /home/boangiu/go
-        GOROOT: /usr/local/go
+      run: |
+        sudo su <<EOF
+        source /etc/profile
+        ./integration_test.sh -dbtype=*mysql
+        EOF
