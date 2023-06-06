@@ -48,6 +48,5 @@
       name: "{{ mongodb_service_name }}"
       state: "{{ mongodb_service_state }}"
       enabled: "{{ mongodb_service_enabled }}"
-    when: use_systemd
 
   when: mongodb_installation_required

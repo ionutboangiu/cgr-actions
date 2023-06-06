@@ -40,18 +40,6 @@
     - { src: "{{ cgrates_dir }}/data", dest: "/usr/share/cgrates" }
     - { src: "{{ golang_gopath }}/bin/cgr-engine", dest: "/usr/bin/cgr-engine" }
 
-- name: Start PostgreSQL service
-  become: yes
-  command: service postgresql start
-
-- name: Start MariaDB service
-  become: yes
-  command: service mariadb start
-
-- name: Start Redis service
-  become: yes
-  command: service redis-server start
-
 - name: Run post install scripts
   ansible.builtin.shell:
     cmd: "{{ item.cmd }}"

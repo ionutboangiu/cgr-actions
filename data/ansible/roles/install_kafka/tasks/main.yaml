@@ -31,7 +31,6 @@
   loop:
     - { service_file: 'zookeeper.service.j2', service_name: 'zookeeper.service' }
     - { service_file: 'kafka.service.j2', service_name: 'kafka.service' }
-  when: use_systemd
 
 - name: Enable Kafka and Zookeeper services
   become: yes
@@ -43,4 +42,3 @@
   loop:
     - zookeeper
     - kafka
-  when: use_systemd

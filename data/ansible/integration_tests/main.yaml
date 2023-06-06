@@ -1,5 +1,5 @@
 ---
-- hosts: all
+- hosts: local
   tasks:
   - name: Install RabbitMQ
     import_role:

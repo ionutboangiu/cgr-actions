@@ -1,3 +1,0 @@
----
-golang_gopath: "/home/{{ ansible_user }}/go"
-cgrates_dir: "{{ golang_gopath }}/src/github.com/cgrates/cgrates"
