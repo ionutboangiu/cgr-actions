@@ -23,8 +23,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install ansible
 
-    - name: Run Ansible playbook
-      run: ansible-playbook ./data/ansible/integration_tests/main.yml
+    - name: Run Ansible Playbook
+      run: |
+        ansible-playbook data/ansible/integration_tests/main.yaml -i localhost, -c local
+
       
     - name: Run integration tests
       run: |
