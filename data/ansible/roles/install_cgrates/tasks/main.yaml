@@ -13,7 +13,6 @@
     state: directory
     mode: 'u=rwx,go=rx'
     owner: "{{ ansible_user }}"
-    group: docker
     dest: '{{ cgrates_dir }}'
 
 - name: Git clone cgrates
