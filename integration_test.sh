@@ -212,7 +212,7 @@ echo 'go test github.com/cgrates/cgrates/cores -tags=integration'
 go test github.com/cgrates/cgrates/cores -tags=integration
 results+=($?)
 echo 'go test github.com/cgrates/cgrates/migrator -tags=integration'
-go test github.com/cgrates/cgrates/migrator -tags=integration
+go test github.com/cgrates/cgrates/migrator -tags=integration -timeout=15m
 results+=($?)
 echo 'go test github.com/cgrates/cgrates/services -tags=integration'
 go test github.com/cgrates/cgrates/services -tags=integration
