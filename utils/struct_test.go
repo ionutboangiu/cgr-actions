@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package utils
 
 import (
+	"math/cmplx"
 	"reflect"
 	"sort"
 	"testing"
@@ -29,7 +30,7 @@ func TestMissingStructFieldsCorrect(t *testing.T) {
 		Account         string
 		Type            string
 		ActionTimingsID string
-	}{"bevoip.eu", "danconns0001", META_PREPAID, "mama"}
+	}{"bevoip.eu", "danconns0001", MetaPrepaid, "mama"}
 	if missing := MissingStructFields(&attr,
 		[]string{"Tenant", "Account", "Type", "ActionTimingsID"}); len(missing) != 0 {
 		t.Error("Found missing field on correct struct", missing)
@@ -37,9 +38,9 @@ func TestMissingStructFieldsCorrect(t *testing.T) {
 }
 
 func TestMissingStructFieldsNilCorporate(t *testing.T) {
-	tst := &TenantArgWithPaginator{
-		Paginator: Paginator{
-			Limit: IntPointer(1),
+	tst := &TenantIDWithAPIOpts{
+		APIOpts: map[string]any{
+			OptsAPIKey: "attr1234",
 		},
 	}
 	if missing := MissingStructFields(tst,
@@ -50,14 +51,16 @@ func TestMissingStructFieldsNilCorporate(t *testing.T) {
 
 func TestMissingStructFieldsNilCorporateTwoStructs(t *testing.T) {
 	tst := &struct {
-		APIOpts map[string]interface{}
+		APIOpts map[string]any
 		*TenantID
-		*TenantArg
+		*TenantAccount
 	}{
+		APIOpts: map[string]any{
+			OptsAPIKey: "attr1234",
+		},
 		TenantID: &TenantID{
 			Tenant: "cgrates.org",
 		},
-		TenantArg: &TenantArg{},
 	}
 	if missing := MissingStructFields(tst,
 		[]string{Tenant}); len(missing) != 1 {
@@ -73,7 +76,7 @@ func TestUpdateStructWithIfaceMap(t *testing.T) {
 		Int    int64
 	}
 	s := new(myStruct)
-	mp := map[string]interface{}{
+	mp := map[string]any{
 		"String": "s",
 		"Bool":   true,
 		"Float":  6.4,
@@ -90,7 +93,7 @@ func TestUpdateStructWithIfaceMap(t *testing.T) {
 	} else if !reflect.DeepEqual(eStruct, s) {
 		t.Errorf("expecting: %+v, received: %+v", eStruct, s)
 	}
-	mp = map[string]interface{}{
+	mp = map[string]any{
 		"String": "aaa",
 		"Bool":   false,
 	}
@@ -107,51 +110,11 @@ func TestUpdateStructWithIfaceMap(t *testing.T) {
 	}
 }
 
-func TestNonemptyStructFields(t *testing.T) {
-	var attr = struct {
-		Tenant          string
-		Direction       bool
-		Account         string
-		Type            string
-		ActionTimingsId string
-	}{"bevoip.eu", true, "testaccount", META_PREPAID, ""}
-	mapStruct := NonemptyStructFields(&attr)
-	expMapStruct := map[string]interface{}{
-		"Tenant":    "bevoip.eu",
-		"Direction": true,
-		"Account":   "testaccount",
-		"Type":      META_PREPAID,
-	}
-	if !reflect.DeepEqual(expMapStruct, mapStruct) {
-		t.Errorf("expecting: %+v, received: %+v", expMapStruct, mapStruct)
-	}
-}
-
-/*
-func TestToMapMapStringInterface(t *testing.T) {
-	var attr = struct {
-		Tenant    string
-		Direction bool
-		Account   string
-		Type      string
-	}{"bevoip.eu", true, "testaccount", META_PREPAID}
-	mapStruct := ToMapMapStringInterface(&attr)
-	expMapStruct := map[string]interface{}{
-		"Tenant":    "bevoip.eu",
-		"Direction": true,
-		"Account":   "testaccount",
-		"Type":      META_PREPAID,
-	}
-	if !reflect.DeepEqual(expMapStruct, mapStruct) {
-		t.Errorf("expecting: %+v, received: %+v", expMapStruct, mapStruct)
-	}
-}*/
-
 func TestMissingMapFields(t *testing.T) {
-	var attr = map[string]interface{}{
+	var attr = map[string]any{
 		Tenant:            "cgrates.org",
-		Account:           "1001",
-		"Type":            META_PREPAID,
+		AccountField:      "1001",
+		"Type":            MetaPrepaid,
 		"ActionTimingsID": "*asap",
 	}
 	if missing := MissingMapFields(attr,
@@ -166,5 +129,141 @@ func TestMissingMapFields(t *testing.T) {
 	sort.Strings(missing)
 	if !reflect.DeepEqual(expected, missing) {
 		t.Errorf("Expected %s ,received: %s", expected, missing)
+	}
+}
+
+func TestMissingStructFieldsAppend(t *testing.T) {
+	var attr = struct {
+		Tenant          string
+		Account         string
+		Type            string
+		ActionTimingsID string
+	}{"", "", MetaPrepaid, ""}
+	missing := MissingStructFields(&attr,
+		[]string{"Tenant", "Account", "Type", "ActionTimingsID"})
+	if len(missing) == 0 {
+		t.Error("Required missing field not found")
+	}
+}
+
+func TestMissingMapFieldsTrim(t *testing.T) {
+	var attr = map[string]any{
+		"Tenant":  "cgrates.org",
+		"Account": "1001",
+	}
+	if missing := MissingMapFields(attr,
+		[]string{"Tenant", "Account"}); len(missing) != 0 {
+		t.Error("Found missing field on correct struct", missing)
+	}
+}
+
+func TestMissingMapFieldsMissing(t *testing.T) {
+	var attr = map[string]any{
+		"Tenant":  0,
+		"Account": 0,
+	}
+	missing := MissingMapFields(attr, []string{"Tenant", "Account"})
+	if len(missing) == 0 {
+		t.Error("Required missing field not found")
+	}
+}
+
+func TestUpdateStructWithIfaceMapValEmpty(t *testing.T) {
+	type myStruct struct {
+		String string
+		Bool   bool
+		Float  float64
+		Int    int64
+	}
+	s := new(myStruct)
+	mp := map[string]any{
+		"String": "",
+		"Bool":   "",
+		"Float":  "",
+		"Int":    "",
+	}
+	expectedStruct := &myStruct{
+		String: "",
+		Bool:   false,
+		Float:  0,
+		Int:    0,
+	}
+	UpdateStructWithIfaceMap(s, mp)
+	if !reflect.DeepEqual(s, expectedStruct) {
+		t.Errorf("Expected <%+v> ,received: <%+v>", expectedStruct, s)
+	}
+}
+
+func TestUpdateStructWithIfaceMapErrorBol(t *testing.T) {
+	type myStruct struct {
+		String string
+		Bool   bool
+		Float  float64
+		Int    int64
+	}
+	s := new(myStruct)
+	mp := map[string]any{
+		"String": "string",
+		"Bool":   "cat",
+		"Float":  1.2,
+		"Int":    1,
+	}
+	err := UpdateStructWithIfaceMap(s, mp)
+	if err == nil || err.Error() != "strconv.ParseBool: parsing \"cat\": invalid syntax" {
+		t.Errorf("Expected <strconv.ParseBool: parsing \"cat\": invalid syntax> ,received: <%+v>", err)
+	}
+}
+
+func TestUpdateStructWithIfaceMapErrorInt(t *testing.T) {
+	type myStruct struct {
+		String string
+		Bool   bool
+		Float  float64
+		Int    int64
+	}
+	s := new(myStruct)
+	mp := map[string]any{
+		"String": "string",
+		"Bool":   true,
+		"Float":  1.2,
+		"Int":    "cat",
+	}
+	err := UpdateStructWithIfaceMap(s, mp)
+	if err == nil || err.Error() != "strconv.ParseInt: parsing \"cat\": invalid syntax" {
+		t.Errorf("Expected <strconv.ParseInt: parsing \"cat\": invalid syntax> ,received: <%+v>", err)
+	}
+}
+
+func TestUpdateStructWithIfaceMapErrorFloat(t *testing.T) {
+	type myStruct struct {
+		String string
+		Bool   bool
+		Float  float64
+		Int    int64
+	}
+	s := new(myStruct)
+	mp := map[string]any{
+		"String": "string",
+		"Bool":   true,
+		"Float":  "cat",
+		"Int":    2,
+	}
+	err := UpdateStructWithIfaceMap(s, mp)
+	if err == nil || err.Error() != "strconv.ParseFloat: parsing \"cat\": invalid syntax" {
+		t.Errorf("Expected <strconv.ParseFloat: parsing \"cat\": invalid syntax> ,received: <%+v>", err)
+	}
+}
+
+func TestUpdateStructWithIfaceMapErrorDefault(t *testing.T) {
+	type myStruct struct {
+		wrongField1 complex128
+	}
+	s := new(myStruct)
+	mp := map[string]any{
+		"wrongField1": cmplx.Sqrt(-5 + 12i),
+	}
+	err := UpdateStructWithIfaceMap(s, mp)
+	if err == nil || err.Error() != "cannot update unsupported struct field: (0+0i)" {
+		t.Errorf("Expected <cannot update unsupported struct field: (0+0i)> ,received: <%+v>", err)
 	}
 }

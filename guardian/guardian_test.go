@@ -27,9 +27,9 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-func delayHandler() (interface{}, error) {
+func delayHandler() error {
 	time.Sleep(100 * time.Millisecond)
-	return nil, nil
+	return nil
 }
 
 // Forks 3 groups of workers and makes sure that the time for execution is the one we expect for all 15 goroutines (with 100ms )
@@ -50,7 +50,7 @@ func TestGuardianMultipleKeys(t *testing.T) {
 	sg.Wait()
 	mustExecDur := time.Duration(maxIter*100) * time.Millisecond
 	if execTime := time.Now().Sub(tStart); execTime < mustExecDur ||
-		execTime > mustExecDur+time.Duration(100*time.Millisecond) {
+		execTime > mustExecDur+100*time.Millisecond {
 		t.Errorf("Execution took: %v", execTime)
 	}
 	Guardian.lkMux.Lock()
@@ -71,7 +71,7 @@ func TestGuardianTimeout(t *testing.T) {
 		for _, key := range keys {
 			sg.Add(1)
 			go func(key string) {
-				Guardian.Guard(delayHandler, time.Duration(10*time.Millisecond), key)
+				Guardian.Guard(delayHandler, 10*time.Millisecond, key)
 				sg.Done()
 			}(key)
 		}
@@ -79,7 +79,7 @@ func TestGuardianTimeout(t *testing.T) {
 	sg.Wait()
 	mustExecDur := time.Duration(maxIter*10) * time.Millisecond
 	if execTime := time.Now().Sub(tStart); execTime < mustExecDur ||
-		execTime > mustExecDur+time.Duration(100*time.Millisecond) {
+		execTime > mustExecDur+100*time.Millisecond {
 		t.Errorf("Execution took: %v", execTime)
 	}
 	Guardian.lkMux.Lock()
@@ -116,7 +116,7 @@ func TestGuardianGuardIDs(t *testing.T) {
 		}
 	}
 	Guardian.lkMux.Unlock()
-	secLockDur := time.Duration(1 * time.Millisecond)
+	secLockDur := time.Millisecond
 	// second lock to test counter
 	go Guardian.GuardIDs("", secLockDur, lockIDs[1:]...)
 	time.Sleep(30 * time.Microsecond) // give time for goroutine to lock
@@ -158,7 +158,7 @@ func TestGuardianGuardIDs(t *testing.T) {
 	if totalLockDur := time.Now().Sub(tStart); totalLockDur < lockDur {
 		t.Errorf("Lock duration too small")
 	}
-	time.Sleep(time.Duration(30) * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 	// making sure the items stay locked
 	Guardian.lkMux.Lock()
 	if len(Guardian.locks) != 3 {
@@ -220,7 +220,7 @@ func TestGuardianGuardIDsTimeoutConcurrent(t *testing.T) {
 	for i := 0; i < maxIter; i++ {
 		sg.Add(1)
 		go func() {
-			Guardian.GuardIDs(refID, time.Duration(time.Microsecond), keys...)
+			Guardian.GuardIDs(refID, time.Microsecond, keys...)
 			sg.Done()
 		}()
 	}
@@ -240,41 +240,108 @@ func TestGuardianGuardIDsTimeoutConcurrent(t *testing.T) {
 
 // BenchmarkGuard-8      	  200000	     13759 ns/op
 func BenchmarkGuard(b *testing.B) {
+	wg := new(sync.WaitGroup)
+	wg.Add(b.N * 3)
+	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		go Guardian.Guard(func() (interface{}, error) {
-			time.Sleep(time.Microsecond)
-			return 0, nil
-		}, 0, "1")
-		go Guardian.Guard(func() (interface{}, error) {
-			time.Sleep(time.Microsecond)
-			return 0, nil
-		}, 0, "2")
-		go Guardian.Guard(func() (interface{}, error) {
-			time.Sleep(time.Microsecond)
-			return 0, nil
-		}, 0, "1")
+		go func() {
+			Guardian.Guard(func() error {
+				time.Sleep(time.Microsecond)
+				return nil
+			}, 0, "1")
+			wg.Done()
+		}()
+		go func() {
+			Guardian.Guard(func() error {
+				time.Sleep(time.Microsecond)
+				return nil
+			}, 0, "2")
+			wg.Done()
+		}()
+		go func() {
+			Guardian.Guard(func() error {
+				time.Sleep(time.Microsecond)
+				return nil
+			}, 0, "1")
+			wg.Done()
+		}()
 	}
 
+	wg.Wait()
 }
 
 // BenchmarkGuardian-8   	 1000000	      5794 ns/op
 func BenchmarkGuardian(b *testing.B) {
+	wg := new(sync.WaitGroup)
+	wg.Add(b.N)
+	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		go Guardian.Guard(func() (interface{}, error) {
-			time.Sleep(time.Microsecond)
-			return 0, nil
-		}, 0, strconv.Itoa(n))
+		go func(n int) {
+			Guardian.Guard(func() error {
+				time.Sleep(time.Microsecond)
+				return nil
+			}, 0, strconv.Itoa(n))
+			wg.Done()
+		}(n)
 	}
+	wg.Wait()
 }
 
 // BenchmarkGuardIDs-8   	 1000000	      8732 ns/op
 func BenchmarkGuardIDs(b *testing.B) {
+	wg := new(sync.WaitGroup)
+	wg.Add(b.N)
+	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		go func() {
-			if refID := Guardian.GuardIDs("", 0, strconv.Itoa(n)); refID != "" {
+		go func(i int) {
+			if refID := Guardian.GuardIDs("", 0, strconv.Itoa(i)); refID != "" {
 				time.Sleep(time.Microsecond)
 				Guardian.UnguardIDs(refID)
 			}
-		}()
+			wg.Done()
+		}(n)
+	}
+	wg.Wait()
+}
+
+func TestGuardianLockItemUnlockItem(t *testing.T) {
+	//for coverage purposes
+	itemID := utils.EmptyString
+	Guardian.lockItem(itemID)
+	Guardian.unlockItem(itemID)
+	if itemID != utils.EmptyString {
+		t.Errorf("\nExpected <%+v>, \nReceived <%+v>", utils.EmptyString, itemID)
+	}
+}
+
+func TestGuardianLockUnlockWithReference(t *testing.T) {
+	//for coverage purposes
+	refID := utils.EmptyString
+	Guardian.lockWithReference(refID, 0, []string{}...)
+	Guardian.unlockWithReference(refID)
+	if refID != utils.EmptyString {
+		t.Errorf("\nExpected <%+v>, \nReceived <%+v>", utils.EmptyString, refID)
+	}
+}
+
+func TestGuardianGuardUnguardIDs(t *testing.T) {
+	//for coverage purposes
+	refID := utils.EmptyString
+	lkIDs := []string{"test1", "test2", "test3"}
+	Guardian.GuardIDs(refID, time.Second, lkIDs...)
+	Guardian.UnguardIDs(refID)
+	if refID != utils.EmptyString {
+		t.Errorf("\nExpected <%+v>, \nReceived <%+v>", utils.EmptyString, refID)
+	}
+}
+
+func TestGuardianGuardUnguardIDsCase2(t *testing.T) {
+	//for coverage purposes
+	lkIDs := []string{"test1", "test2", "test3"}
+	err := Guardian.Guard(func() error {
+		return utils.ErrNotFound
+	}, 10*time.Millisecond, lkIDs...)
+	if err == nil || err != utils.ErrNotFound {
+		t.Errorf("\nExpected <%+v>, \nReceived <%+v>", utils.ErrNotFound, err)
 	}
 }

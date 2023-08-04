@@ -6,7 +6,7 @@ StatS
 
 **StatS** is a standalone subsystem part of the **CGRateS** infrastructure, designed to aggregate and calculate statistical metrics for the generic *Events* (hashmaps) it receives.
 
-Both receiving of *Events* as well as *Metrics* displaying is performed via a complete set of `CGRateS RPC APIs <https://godoc.org/github.com/cgrates/cgrates/apier/>`_.
+Both receiving of *Events* as well as *Metrics* displaying is performed via a complete set of `CGRateS RPC APIs <https://pkg.go.dev/github.com/cgrates/cgrates/apier@master/>`_.
 
 Due it's real-time nature, **StatS** are designed towards high throughput being able to process thousands of *Events* per second. This is doable since each *StatQueue* is a very light object, held in memory and eventually backed up in *DataDB*.
 
@@ -126,13 +126,13 @@ Following metrics are implemented:
 	Distinct destination count will keep the number of unique destinations found in *Events*. Relies on *Destination* field in the *Event*.
 
 \*sum
-	Generic metric to calculate mathematical sum for a specific field in the *Events*. Format: <*\*sum:FieldName*>.
+	Generic metric to calculate mathematical sum for a specific field in the *Events*. Format: <*\*sum#FieldName*>.
 
 \*average
-	Generic metric to calculate the mathematical average of a specific field in the *Events*. Format: <*\*average:FieldName*>.
+	Generic metric to calculate the mathematical average of a specific field in the *Events*. Format: <*\*average#FieldName*>.
 
 \*distinct
-	Generic metric to return the distinct number of appearance of a field name within *Events*. Format: <*\*distinct:FieldName*>.
+	Generic metric to return the distinct number of appearance of a field name within *Events*. Format: <*\*distinct#FieldName*>.
 
 
 Use cases

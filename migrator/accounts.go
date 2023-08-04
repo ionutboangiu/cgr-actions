@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package migrator
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -36,12 +37,12 @@ const (
 
 func (m *Migrator) migrateCurrentAccounts() (err error) {
 	var ids []string
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ACCOUNT_PREFIX)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.AccountPrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		idg := strings.TrimPrefix(id, utils.ACCOUNT_PREFIX)
+		idg := strings.TrimPrefix(id, utils.AccountPrefix)
 		acc, err := m.dmIN.DataManager().GetAccount(idg)
 		if err != nil {
 			return err
@@ -55,12 +56,12 @@ func (m *Migrator) migrateCurrentAccounts() (err error) {
 		if err := m.dmIN.DataManager().RemoveAccount(idg); err != nil {
 			return err
 		}
-		m.stats[utils.Accounts] += 1
+		m.stats[utils.Accounts]++
 	}
 	return
 }
 
-func (m *Migrator) migrateV1Accounts() (err error) {
+func (m *Migrator) removeV1Accounts() (err error) {
 	var v1Acnt *v1Account
 	for {
 		v1Acnt, err = m.dmIN.getv1Account()
@@ -70,33 +71,26 @@ func (m *Migrator) migrateV1Accounts() (err error) {
 		if err == utils.ErrNoMoreData {
 			break
 		}
-		if v1Acnt == nil || m.dryRun {
-			continue
-		}
-		acnt := v1Acnt.V1toV3Account()
-		if err = m.dmOut.DataManager().SetAccount(acnt); err != nil {
-			return err
-		}
 		if err = m.dmIN.remV1Account(v1Acnt.Id); err != nil {
 			return err
 		}
-		m.stats[utils.Accounts] += 1
-	}
-	if m.dryRun {
-		return
-	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.Accounts: engine.CurrentDataDBVersions()[utils.Accounts]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating Accounts version into StorDB", err.Error()))
 	}
 	return
 }
 
-func (m *Migrator) migrateV2Accounts() (err error) {
+func (m *Migrator) migrateV1Accounts() (v3Acnt *engine.Account, err error) {
+	var v1Acnt *v1Account
+	v1Acnt, err = m.dmIN.getv1Account()
+	if err != nil {
+		return nil, err
+	} else if v1Acnt == nil {
+		return nil, errors.New("Account is nil")
+	}
+	v3Acnt = v1Acnt.V1toV3Account()
+	return
+}
+
+func (m *Migrator) removeV2Accounts() (err error) {
 	var v2Acnt *v2Account
 	for {
 		v2Acnt, err = m.dmIN.getv2Account()
@@ -106,64 +100,101 @@ func (m *Migrator) migrateV2Accounts() (err error) {
 		if err == utils.ErrNoMoreData {
 			break
 		}
-		if v2Acnt == nil || m.dryRun {
-			continue
-		}
-		acnt := v2Acnt.V2toV3Account()
-		if err = m.dmOut.DataManager().SetAccount(acnt); err != nil {
-			return err
-		}
 		if err = m.dmIN.remV2Account(v2Acnt.ID); err != nil {
-			return err
+			return
 		}
-		m.stats[utils.Accounts] += 1
 	}
-	if m.dryRun {
-		return
+	return
+}
+
+func (m *Migrator) migrateV2Accounts() (v3Acnt *engine.Account, err error) {
+	var v2Acnt *v2Account
+	v2Acnt, err = m.dmIN.getv2Account()
+	if err != nil {
+		return nil, err
+	} else if v2Acnt == nil {
+		return nil, errors.New("Account is nil")
 	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.Accounts: engine.CurrentDataDBVersions()[utils.Accounts]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating Accounts version into StorDB", err.Error()))
-	}
+	v3Acnt = v2Acnt.V2toV3Account()
 	return
 }
 
 func (m *Migrator) migrateAccounts() (err error) {
 	var vrs engine.Versions
-	vrs, err = m.dmIN.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for Actions")
-	}
 	current := engine.CurrentDataDBVersions()
-	switch vrs[utils.Accounts] {
-	case 1:
-		if err = m.migrateV1Accounts(); err != nil {
-			return err
+	if vrs, err = m.getVersions(utils.Accounts); err != nil {
+		return
+	}
+	migrated := true
+	migratedFrom := 0
+	var v3Acnt *engine.Account
+	for {
+		version := vrs[utils.Accounts]
+		migratedFrom = int(version)
+		for {
+			switch version {
+			default:
+				return fmt.Errorf("Unsupported version %v", version)
+			case current[utils.Accounts]:
+				migrated = false
+				if m.sameDataDB {
+					break
+				}
+				if err = m.migrateCurrentAccounts(); err != nil {
+					return
+				}
+				version = 3
+			case 1: //migrate v1 to v3
+				if v3Acnt, err = m.migrateV1Accounts(); err != nil && err != utils.ErrNoMoreData {
+					return err
+				} else if err == utils.ErrNoMoreData {
+					break
+				}
+				version = 3
+			case 2: //migrate v2 to v3
+				if v3Acnt, err = m.migrateV2Accounts(); err != nil && err != utils.ErrNoMoreData {
+					return
+				} else if err == utils.ErrNoMoreData {
+					break
+				}
+				version = 3
+			}
+			if version == current[utils.Accounts] || err == utils.ErrNoMoreData {
+				break
+			}
 		}
-	case 2:
-		if err = m.migrateV2Accounts(); err != nil {
-			return err
-		}
-		// fallthrough
-	case current[utils.Accounts]:
-		if m.sameDataDB {
+		if err == utils.ErrNoMoreData || !migrated {
 			break
 		}
-		if err = m.migrateCurrentAccounts(); err != nil {
-			return err
+
+		if !m.dryRun {
+			if err = m.dmOut.DataManager().SetAccount(v3Acnt); err != nil {
+				return
+			}
 		}
+		m.stats[utils.Accounts]++
+
+	}
+	if m.dryRun || !migrated {
+		return nil
+	}
+	// Remove old accounts from dbIn (only if dbIn != dbOut )
+	if !m.sameDataDB {
+		switch migratedFrom {
+		case 1:
+			if err = m.removeV1Accounts(); err != nil && err != utils.ErrNoMoreData {
+				return
+			}
+		case 2:
+			if err = m.removeV2Accounts(); err != nil && err != utils.ErrNoMoreData {
+				return
+			}
+		}
+	}
+
+	// All done, update version wtih current one
+	if err = m.setVersions(utils.Accounts); err != nil {
+		return err
 	}
 	return m.ensureIndexesDataDB(engine.ColAcc)
 }
@@ -201,23 +232,22 @@ type v1UnitsCounter struct {
 }
 
 type v2Account struct {
-	ID                string
-	BalanceMap        map[string]engine.Balances
-	UnitCounters      engine.UnitCounters
-	ActionTriggers    engine.ActionTriggers
-	AllowNegative     bool
-	Disabled          bool
-	executingTriggers bool
+	ID             string
+	BalanceMap     map[string]engine.Balances
+	UnitCounters   engine.UnitCounters
+	ActionTriggers engine.ActionTriggers
+	AllowNegative  bool
+	Disabled       bool
 }
 
 func (b *v1Balance) IsDefault() bool {
-	return (b.DestinationIds == "" || b.DestinationIds == utils.ANY) &&
+	return (b.DestinationIds == "" || b.DestinationIds == utils.MetaAny) &&
 		b.RatingSubject == "" &&
 		b.Category == "" &&
 		b.ExpirationDate.IsZero() &&
 		b.SharedGroup == "" &&
 		b.Weight == 0 &&
-		b.Disabled == false
+		!b.Disabled
 }
 
 func (v1Acc v1Account) V1toV3Account() (ac *engine.Account) {
@@ -230,22 +260,22 @@ func (v1Acc v1Account) V1toV3Account() (ac *engine.Account) {
 		AllowNegative:  v1Acc.AllowNegative,
 		Disabled:       v1Acc.Disabled,
 	}
-	idElements := strings.Split(ac.ID, utils.CONCATENATED_KEY_SEP)
+	idElements := strings.Split(ac.ID, utils.ConcatenatedKeySep)
 	if len(idElements) != 3 {
 		log.Printf("Malformed account ID %s", v1Acc.Id)
 	}
 	ac.ID = utils.ConcatenatedKey(idElements[1], idElements[2])
 	// balances
 	for oldBalKey, oldBalChain := range v1Acc.BalanceMap {
-		keyElements := strings.Split(oldBalKey, "*")
-		newBalKey := "*" + keyElements[1]
+		keyElements := strings.Split(oldBalKey, utils.Meta)
+		newBalKey := utils.Meta + keyElements[1]
 		ac.BalanceMap[newBalKey] = make(engine.Balances, len(oldBalChain))
 		for index, oldBal := range oldBalChain {
 			balVal := oldBal.Value
-			if newBalKey == utils.VOICE {
+			if newBalKey == utils.MetaVoice {
 				balVal = utils.Round(balVal/float64(time.Second),
 					config.CgrConfig().GeneralCfg().RoundingDecimals,
-					utils.ROUNDING_MIDDLE)
+					utils.MetaRoundingMiddle)
 			}
 			// check default to set new id
 			ac.BalanceMap[newBalKey][index] = &engine.Balance{
@@ -300,7 +330,7 @@ func (v1Acc v1Account) V1toV3Account() (ac *engine.Account) {
 			if oldUcBal.TimingIDs != "" {
 				bf.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(oldUcBal.TimingIDs))
 			}
-			if oldUcBal.Disabled != false {
+			if oldUcBal.Disabled {
 				bf.Disabled = utils.BoolPointer(oldUcBal.Disabled)
 			}
 			bf.Timings = oldUcBal.Timings
@@ -377,10 +407,10 @@ func (v2Acc v2Account) V2toV3Account() (ac *engine.Account) {
 		ac.BalanceMap[balType] = make(engine.Balances, len(oldBalChain))
 		for index, oldBal := range oldBalChain {
 			balVal := oldBal.Value
-			if balType == utils.VOICE {
+			if balType == utils.MetaVoice {
 				balVal = utils.Round(balVal*float64(time.Second),
 					config.CgrConfig().GeneralCfg().RoundingDecimals,
-					utils.ROUNDING_MIDDLE)
+					utils.MetaRoundingMiddle)
 			}
 			// check default to set new id
 			ac.BalanceMap[balType][index] = &engine.Balance{

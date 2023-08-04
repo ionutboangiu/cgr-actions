@@ -39,14 +39,14 @@ With explanations in the comments:
 			"run_delay":  "-1",			// reading of events it is triggered outside of ERs
 			"field_separator": ";",		// field separator definition
 			"type": "*file_csv",		// type of reader, *file_csv can read .csv files
-			"row_length" : 0,					// Number of fields from csv file
+			"row_length" : 0,			// Number of fields from csv file
 			"flags": [					// influence processing logic within CGRateS workflow
 				"*cdrs",				//   *cdrs will create CDRs
 				"*log"					//   *log will log the events to syslog
 			],
 			"source_path": "/tmp/ers2/in",		// location of the files
 			"processed_path": "/tmp/ers2/out",	// move the files here once processed
-			"content_fields":[					// mapping definition between line index in the file and CGRateS field 
+			"fields":[					// mapping definition between line index in the file and CGRateS field 
 				{
 					"tag": "OriginID",			// OriginID together with OriginHost will 
 					"path": "*cgreq.OriginID",	//   uniquely identify the session on CGRateS side
@@ -134,12 +134,6 @@ type
 	**\*file_csv**
 		Reader for *comma separated* files.
 
-	**\*partial_csv**
-		Reader for *comma separated* where content spans over multiple files.
-
-	**\*flatstore**
-		Reader for Kamailio_/OpenSIPS_ *db_flatstore* files.
-
 	**\*file_xml**
 		Reader for *.xml* formatted files.
 
@@ -168,7 +162,7 @@ xml_root_path
 	Used in case of XML content and will specify the prefix path applied to each xml element read.
 
 tenant
-	Will auto-populate the Tenant within the API calls sent to CGRateS. It has the form of a RSRField. If undefined, default one from *general* section will be used.
+	Will auto-populate the Tenant within the API calls sent to CGRateS. It has the form of a RSRParser. If undefined, default one from *general* section will be used.
 
 timezone
 	Defines the timezone for source content which does not carry that information. If undefined, default one from *general* section will be used.
@@ -214,7 +208,7 @@ flags
 	**\*auth**
 		Sends the Event for authorization on CGRateS.
 
-		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*suppliers**, **\*suppliers_ignore_errors**, **\*suppliers_event_cost** which are used to influence the auth behavior on CGRateS side. More info on that can be found on the **SessionS** component's API behavior.
+		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*routes**, **\*routes_ignore_errors**, **\*routes_event_cost**, **\*routes_maxcost** which are used to influence the auth behavior on CGRateS side. More info on that can be found on the **SessionS** component's API behavior.
 
 	**\*initiate**
 		Initiates a session out of Event on CGRateS side.
@@ -234,7 +228,7 @@ flags
 	**\*message**
 		Process the Event as individual message charging on CGRateS side.
 
-		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*suppliers**, **\*suppliers_ignore_errors**, **\*suppliers_event_cost** which are used to influence the behavior on CGRateS side.
+		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*routes**, **\*routes_ignore_errors**, **\*routes_event_cost**, **\*routes_maxcost** which are used to influence the behavior on CGRateS side.
 
 	**\*event**
 		Process the Event as generic event on CGRateS side.
@@ -271,9 +265,6 @@ type
 
 	**\*constant**
 		Writes out a constant
-
-	**\*remote_host**
-		Writes out the Address of the remote host sending us the Event
 
 	**\*variable**
 		Writes out the variable value, overwriting previous one set

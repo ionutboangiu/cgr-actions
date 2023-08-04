@@ -32,23 +32,26 @@ type AttrGetCost struct {
 	AnswerTime  string
 	Destination string
 	Usage       string
-	*utils.ArgDispatcher
+	APIOpts     map[string]any
 }
 
-func (apier *APIerSv1) GetCost(attrs AttrGetCost, ec *engine.EventCost) error {
+func (apierSv1 *APIerSv1) GetCost(attrs *AttrGetCost, ec *engine.EventCost) error {
+	if apierSv1.Responder == nil {
+		return utils.NewErrNotConnected(utils.RALService)
+	}
 	usage, err := utils.ParseDurationWithNanosecs(attrs.Usage)
 	if err != nil {
 		return err
 	}
 	aTime, err := utils.ParseTimeDetectLayout(attrs.AnswerTime,
-		apier.Config.GeneralCfg().DefaultTimezone)
+		apierSv1.Config.GeneralCfg().DefaultTimezone)
 	if err != nil {
 		return err
 	}
 
 	cd := &engine.CallDescriptor{
 		Category:      attrs.Category,
-		Tenant:        attrs.Tenant,
+		Tenant:        utils.FirstNonEmpty(attrs.Tenant, apierSv1.Config.GeneralCfg().DefaultTenant),
 		Subject:       attrs.Subject,
 		Destination:   attrs.Destination,
 		TimeStart:     aTime,
@@ -56,8 +59,11 @@ func (apier *APIerSv1) GetCost(attrs AttrGetCost, ec *engine.EventCost) error {
 		DurationIndex: usage,
 	}
 	var cc engine.CallCost
-	if err := apier.Responder.GetCost(&engine.CallDescriptorWithArgDispatcher{CallDescriptor: cd,
-		ArgDispatcher: attrs.ArgDispatcher}, &cc); err != nil {
+	if err := apierSv1.Responder.GetCost(
+		&engine.CallDescriptorWithAPIOpts{
+			CallDescriptor: cd,
+			APIOpts:        attrs.APIOpts,
+		}, &cc); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*ec = *engine.NewEventCostFromCallCost(&cc, "", "")
@@ -71,27 +77,32 @@ type AttrGetDataCost struct {
 	Subject    string
 	AnswerTime string
 	Usage      time.Duration // the call duration so far (till TimeEnd)
-	*utils.ArgDispatcher
+	Opts       map[string]any
 }
 
-func (apier *APIerSv1) GetDataCost(attrs AttrGetDataCost, reply *engine.DataCost) error {
+func (apierSv1 *APIerSv1) GetDataCost(attrs *AttrGetDataCost, reply *engine.DataCost) error {
+	if apierSv1.Responder == nil {
+		return utils.NewErrNotConnected(utils.RALService)
+	}
 	aTime, err := utils.ParseTimeDetectLayout(attrs.AnswerTime,
-		apier.Config.GeneralCfg().DefaultTimezone)
+		apierSv1.Config.GeneralCfg().DefaultTimezone)
 	if err != nil {
 		return err
 	}
 	cd := &engine.CallDescriptor{
 		Category:      attrs.Category,
-		Tenant:        attrs.Tenant,
+		Tenant:        utils.FirstNonEmpty(attrs.Tenant, apierSv1.Config.GeneralCfg().DefaultTenant),
 		Subject:       attrs.Subject,
 		TimeStart:     aTime,
 		TimeEnd:       aTime.Add(attrs.Usage),
 		DurationIndex: attrs.Usage,
-		ToR:           utils.DATA,
+		ToR:           utils.MetaData,
 	}
 	var cc engine.CallCost
-	if err := apier.Responder.GetCost(&engine.CallDescriptorWithArgDispatcher{CallDescriptor: cd,
-		ArgDispatcher: attrs.ArgDispatcher}, &cc); err != nil {
+	if err := apierSv1.Responder.GetCost(&engine.CallDescriptorWithAPIOpts{
+		CallDescriptor: cd,
+		APIOpts:        attrs.Opts,
+	}, &cc); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	if dc, err := cc.ToDataCost(); err != nil {

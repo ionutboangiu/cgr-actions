@@ -47,22 +47,24 @@ var sTestsDCIT = []func(t *testing.T){
 }
 
 func TestDerivedChargersVMigrateITRedis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testStartDC("TestDerivedChargersVMigrateITRedis", inPath, inPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testStartDC("TestDerivedChargersVMigrateITRedis", t)
 }
 
 func TestDerivedChargersVMigrateITMongo(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	testStartDC("TestDerivedChargersVMigrateITMongo", inPath, inPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	testStartDC("TestDerivedChargersVMigrateITMongo", t)
 }
 
 func TestDerivedChargersVITMigrateMongo2Redis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testStartDC("TestDerivedChargersVITMigrateMongo2Redis", inPath, outPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testStartDC("TestDerivedChargersVITMigrateMongo2Redis", t)
 }
 
-func testStartDC(testName, inPath, outPath string, t *testing.T) {
+func testStartDC(testName string, t *testing.T) {
 	var err error
 	if dcCfgIn, err = config.NewCGRConfigFromPath(inPath); err != nil {
 		t.Fatal(err)
@@ -77,24 +79,29 @@ func testStartDC(testName, inPath, outPath string, t *testing.T) {
 }
 
 func testDCITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(dcCfgIn.DataDbCfg().DataDbType,
-		dcCfgIn.DataDbCfg().DataDbHost, dcCfgIn.DataDbCfg().DataDbPort,
-		dcCfgIn.DataDbCfg().DataDbName, dcCfgIn.DataDbCfg().DataDbUser,
-		dcCfgIn.DataDbCfg().DataDbPass, dcCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", dcCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(dcCfgIn.DataDbCfg().Type,
+		dcCfgIn.DataDbCfg().Host, dcCfgIn.DataDbCfg().Port,
+		dcCfgIn.DataDbCfg().Name, dcCfgIn.DataDbCfg().User,
+		dcCfgIn.DataDbCfg().Password, dcCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), dcCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(dcCfgOut.DataDbCfg().DataDbType,
-		dcCfgOut.DataDbCfg().DataDbHost, dcCfgOut.DataDbCfg().DataDbPort,
-		dcCfgOut.DataDbCfg().DataDbName, dcCfgOut.DataDbCfg().DataDbUser,
-		dcCfgOut.DataDbCfg().DataDbPass, dcCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", dcCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(dcCfgOut.DataDbCfg().Type,
+		dcCfgOut.DataDbCfg().Host, dcCfgOut.DataDbCfg().Port,
+		dcCfgOut.DataDbCfg().Name, dcCfgOut.DataDbCfg().User,
+		dcCfgOut.DataDbCfg().Password, dcCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), dcCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dcMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil, false, false, false, false)
+	if reflect.DeepEqual(inPath, outPath) {
+		dcMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		dcMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -123,13 +130,13 @@ func testDCITMigrateAndMove(t *testing.T) {
 		return keys
 	}
 	derivch := &v1DerivedChargersWithKey{
-		Key: utils.ConcatenatedKey("*out", defaultTenant, utils.META_ANY, "1003", utils.META_ANY),
+		Key: utils.ConcatenatedKey("*out", defaultTenant, utils.MetaAny, "1003", utils.MetaAny),
 		Value: &v1DerivedChargers{
 			DestinationIDs: utils.StringMap{"1001": true, "1002": true, "1003": true},
 			Chargers: []*v1DerivedCharger{
 				{
 					RunID:      "RunID",
-					RunFilters: "~filterhdr1:s/(.+)/special_run3/",
+					RunFilters: "~filterhdr1(.+)",
 
 					RequestTypeField: utils.MetaDefault,
 					CategoryField:    utils.MetaDefault,
@@ -144,20 +151,20 @@ func testDCITMigrateAndMove(t *testing.T) {
 		ID:       fmt.Sprintf("%s_%v", derivch.Key, 0),
 		Contexts: []string{utils.MetaChargers},
 		FilterIDs: []string{
-			"*destinations:~*req.Destination:1001;1002;1003",
+			"*destinations:~*req.Destination:1001|1002|1003",
 			"*string:~*req.Account:1003",
 		},
 		ActivationInterval: nil,
 		Attributes: []*engine.Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + utils.Account,
+				Path:  utils.MetaReq + utils.NestingSep + utils.AccountField,
 				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("1004", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("1004", utils.InfieldSep),
 			},
 			{
 				Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
 				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("call_1003", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("call_1003", utils.InfieldSep),
 			},
 		},
 		Blocker: false,
@@ -168,9 +175,9 @@ func testDCITMigrateAndMove(t *testing.T) {
 		Tenant: defaultTenant,
 		ID:     fmt.Sprintf("%s_%v", derivch.Key, 0),
 		FilterIDs: []string{
-			"*destinations:~*req.Destination:1001;1002;1003",
+			"*destinations:~*req.Destination:1001|1002|1003",
 			"*string:~*req.Account:1003",
-			"*rsr::~*req.filterhdr1:s/(.+)/special_run3/",
+			"*rsr:~*req.filterhdr1:.+",
 		},
 		ActivationInterval: nil,
 		RunID:              "RunID",
@@ -228,26 +235,31 @@ func testDCITMigrateAndMove(t *testing.T) {
 	if _, err = dcMigrator.dmIN.getV1DerivedChargers(); err != utils.ErrNoMoreData {
 		t.Error("Error should be not found : ", err)
 	}
-	expDcIdx := map[string]utils.StringMap{
-		"*string:~*req.Account:1003": {
-			"*out:cgrates.org:*any:1003:*any_0": true,
+	expDcIdx := map[string]utils.StringSet{
+		"*string:*req.Account:1003": {
+			"*out:cgrates.org:*any:1003:*any_0": struct{}{},
 		},
 	}
-	if dcidx, err := dcMigrator.dmOut.DataManager().GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		utils.ConcatenatedKey("cgrates.org", utils.MetaChargers), utils.MetaString, nil); err != nil {
+	if dcidx, err := dcMigrator.dmOut.DataManager().GetIndexes(
+		utils.CacheAttributeFilterIndexes,
+		utils.ConcatenatedKey("cgrates.org", utils.MetaChargers),
+		"", true, true); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expDcIdx, dcidx) {
-		t.Errorf("Expected %v, recived: %v", utils.ToJSON(expDcIdx), utils.ToJSON(dcidx))
+		t.Errorf("Expected %v, received: %v", utils.ToJSON(expDcIdx), utils.ToJSON(dcidx))
 	}
-	expDcIdx = map[string]utils.StringMap{
-		"*string:~*req.Account:1003": {
-			"*out:cgrates.org:*any:1003:*any_0": true,
+	expDcIdx = map[string]utils.StringSet{
+		"*string:*req.Account:1003": {
+			"*out:cgrates.org:*any:1003:*any_0": struct{}{},
 		},
 	}
-	if dcidx, err := dcMigrator.dmOut.DataManager().GetFilterIndexes(utils.PrefixToIndexCache[utils.ChargerProfilePrefix],
+	if dcidx, err := dcMigrator.dmOut.DataManager().GetIndexes(
+		utils.CacheChargerFilterIndexes,
 		utils.ConcatenatedKey("cgrates.org", utils.MetaChargers),
-		utils.MetaString, nil); err == nil || err.Error() != utils.ErrNotFound.Error() {
-		t.Errorf("Expected error %v, recived: %v with reply: %v", utils.ErrNotFound, err, utils.ToJSON(dcidx))
+		"", true, true); err == nil || err.Error() != utils.ErrNotFound.Error() {
+		t.Errorf("Expected error %v, received: %v with reply: %v", utils.ErrNotFound, err, utils.ToJSON(dcidx))
+	} else if dcMigrator.stats[utils.DerivedChargersV] != 1 {
+		t.Errorf("Expected 1, received: %v", dcMigrator.stats[utils.DerivedChargersV])
 	}
 
 }

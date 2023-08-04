@@ -44,6 +44,13 @@ type SharedGroup struct {
 	//members           []*Account // accounts caching
 }
 
+// SharedGroupWithOpts is used in replicatorV1 for dispatcher
+type SharedGroupWithAPIOpts struct {
+	*SharedGroup
+	Tenant  string
+	APIOpts map[string]any
+}
+
 type SharingParameters struct {
 	Strategy      string
 	RatingSubject string
@@ -81,7 +88,7 @@ func (sp *SharingParameters) Clone() *SharingParameters {
 }
 
 func (sg *SharedGroup) SortBalancesByStrategy(myBalance *Balance, bc Balances) Balances {
-	sharingParameters := sg.AccountParameters[utils.ANY]
+	sharingParameters := sg.AccountParameters[utils.MetaAny]
 	if sp, hasParamsForAccount := sg.AccountParameters[myBalance.account.ID]; hasParamsForAccount {
 		sharingParameters = sp
 	}

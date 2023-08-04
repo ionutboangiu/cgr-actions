@@ -20,30 +20,31 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"strings"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
-// NewObjectDP constructs a DataProvider
-func NewObjectDP(obj interface{}, prfxSls []string) (dP utils.DataProvider) {
-	dP = &ObjectDP{obj: obj, cache: make(map[string]interface{}), prfxSls: prfxSls}
-	return
+// NewObjectDP constructs a utils.DataProvider
+func NewObjectDP(obj any) utils.DataProvider {
+	return &ObjectDP{
+		obj:   obj,
+		cache: make(map[string]any),
+	}
 }
 
+// ObjectDP implements the DataProvider for any any
 type ObjectDP struct {
-	obj     interface{}
-	cache   map[string]interface{}
-	prfxSls []string
+	obj   any
+	cache map[string]any
 }
 
-func (objDp *ObjectDP) setCache(path string, val interface{}) {
-	objDp.cache[path] = val
+func (objDP *ObjectDP) setCache(path string, val any) {
+	objDP.cache[path] = val
 }
 
-func (objDp *ObjectDP) getCache(path string) (val interface{}, has bool) {
-	val, has = objDp.cache[path]
+func (objDP *ObjectDP) getCache(path string) (val any, has bool) {
+	val, has = objDP.cache[path]
 	return
 }
 
@@ -54,28 +55,19 @@ func (objDP *ObjectDP) String() string {
 }
 
 // FieldAsInterface is part of engine.utils.DataProvider interface
-func (objDP *ObjectDP) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+func (objDP *ObjectDP) FieldAsInterface(fldPath []string) (data any, err error) {
 	obj := objDP.obj
-	clnFldPath := fldPath
 	// []string{ BalanceMap *monetary[0] Value }
 	var has bool
 	if data, has = objDP.getCache(strings.Join(fldPath, utils.NestingSep)); has {
+		if data == nil { // field doesn't exist
+			err = utils.ErrNotFound
+		}
 		return
 	}
-	if len(objDP.prfxSls) != 0 {
-		if len(clnFldPath) < len(objDP.prfxSls) {
-			return nil, fmt.Errorf("invalid path <%s> compared to prefix <%s>", clnFldPath, objDP.prfxSls)
-		}
-		for i, prfx := range objDP.prfxSls {
-			if clnFldPath[i] != prfx {
-				return nil, fmt.Errorf("wrong prefix when compared <%s> with <%s>", clnFldPath, objDP.prfxSls)
-			}
-		}
-		clnFldPath = clnFldPath[len(objDP.prfxSls):]
-	}
-
+	data = obj // in case the fldPath is empty we need to return the whole object
 	var prevFld string
-	for _, fld := range clnFldPath {
+	for _, fld := range fldPath {
 		var slctrStr string
 		if splt := strings.Split(fld, utils.IdxStart); len(splt) != 1 { // check if we have selector
 			fld = splt[0]
@@ -125,15 +117,9 @@ func (objDP *ObjectDP) FieldAsInterface(fldPath []string) (data interface{}, err
 
 // FieldAsString is part of engine.utils.DataProvider interface
 func (objDP *ObjectDP) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
-	valIface, err = objDP.FieldAsInterface(fldPath)
-	if err != nil {
+	var valIface any
+	if valIface, err = objDP.FieldAsInterface(fldPath); err != nil {
 		return
 	}
 	return utils.IfaceAsString(valIface), nil
-}
-
-// RemoteHost is part of engine.utils.DataProvider interface
-func (objDP *ObjectDP) RemoteHost() net.Addr {
-	return utils.LocalAddr()
 }

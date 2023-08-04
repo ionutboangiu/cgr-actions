@@ -27,7 +27,7 @@ func init() {
 	c := &CmdAccountResetTriggers{
 		name:      "account_triggers_reset",
 		rpcMethod: utils.APIerSv1ResetAccountActionTriggers,
-		rpcParams: &v1.AttrRemoveAccountActionTriggers{},
+		rpcParams: &v1.AttrResetAccountActionTriggers{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -37,7 +37,7 @@ func init() {
 type CmdAccountResetTriggers struct {
 	name      string
 	rpcMethod string
-	rpcParams *v1.AttrRemoveAccountActionTriggers
+	rpcParams *v1.AttrResetAccountActionTriggers
 	*CommandExecuter
 }
 
@@ -49,9 +49,9 @@ func (self *CmdAccountResetTriggers) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdAccountResetTriggers) RpcParams(reset bool) interface{} {
+func (self *CmdAccountResetTriggers) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &v1.AttrRemoveAccountActionTriggers{}
+		self.rpcParams = &v1.AttrResetAccountActionTriggers{}
 	}
 	return self.rpcParams
 }
@@ -60,7 +60,7 @@ func (self *CmdAccountResetTriggers) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdAccountResetTriggers) RpcResult() interface{} {
+func (self *CmdAccountResetTriggers) RpcResult() any {
 	var s string
 	return &s
 }

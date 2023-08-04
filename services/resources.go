@@ -22,19 +22,21 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewResourceService returns the Resource Service
 func NewResourceService(cfg *config.CGRConfig, dm *DataDBService,
 	cacheS *engine.CacheS, filterSChan chan *engine.FilterS,
-	server *utils.Server, internalResourceSChan chan birpc.ClientConnector,
-	connMgr *engine.ConnManager) servmanager.Service {
+	server *cores.Server, internalResourceSChan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &ResourceService{
 		connChan:    internalResourceSChan,
 		cfg:         cfg,
@@ -43,6 +45,8 @@ func NewResourceService(cfg *config.CGRConfig, dm *DataDBService,
 		filterSChan: filterSChan,
 		server:      server,
 		connMgr:     connMgr,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -53,20 +57,22 @@ type ResourceService struct {
 	dm          *DataDBService
 	cacheS      *engine.CacheS
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 
 	reS      *engine.ResourceService
 	rpc      *v1.ResourceSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
 	connMgr  *engine.ConnManager
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
-// Start should handle the sercive start
+// Start should handle the service start
 func (reS *ResourceService) Start() (err error) {
 	if reS.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
 	}
-
+	reS.srvDep[utils.DataDB].Add(1)
 	<-reS.cacheS.GetPrecacheChannel(utils.CacheResourceProfiles)
 	<-reS.cacheS.GetPrecacheChannel(utils.CacheResources)
 	<-reS.cacheS.GetPrecacheChannel(utils.CacheResourceFilterIndexes)
@@ -79,18 +85,14 @@ func (reS *ResourceService) Start() (err error) {
 
 	reS.Lock()
 	defer reS.Unlock()
-	reS.reS, err = engine.NewResourceService(datadb, reS.cfg, filterS, reS.connMgr)
-	if err != nil {
-		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.ResourceS, err.Error()))
-		return
-	}
+	reS.reS = engine.NewResourceService(datadb, reS.cfg, filterS, reS.connMgr)
 	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.ResourceS))
 	reS.reS.StartLoop()
 	reS.rpc = v1.NewResourceSv1(reS.reS)
 	if !reS.cfg.DispatcherSCfg().Enabled {
 		reS.server.RpcRegister(reS.rpc)
 	}
-	reS.connChan <- reS.rpc
+	reS.connChan <- reS.anz.GetInternalCodec(reS.rpc, utils.ResourceS)
 	return
 }
 
@@ -104,11 +106,10 @@ func (reS *ResourceService) Reload() (err error) {
 
 // Shutdown stops the service
 func (reS *ResourceService) Shutdown() (err error) {
+	defer reS.srvDep[utils.DataDB].Done()
 	reS.Lock()
 	defer reS.Unlock()
-	if err = reS.reS.Shutdown(); err != nil {
-		return
-	}
+	reS.reS.Shutdown() //we don't verify the error because shutdown never returns an error
 	reS.reS = nil
 	reS.rpc = nil
 	<-reS.connChan

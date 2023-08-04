@@ -22,26 +22,28 @@ package services
 
 import (
 	"path"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
+	"github.com/cgrates/rpcclient"
+
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
 )
 
 func TestDispatcherSReload(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
+	cfg := config.NewDefaultCGRConfig()
+
+	utils.Logger, _ = utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
 	utils.Logger.SetLogLevel(7)
 	cfg.AttributeSCfg().Enabled = true
-	engineShutdown := make(chan bool, 1)
-	chS := engine.NewCacheS(cfg, nil)
+	shdChan := utils.NewSyncedChan()
+	shdWg := new(sync.WaitGroup)
+	chS := engine.NewCacheS(cfg, nil, nil)
 	close(chS.GetPrecacheChannel(utils.CacheAttributeProfiles))
 	close(chS.GetPrecacheChannel(utils.CacheAttributeFilterIndexes))
 	close(chS.GetPrecacheChannel(utils.CacheDispatcherProfiles))
@@ -49,28 +51,29 @@ func TestDispatcherSReload(t *testing.T) {
 	close(chS.GetPrecacheChannel(utils.CacheDispatcherFilterIndexes))
 	filterSChan := make(chan *engine.FilterS, 1)
 	filterSChan <- nil
-	server := utils.NewServer()
-	srvMngr := servmanager.NewServiceManager(cfg, engineShutdown)
-	db := NewDataDBService(cfg, nil)
-	attrS := NewAttributeService(cfg, db, chS, filterSChan, server, make(chan birpc.ClientConnector, 1))
+	server := cores.NewServer(nil)
+	srvMngr := servmanager.NewServiceManager(cfg, shdChan, shdWg, nil)
+	srvDep := map[string]*sync.WaitGroup{utils.DataDB: new(sync.WaitGroup)}
+	db := NewDataDBService(cfg, nil, srvDep)
+	anz := NewAnalyzerService(cfg, server, filterSChan, shdChan, make(chan rpcclient.ClientConnector, 1), srvDep)
+	attrS := NewAttributeService(cfg, db, chS, filterSChan, server, make(chan rpcclient.ClientConnector, 1), anz, srvDep)
 	srv := NewDispatcherService(cfg, db, chS, filterSChan, server,
-		make(chan birpc.ClientConnector, 1), nil)
+		make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep)
 	engine.NewConnManager(cfg, nil)
 	srvMngr.AddServices(attrS, srv,
 		NewLoaderService(cfg, db, filterSChan, server,
-			engineShutdown, make(chan birpc.ClientConnector, 1), nil), db)
-	if err = srvMngr.StartServices(); err != nil {
+			make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep), db)
+	if err := srvMngr.StartServices(); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(10 * time.Millisecond)
 	if srv.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-	if !db.IsRunning() {
-		t.Errorf("Expected service to be running")
+	if db.IsRunning() {
+		t.Errorf("Expected service to be down")
 	}
 	var reply string
-	if err = cfg.V1ReloadConfigFromPath(&config.ConfigReloadWithArgDispatcher{
+	if err := cfg.V1ReloadConfig(&config.ReloadArgs{
 		Path: path.Join("/usr", "share", "cgrates", "conf", "samples", "dispatchers", "dispatchers_mysql"),
 
 		Section: config.DispatcherSJson,
@@ -86,11 +89,20 @@ func TestDispatcherSReload(t *testing.T) {
 	if !db.IsRunning() {
 		t.Errorf("Expected service to be running")
 	}
+	err := srv.Start()
+	if err == nil || err != utils.ErrServiceAlreadyRunning {
+		t.Errorf("\nExpecting <%+v>,\n Received <%+v>", utils.ErrServiceAlreadyRunning, err)
+	}
+	err = srv.Reload()
+	if err != nil {
+		t.Errorf("\nExpecting <nil>,\n Received <%+v>", err)
+	}
 	cfg.DispatcherSCfg().Enabled = false
 	cfg.GetReloadChan(config.DispatcherSJson) <- struct{}{}
 	time.Sleep(10 * time.Millisecond)
 	if srv.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-	engineShutdown <- true
+	shdChan.CloseOnce()
+	time.Sleep(10 * time.Millisecond)
 }

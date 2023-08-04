@@ -32,7 +32,7 @@ var dcGetMapKeys = func(m utils.StringMap) (keys []string) {
 	i := 0
 	for k := range m {
 		keys[i] = k
-		i += 1
+		i++
 	}
 	// sort.Strings(keys)
 	return keys
@@ -74,16 +74,19 @@ func fieldinfo2Attribute(attr []*engine.Attribute, fieldName, fieldInfo string) 
 	if fieldInfo == utils.MetaDefault || len(fieldInfo) == 0 {
 		return attr
 	}
-	if strings.HasPrefix(fieldInfo, utils.STATIC_VALUE_PREFIX) {
-		fieldInfo = fieldInfo[1:]
-	}
+	fieldInfo = strings.TrimPrefix(fieldInfo, utils.StaticValuePrefix)
 	var err error
-	if rp, err = config.NewRSRParsers(fieldInfo, true, utils.INFIELD_SEP); err != nil {
+	if rp, err = config.NewRSRParsers(fieldInfo, utils.InfieldSep); err != nil {
 		utils.Logger.Err(fmt.Sprintf("On Migrating rule: <%s>, error: %s", fieldInfo, err.Error()))
 		return attr
 	}
+	var path string
+	if fieldName == utils.EmptyString {
+		return attr // do not append attribute if fieldName is empty
+	}
+	path = utils.MetaReq + utils.NestingSep + fieldName
 	return append(attr, &engine.Attribute{
-		Path:  utils.MetaReq + utils.NestingSep + fieldName,
+		Path:  path,
 		Value: rp,
 		Type:  utils.MetaVariable,
 	})
@@ -104,15 +107,15 @@ func derivedChargers2AttributeProfile(dc *v1DerivedCharger, tenant, key string, 
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Direction, dc.DirectionField) //still in use?
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Tenant, dc.TenantField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Category, dc.CategoryField)
-	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Account, dc.AccountField)
+	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.AccountField, dc.AccountField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Subject, dc.SubjectField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Destination, dc.DestinationField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.SetupTime, dc.SetupTimeField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.PDD, dc.PDDField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.AnswerTime, dc.AnswerTimeField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Usage, dc.UsageField)
-	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.SUPPLIER, dc.SupplierField)
-	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.DISCONNECT_CAUSE, dc.DisconnectCauseField)
+	attr.Attributes = fieldinfo2Attribute(attr.Attributes, SUPPLIER, dc.SupplierField)
+	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.DisconnectCause, dc.DisconnectCauseField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.Cost, dc.CostField)
 	attr.Attributes = fieldinfo2Attribute(attr.Attributes, utils.PreRated, dc.PreRatedField)
 	return
@@ -131,13 +134,13 @@ func derivedChargers2Charger(dc *v1DerivedCharger, tenant string, key string, fi
 
 	filter := dc.RunFilters
 	if len(filter) != 0 {
-		if strings.HasPrefix(filter, utils.STATIC_VALUE_PREFIX) {
-			filter = filter[1:]
+		filter = strings.TrimPrefix(filter, utils.StaticValuePrefix)
+		filter = strings.TrimPrefix(filter, utils.DynamicDataPrefix)
+		flt, err := migrateInlineFilterV4([]string{"*rsr::" + utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + filter})
+		if err != nil {
+			return
 		}
-		if strings.HasPrefix(filter, utils.DynamicDataPrefix) {
-			filter = filter[1:]
-		}
-		ch.FilterIDs = append(ch.FilterIDs, "*rsr::"+utils.DynamicDataPrefix+utils.MetaReq+utils.NestingSep+filter)
+		ch.FilterIDs = append(ch.FilterIDs, flt...)
 	}
 	return
 }
@@ -149,20 +152,20 @@ func (m *Migrator) derivedChargers2Chargers(dck *v1DerivedChargersWithKey) (err 
 	if len(dck.Value.DestinationIDs) != 0 {
 		destination = fmt.Sprintf("%s:~%s:", utils.MetaDestinations, utils.MetaReq+utils.NestingSep+utils.Destination)
 		keys := dcGetMapKeys(dck.Value.DestinationIDs)
-		destination += strings.Join(keys, utils.INFIELD_SEP)
+		destination += strings.Join(keys, utils.PipeSep)
 	}
 	filter := make([]string, 0)
 
 	if len(destination) != 0 {
 		filter = append(filter, destination)
 	}
-	if len(skey[2]) != 0 && skey[2] != utils.META_ANY {
+	if len(skey[2]) != 0 && skey[2] != utils.MetaAny {
 		filter = append(filter, fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.Category, skey[2]))
 	}
-	if len(skey[3]) != 0 && skey[3] != utils.META_ANY {
-		filter = append(filter, fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.Account, skey[3]))
+	if len(skey[3]) != 0 && skey[3] != utils.MetaAny {
+		filter = append(filter, fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.AccountField, skey[3]))
 	}
-	if len(skey[4]) != 0 && skey[4] != utils.META_ANY {
+	if len(skey[4]) != 0 && skey[4] != utils.MetaAny {
 		filter = append(filter, fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.Subject, skey[4]))
 	}
 	for i, dc := range dck.Value.Chargers {
@@ -181,6 +184,23 @@ func (m *Migrator) derivedChargers2Chargers(dck *v1DerivedChargersWithKey) (err 
 	return nil
 }
 
+func (m *Migrator) removeV1DerivedChargers() (err error) {
+	for {
+		var dck *v1DerivedChargersWithKey
+		dck, err = m.dmIN.getV1DerivedChargers()
+		if err == utils.ErrNoMoreData {
+			break
+		}
+		if err != nil {
+			return
+		}
+		if err = m.dmIN.remV1DerivedChargers(dck.Key); err != nil {
+			return
+		}
+	}
+	return
+}
+
 func (m *Migrator) migrateV1DerivedChargers() (err error) {
 	for {
 		var dck *v1DerivedChargersWithKey
@@ -189,20 +209,21 @@ func (m *Migrator) migrateV1DerivedChargers() (err error) {
 			break
 		}
 		if err != nil {
-			return err
+			return
 		}
 		if dck == nil || m.dryRun {
 			continue
 		}
 		if err = m.derivedChargers2Chargers(dck); err != nil {
-			return err
+			return
 		}
-		if err = m.dmIN.remV1DerivedChargers(dck.Key); err != nil {
-			return err
-		}
-		m.stats[utils.DerivedChargersV] += 1
+
+		m.stats[utils.DerivedChargersV]++
 	}
 	if m.dryRun {
+		return
+	}
+	if err = m.removeV1DerivedChargers(); err != nil && err != utils.ErrNoMoreData {
 		return
 	}
 	// All done, update version wtih current one
@@ -218,7 +239,7 @@ func (m *Migrator) migrateV1DerivedChargers() (err error) {
 
 func (m *Migrator) migrateDerivedChargers() (err error) {
 	if err = m.migrateV1DerivedChargers(); err != nil {
-		return err
+		return
 	}
 	return m.ensureIndexesDataDB(engine.ColCpp, engine.ColAttr)
 }

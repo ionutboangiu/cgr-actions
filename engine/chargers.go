@@ -26,10 +26,9 @@ import (
 )
 
 func NewChargerService(dm *DataManager, filterS *FilterS,
-	cfg *config.CGRConfig, connMgr *ConnManager) (*ChargerService, error) {
-
+	cfg *config.CGRConfig, connMgr *ConnManager) *ChargerService {
 	return &ChargerService{dm: dm, filterS: filterS,
-		cfg: cfg, connMgr: connMgr}, nil
+		cfg: cfg, connMgr: connMgr}
 }
 
 // ChargerService is performing charging
@@ -40,27 +39,23 @@ type ChargerService struct {
 	connMgr *ConnManager
 }
 
-// ListenAndServe will initialize the service
-func (cS *ChargerService) ListenAndServe(exitChan chan bool) (err error) {
-	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.ChargerS))
-	e := <-exitChan
-	exitChan <- e
-	return
-}
-
 // Shutdown is called to shutdown the service
-func (cS *ChargerService) Shutdown() (err error) {
+func (cS *ChargerService) Shutdown() {
 	utils.Logger.Info(fmt.Sprintf("<%s> shutdown initialized", utils.ChargerS))
 	utils.Logger.Info(fmt.Sprintf("<%s> shutdown complete", utils.ChargerS))
-	return
 }
 
 // matchingChargingProfilesForEvent returns ordered list of matching chargers which are active by the time of the function call
-func (cS *ChargerService) matchingChargerProfilesForEvent(cgrEv *utils.CGREventWithArgDispatcher) (cPs ChargerProfiles, err error) {
-	cpIDs, err := MatchingItemIDsForEvent(cgrEv.Event,
+func (cS *ChargerService) matchingChargerProfilesForEvent(tnt string, cgrEv *utils.CGREvent) (cPs ChargerProfiles, err error) {
+	evNm := utils.MapStorage{
+		utils.MetaReq:  cgrEv.Event,
+		utils.MetaOpts: cgrEv.APIOpts,
+	}
+	cpIDs, err := MatchingItemIDsForEvent(evNm,
 		cS.cfg.ChargerSCfg().StringIndexedFields,
 		cS.cfg.ChargerSCfg().PrefixIndexedFields,
-		cS.dm, utils.CacheChargerFilterIndexes, cgrEv.Tenant,
+		cS.cfg.ChargerSCfg().SuffixIndexedFields,
+		cS.dm, utils.CacheChargerFilterIndexes, tnt,
 		cS.cfg.ChargerSCfg().IndexedSelects,
 		cS.cfg.ChargerSCfg().NestedFields,
 	)
@@ -68,9 +63,8 @@ func (cS *ChargerService) matchingChargerProfilesForEvent(cgrEv *utils.CGREventW
 		return nil, err
 	}
 	matchingCPs := make(map[string]*ChargerProfile)
-	evNm := utils.MapStorage{utils.MetaReq: cgrEv.Event}
 	for cpID := range cpIDs {
-		cP, err := cS.dm.GetChargerProfile(cgrEv.Tenant, cpID, true, true, utils.NonTransactional)
+		cP, err := cS.dm.GetChargerProfile(tnt, cpID, true, true, utils.NonTransactional)
 		if err != nil {
 			if err == utils.ErrNotFound {
 				continue
@@ -81,7 +75,7 @@ func (cS *ChargerService) matchingChargerProfilesForEvent(cgrEv *utils.CGREventW
 			!cP.ActivationInterval.IsActiveAtTime(*cgrEv.Time) { // not active
 			continue
 		}
-		if pass, err := cS.filterS.Pass(cgrEv.Tenant, cP.FilterIDs,
+		if pass, err := cS.filterS.Pass(tnt, cP.FilterIDs,
 			evNm); err != nil {
 			return nil, err
 		} else if !pass {
@@ -110,56 +104,62 @@ type ChrgSProcessEventReply struct {
 	CGREvent           *utils.CGREvent
 }
 
-func (cS *ChargerService) processEvent(cgrEv *utils.CGREventWithArgDispatcher) (rply []*ChrgSProcessEventReply, err error) {
+func (cS *ChargerService) processEvent(tnt string, cgrEv *utils.CGREvent) (rply []*ChrgSProcessEventReply, err error) {
 	var cPs ChargerProfiles
-	if cPs, err = cS.matchingChargerProfilesForEvent(cgrEv); err != nil {
+	if cPs, err = cS.matchingChargerProfilesForEvent(tnt, cgrEv); err != nil {
 		return nil, err
 	}
 	rply = make([]*ChrgSProcessEventReply, len(cPs))
 	for i, cP := range cPs {
 		clonedEv := cgrEv.Clone()
+		clonedEv.Tenant = tnt
 		clonedEv.Event[utils.RunID] = cP.RunID
+		clonedEv.APIOpts[utils.MetaSubsys] = utils.MetaChargers
 		rply[i] = &ChrgSProcessEventReply{
 			ChargerSProfile: cP.ID,
-			CGREvent:        clonedEv.CGREvent,
+			CGREvent:        clonedEv,
 			AlteredFields:   []string{utils.MetaReqRunID},
 		}
-		if len(cP.AttributeIDs) == 1 && cP.AttributeIDs[0] == utils.META_NONE {
+		if len(cP.AttributeIDs) == 1 && cP.AttributeIDs[0] == utils.MetaNone {
 			continue // AttributeS disabled
 		}
-
-		args := &AttrArgsProcessEvent{
-			AttributeIDs: cP.AttributeIDs,
-			Context: utils.StringPointer(utils.FirstNonEmpty(
-				utils.IfaceAsString(clonedEv.CGREvent.Event[utils.Context]),
-				utils.MetaChargers)),
-			ProcessRuns:   nil,
-			CGREvent:      clonedEv.CGREvent,
-			ArgDispatcher: clonedEv.ArgDispatcher,
-		}
+		clonedEv.APIOpts[utils.OptsAttributesProfileIDs] = cP.AttributeIDs
+		ctx, has := clonedEv.APIOpts[utils.OptsContext]
+		clonedEv.APIOpts[utils.OptsContext] = utils.FirstNonEmpty(
+			utils.IfaceAsString(ctx),
+			utils.MetaChargers)
 		var evReply AttrSProcessEventReply
 		if err = cS.connMgr.Call(cS.cfg.ChargerSCfg().AttributeSConns, nil,
-			utils.AttributeSv1ProcessEvent, args, &evReply); err != nil {
-			return nil, err
+			utils.AttributeSv1ProcessEvent, clonedEv, &evReply); err != nil {
+			if err.Error() != utils.ErrNotFound.Error() {
+				return nil, err
+			}
+			err = nil
 		}
 		rply[i].AttributeSProfiles = evReply.MatchedProfiles
 		if len(evReply.AlteredFields) != 0 {
 			rply[i].AlteredFields = append(rply[i].AlteredFields, evReply.AlteredFields...)
-		}
-		if len(evReply.AlteredFields) != 0 {
 			rply[i].CGREvent = evReply.CGREvent
+		}
+		if !has && utils.IfaceAsString(rply[i].CGREvent.APIOpts[utils.OptsContext]) == utils.MetaChargers {
+			delete(rply[i].CGREvent.APIOpts, utils.OptsContext)
 		}
 	}
 	return
 }
 
 // V1ProcessEvent will process the event received via API and return list of events forked
-func (cS *ChargerService) V1ProcessEvent(args *utils.CGREventWithArgDispatcher,
+func (cS *ChargerService) V1ProcessEvent(args *utils.CGREvent,
 	reply *[]*ChrgSProcessEventReply) (err error) {
-	if args.CGREvent == nil || args.Event == nil {
+	if args == nil ||
+		args.Event == nil {
 		return utils.NewErrMandatoryIeMissing("Event")
 	}
-	rply, err := cS.processEvent(args)
+	tnt := args.Tenant
+	if tnt == utils.EmptyString {
+		tnt = cS.cfg.GeneralCfg().DefaultTenant
+	}
+	rply, err := cS.processEvent(tnt, args)
 	if err != nil {
 		if err != utils.ErrNotFound {
 			err = utils.NewErrServerError(err)
@@ -171,9 +171,13 @@ func (cS *ChargerService) V1ProcessEvent(args *utils.CGREventWithArgDispatcher,
 }
 
 // V1GetChargersForEvent exposes the list of ordered matching ChargingProfiles for an event
-func (cS *ChargerService) V1GetChargersForEvent(args *utils.CGREventWithArgDispatcher,
+func (cS *ChargerService) V1GetChargersForEvent(args *utils.CGREvent,
 	rply *ChargerProfiles) (err error) {
-	cPs, err := cS.matchingChargerProfilesForEvent(args)
+	tnt := args.Tenant
+	if tnt == utils.EmptyString {
+		tnt = cS.cfg.GeneralCfg().DefaultTenant
+	}
+	cPs, err := cS.matchingChargerProfilesForEvent(tnt, args)
 	if err != nil {
 		if err != utils.ErrNotFound {
 			err = utils.NewErrServerError(err)

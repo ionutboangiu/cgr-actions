@@ -22,65 +22,71 @@ package services
 
 import (
 	"path"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
+	v1 "github.com/cgrates/cgrates/apier/v1"
+
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 func TestApiersReload(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
+	cfg := config.NewDefaultCGRConfig()
+
+	utils.Logger, _ = utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
 	utils.Logger.SetLogLevel(7)
 	filterSChan := make(chan *engine.FilterS, 1)
 	filterSChan <- nil
-	engineShutdown := make(chan bool, 1)
-	chS := engine.NewCacheS(cfg, nil)
+	shdChan := utils.NewSyncedChan()
+	shdWg := new(sync.WaitGroup)
+	chS := engine.NewCacheS(cfg, nil, nil)
 	close(chS.GetPrecacheChannel(utils.CacheThresholdProfiles))
 	close(chS.GetPrecacheChannel(utils.CacheThresholds))
 	close(chS.GetPrecacheChannel(utils.CacheThresholdFilterIndexes))
+	close(chS.GetPrecacheChannel(utils.CacheActionPlans))
 
 	cfg.ThresholdSCfg().Enabled = true
 	cfg.SchedulerCfg().Enabled = true
-	server := utils.NewServer()
-	srvMngr := servmanager.NewServiceManager(cfg, engineShutdown)
-	db := NewDataDBService(cfg, nil)
+	server := cores.NewServer(nil)
+	srvMngr := servmanager.NewServiceManager(cfg, shdChan, shdWg, nil)
+	srvDep := map[string]*sync.WaitGroup{utils.DataDB: new(sync.WaitGroup)}
+	db := NewDataDBService(cfg, nil, srvDep)
 	cfg.StorDbCfg().Type = utils.MetaInternal
-	stordb := NewStorDBService(cfg)
-	schS := NewSchedulerService(cfg, db, chS, filterSChan, server, make(chan birpc.ClientConnector, 1), nil)
-	tS := NewThresholdService(cfg, db, chS, filterSChan, server, make(chan birpc.ClientConnector, 1))
+	stordb := NewStorDBService(cfg, srvDep)
+	anz := NewAnalyzerService(cfg, server, filterSChan, shdChan, make(chan rpcclient.ClientConnector, 1), srvDep)
+	schS := NewSchedulerService(cfg, db, chS, filterSChan, server, make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep)
+	tS := NewThresholdService(cfg, db, chS, filterSChan, server, make(chan rpcclient.ClientConnector, 1), anz, srvDep)
+	rspd := NewResponderService(cfg, server, make(chan rpcclient.ClientConnector, 1), shdChan, anz, srvDep, filterSChan)
+	apiSv1 := NewAPIerSv1Service(cfg, db, stordb, filterSChan, server, schS, rspd,
+		make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep)
 
-	apiSv1 := NewAPIerSv1Service(cfg, db, stordb, filterSChan, server, schS, new(ResponderService),
-		make(chan birpc.ClientConnector, 1), nil)
-
-	apiSv2 := NewAPIerSv2Service(apiSv1, cfg, server, make(chan birpc.ClientConnector, 1))
+	apiSv2 := NewAPIerSv2Service(apiSv1, cfg, server, make(chan rpcclient.ClientConnector, 1), anz, srvDep)
 	srvMngr.AddServices(apiSv1, apiSv2, schS, tS,
-		NewLoaderService(cfg, db, filterSChan, server, engineShutdown, make(chan birpc.ClientConnector, 1), nil), db, stordb)
-	if err = srvMngr.StartServices(); err != nil {
+		NewLoaderService(cfg, db, filterSChan, server, make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep), db, stordb)
+	if err := srvMngr.StartServices(); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(10 * time.Millisecond)
 	if apiSv1.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
 	if apiSv2.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-	if !db.IsRunning() {
-		t.Errorf("Expected service to be running")
+	if db.IsRunning() {
+		t.Errorf("Expected service to be down")
 	}
 	if stordb.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
 	var reply string
-	if err := cfg.V1ReloadConfigFromPath(&config.ConfigReloadWithArgDispatcher{
+	if err := cfg.V1ReloadConfig(&config.ReloadArgs{
 		Path:    path.Join("/usr", "share", "cgrates", "conf", "samples", "tutmongo"),
 		Section: config.ApierS,
 	}, &reply); err != nil {
@@ -88,7 +94,7 @@ func TestApiersReload(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Expecting OK ,received %s", reply)
 	}
-	time.Sleep(10 * time.Millisecond) //need to switch to gorutine
+	time.Sleep(100 * time.Millisecond) //need to switch to gorutine
 	if !apiSv1.IsRunning() {
 		t.Errorf("Expected service to be running")
 	}
@@ -101,14 +107,37 @@ func TestApiersReload(t *testing.T) {
 	if !stordb.IsRunning() {
 		t.Errorf("Expected service to be running")
 	}
+
+	err := apiSv1.Start()
+	if err == nil || err != utils.ErrServiceAlreadyRunning {
+		t.Errorf("\nExpecting <%+v>,\n Received <%+v>", utils.ErrServiceAlreadyRunning, err)
+	}
+	err2 := apiSv2.Start()
+	if err2 == nil || err2 != utils.ErrServiceAlreadyRunning {
+		t.Errorf("\nExpecting <%+v>,\n Received <%+v>", utils.ErrServiceAlreadyRunning, err2)
+	}
+	err = apiSv1.Reload()
+	if err != nil {
+		t.Errorf("\nExpecting <nil>,\n Received <%+v>", err)
+	}
+	err2 = apiSv2.Reload()
+	if err2 != nil {
+		t.Errorf("\nExpecting <nil>,\n Received <%+v>", err2)
+	}
+	expected := &v1.APIerSv1{}
+	getAPIerSv1 := apiSv1.GetAPIerSv1()
+	if reflect.DeepEqual(expected, getAPIerSv1) {
+		t.Errorf("\nExpecting <%+v>,\n Received <%+v>", expected, utils.ToJSON(getAPIerSv1))
+	}
 	cfg.ApierCfg().Enabled = false
 	cfg.GetReloadChan(config.ApierS) <- struct{}{}
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	if apiSv1.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
 	if apiSv2.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-	engineShutdown <- true
+	shdChan.CloseOnce()
+	time.Sleep(10 * time.Millisecond)
 }

@@ -71,20 +71,18 @@ func testTpTimITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpTimCfgIn.StorDbCfg().Type,
 		tpTimCfgIn.StorDbCfg().Host, tpTimCfgIn.StorDbCfg().Port,
 		tpTimCfgIn.StorDbCfg().Name, tpTimCfgIn.StorDbCfg().User,
-		tpTimCfgIn.StorDbCfg().Password, tpTimCfgIn.GeneralCfg().DBDataEncoding, tpTimCfgIn.StorDbCfg().SSLMode,
-		tpTimCfgIn.StorDbCfg().MaxOpenConns, tpTimCfgIn.StorDbCfg().MaxIdleConns,
-		tpTimCfgIn.StorDbCfg().ConnMaxLifetime, tpTimCfgIn.StorDbCfg().StringIndexedFields,
-		tpTimCfgIn.StorDbCfg().PrefixIndexedFields, tpTimCfgIn.StorDbCfg().Items)
+		tpTimCfgIn.StorDbCfg().Password, tpTimCfgIn.GeneralCfg().DBDataEncoding,
+		tpTimCfgIn.StorDbCfg().StringIndexedFields, tpTimCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpTimCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpTimCfgOut.StorDbCfg().Type,
 		tpTimCfgOut.StorDbCfg().Host, tpTimCfgOut.StorDbCfg().Port,
 		tpTimCfgOut.StorDbCfg().Name, tpTimCfgOut.StorDbCfg().User,
-		tpTimCfgOut.StorDbCfg().Password, tpTimCfgOut.GeneralCfg().DBDataEncoding, tpTimCfgIn.StorDbCfg().SSLMode,
-		tpTimCfgIn.StorDbCfg().MaxOpenConns, tpTimCfgIn.StorDbCfg().MaxIdleConns,
-		tpTimCfgIn.StorDbCfg().ConnMaxLifetime, tpTimCfgIn.StorDbCfg().StringIndexedFields,
-		tpTimCfgIn.StorDbCfg().PrefixIndexedFields, tpTimCfgOut.StorDbCfg().Items)
+		tpTimCfgOut.StorDbCfg().Password, tpTimCfgOut.GeneralCfg().DBDataEncoding,
+		tpTimCfgIn.StorDbCfg().StringIndexedFields, tpTimCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpTimCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -122,7 +120,7 @@ func testTpTimITPopulate(t *testing.T) {
 		t.Error("Error when setting TpTimings ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpTimMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpTimMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpTimings ", err.Error())
 	}

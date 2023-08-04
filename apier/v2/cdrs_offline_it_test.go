@@ -124,9 +124,9 @@ func testV2CDRsOfflineBalanceUpdate(t *testing.T) {
 	attrs := &utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "test",
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       10.0,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     utils.MetaDefault,
 			utils.Weight: 10.0,
 		},
@@ -138,8 +138,8 @@ func testV2CDRsOfflineBalanceUpdate(t *testing.T) {
 	var acnt *engine.Account
 	if err := cdrsOfflineRpc.Call(utils.APIerSv2GetAccount, &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "test"}, &acnt); err != nil {
 		t.Error(err)
-	} else if len(acnt.BalanceMap) != 1 || acnt.BalanceMap[utils.MONETARY][0].Value != 10.0 {
-		t.Errorf("Unexpected balance received: %+v", acnt.BalanceMap[utils.MONETARY][0])
+	} else if len(acnt.BalanceMap) != 1 || acnt.BalanceMap[utils.MetaMonetary][0].Value != 10.0 {
+		t.Errorf("Unexpected balance received: %+v", acnt.BalanceMap[utils.MetaMonetary][0])
 	}
 
 	var thReply *engine.ThresholdProfile
@@ -147,7 +147,7 @@ func testV2CDRsOfflineBalanceUpdate(t *testing.T) {
 
 	//create a log action
 	attrsAA := &utils.AttrSetActions{ActionsId: "ACT_LOG", Actions: []*utils.TPAction{
-		{Identifier: utils.LOG},
+		{Identifier: utils.MetaLog},
 	}}
 	if err := cdrsOfflineRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
 		t.Error("Got error on APIerSv2.SetActions: ", err.Error())
@@ -161,13 +161,13 @@ func testV2CDRsOfflineBalanceUpdate(t *testing.T) {
 		t.Error(err)
 	}
 	//create a threshold that match out account
-	tPrfl := engine.ThresholdWithCache{
+	tPrfl := engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_Test",
 			FilterIDs: []string{"*string:Account:test"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(time.Second),
+			MinSleep:  time.Second,
 			Blocker:   false,
 			Weight:    20.0,
 			ActionIDs: []string{"ACT_LOG"},
@@ -188,17 +188,17 @@ func testV2CDRsOfflineBalanceUpdate(t *testing.T) {
 
 	cgrEv := &utils.CGREvent{
 		Tenant: "cgrates.org",
-		Event: map[string]interface{}{
-			utils.OriginID:    "testV2CDRsOfflineProcessCDR2",
-			utils.OriginHost:  "192.168.1.1",
-			utils.Source:      "testV2CDRsOfflineProcessCDR",
-			utils.RequestType: utils.META_POSTPAID,
-			utils.Category:    "call",
-			utils.Account:     "test",
-			utils.Subject:     "test",
-			utils.Destination: "1002",
-			utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-			utils.Usage:       time.Duration(1) * time.Minute,
+		Event: map[string]any{
+			utils.OriginID:     "testV2CDRsOfflineProcessCDR2",
+			utils.OriginHost:   "192.168.1.1",
+			utils.Source:       "testV2CDRsOfflineProcessCDR",
+			utils.RequestType:  utils.MetaPostpaid,
+			utils.Category:     "call",
+			utils.AccountField: "test",
+			utils.Subject:      "test",
+			utils.Destination:  "1002",
+			utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+			utils.Usage:        time.Minute,
 		},
 	}
 	mapEv := engine.NewMapEvent(cgrEv.Event)
@@ -207,23 +207,22 @@ func testV2CDRsOfflineBalanceUpdate(t *testing.T) {
 		t.Error("Unexpected error received: ", err)
 	}
 	//process cdr should trigger balance update event
-	if err := cdrsOfflineRpc.Call(utils.CDRsV1ProcessCDR, &engine.CDRWithArgDispatcher{CDR: cdr}, &reply); err != nil {
+	if err := cdrsOfflineRpc.Call(utils.CDRsV1ProcessCDR, &engine.CDRWithAPIOpts{CDR: cdr}, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(150) * time.Millisecond) // Give time for CDR to be rated
 }
 
 func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 	var reply string
 	acc := &utils.AttrSetActions{ActionsId: "ACT_TOPUP_TEST2", Actions: []*utils.TPAction{
-		{Identifier: utils.TOPUP, BalanceType: utils.MONETARY, BalanceId: "BalanceExpired1", Units: "5",
+		{Identifier: utils.MetaTopUp, BalanceType: utils.MetaMonetary, BalanceId: "BalanceExpired1", Units: "5",
 			ExpiryTime: time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC).String(), BalanceWeight: "10", Weight: 20.0},
-		{Identifier: utils.TOPUP, BalanceType: utils.MONETARY, BalanceId: "BalanceExpired2", Units: "10",
+		{Identifier: utils.MetaTopUp, BalanceType: utils.MetaMonetary, BalanceId: "BalanceExpired2", Units: "10",
 			ExpiryTime: time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC).String(), BalanceWeight: "10", Weight: 20.0},
-		{Identifier: utils.TOPUP, BalanceType: utils.MONETARY, BalanceId: "NewBalance", Units: "10",
-			ExpiryTime: utils.UNLIMITED, BalanceWeight: "10", Weight: 20.0},
+		{Identifier: utils.MetaTopUp, BalanceType: utils.MetaMonetary, BalanceId: "NewBalance", Units: "10",
+			ExpiryTime: utils.MetaUnlimited, BalanceWeight: "10", Weight: 20.0},
 	}}
 	if err := cdrsOfflineRpc.Call(utils.APIerSv2SetActions, acc, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
 		t.Error("Got error on APIerSv2.SetActions: ", err.Error())
@@ -233,7 +232,7 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 
 	atm1 := &v1.AttrActionPlan{ActionsId: "ACT_TOPUP_TEST2", Time: "*asap", Weight: 20.0}
 	atms1 := &v1.AttrSetActionPlan{Id: "AP_TEST2", ActionPlan: []*v1.AttrActionPlan{atm1}}
-	if err := cdrsOfflineRpc.Call(utils.APIerSv1SetActionPlan, atms1, &reply); err != nil {
+	if err := cdrsOfflineRpc.Call(utils.APIerSv1SetActionPlan, &atms1, &reply); err != nil {
 		t.Error("Got error on APIerSv1.SetActionPlan: ", err.Error())
 	} else if reply != utils.OK {
 		t.Errorf("Calling APIerSv1.SetActionPlan received: %s", reply)
@@ -248,13 +247,12 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 		t.Errorf("Calling APIerSv2.SetAccount received: %s", reply)
 	}
 
-	time.Sleep(50 * time.Millisecond)
 	var acnt *engine.Account
 	//verify if the third balance was added
 	if err := cdrsOfflineRpc.Call(utils.APIerSv2GetAccount,
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "test2"}, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.MONETARY].Len() != 1 {
+	} else if acnt.BalanceMap[utils.MetaMonetary].Len() != 1 {
 		t.Errorf("Unexpected balance received: %+v", utils.ToIJSON(acnt))
 	}
 
@@ -263,7 +261,7 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 
 	//create a log action
 	attrsA := &utils.AttrSetActions{ActionsId: "ACT_LOG", Actions: []*utils.TPAction{
-		{Identifier: utils.LOG},
+		{Identifier: utils.MetaLog},
 	}}
 	if err := cdrsOfflineRpc.Call(utils.APIerSv2SetActions, attrsA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
 		t.Error("Got error on APIerSv2.SetActions: ", err.Error())
@@ -277,7 +275,7 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 		t.Error(err)
 	}
 	//create a threshold that match out account
-	tPrfl := &engine.ThresholdWithCache{
+	tPrfl := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_Test2",
@@ -287,7 +285,7 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 			},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(0),
+			MinSleep:  0,
 			Blocker:   false,
 			Weight:    20.0,
 			ActionIDs: []string{"ACT_LOG"},
@@ -309,17 +307,17 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 	args := &engine.ArgV1ProcessEvent{
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.OriginID:    "testV2CDRsOfflineProcessCDR1",
-				utils.OriginHost:  "192.168.1.1",
-				utils.Source:      "testV2CDRsOfflineProcessCDR",
-				utils.RequestType: utils.META_POSTPAID,
-				utils.Category:    "call",
-				utils.Account:     "test2",
-				utils.Subject:     "test2",
-				utils.Destination: "1002",
-				utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(1) * time.Minute,
+			Event: map[string]any{
+				utils.OriginID:     "testV2CDRsOfflineProcessCDR1",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testV2CDRsOfflineProcessCDR",
+				utils.RequestType:  utils.MetaPostpaid,
+				utils.Category:     "call",
+				utils.AccountField: "test2",
+				utils.Subject:      "test2",
+				utils.Destination:  "1002",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
 			},
 		},
 	}
@@ -329,7 +327,6 @@ func testV2CDRsOfflineExpiryBalance(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(150) * time.Millisecond) // Give time for CDR to be rated
 }
 
 func testV2CDRsBalancesWithSameWeight(t *testing.T) {
@@ -337,9 +334,9 @@ func testV2CDRsBalancesWithSameWeight(t *testing.T) {
 	attrs := &utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "specialTest",
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       10.0,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     "SpecialBalance1",
 			utils.Weight: 10.0,
 		},
@@ -356,23 +353,23 @@ func testV2CDRsBalancesWithSameWeight(t *testing.T) {
 	if err := cdrsOfflineRpc.Call(utils.APIerSv2GetAccount,
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "specialTest"}, &acnt); err != nil {
 		t.Error(err)
-	} else if len(acnt.BalanceMap) != 1 || len(acnt.BalanceMap[utils.MONETARY]) != 2 {
-		t.Errorf("Unexpected balance received: %+v", acnt.BalanceMap[utils.MONETARY])
+	} else if len(acnt.BalanceMap) != 1 || len(acnt.BalanceMap[utils.MetaMonetary]) != 2 {
+		t.Errorf("Unexpected balance received: %+v", acnt.BalanceMap[utils.MetaMonetary])
 	}
 
 	cgrEv := &utils.CGREvent{
 		Tenant: "cgrates.org",
-		Event: map[string]interface{}{
-			utils.OriginID:    "testV2CDRsBalancesWithSameWeight",
-			utils.OriginHost:  "192.168.1.1",
-			utils.Source:      "testV2CDRsBalancesWithSameWeight",
-			utils.RequestType: utils.META_POSTPAID,
-			utils.Category:    "call",
-			utils.Account:     "specialTest",
-			utils.Subject:     "specialTest",
-			utils.Destination: "1002",
-			utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-			utils.Usage:       time.Duration(1) * time.Minute,
+		Event: map[string]any{
+			utils.OriginID:     "testV2CDRsBalancesWithSameWeight",
+			utils.OriginHost:   "192.168.1.1",
+			utils.Source:       "testV2CDRsBalancesWithSameWeight",
+			utils.RequestType:  utils.MetaPostpaid,
+			utils.Category:     "call",
+			utils.AccountField: "specialTest",
+			utils.Subject:      "specialTest",
+			utils.Destination:  "1002",
+			utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+			utils.Usage:        time.Minute,
 		},
 	}
 	mapEv := engine.NewMapEvent(cgrEv.Event)
@@ -381,12 +378,11 @@ func testV2CDRsBalancesWithSameWeight(t *testing.T) {
 		t.Error("Unexpected error received: ", err)
 	}
 	//process cdr should trigger balance update event
-	if err := cdrsOfflineRpc.Call(utils.CDRsV1ProcessCDR, &engine.CDRWithArgDispatcher{CDR: cdr}, &reply); err != nil {
+	if err := cdrsOfflineRpc.Call(utils.CDRsV1ProcessCDR, &engine.CDRWithAPIOpts{CDR: cdr}, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(150) * time.Millisecond) // Give time for CDR to be rated
 }
 
 func testV2CDRsOfflineKillEngine(t *testing.T) {

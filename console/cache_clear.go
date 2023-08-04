@@ -26,7 +26,7 @@ func init() {
 	c := &CmdClear{
 		name:      "cache_clear",
 		rpcMethod: utils.CacheSv1Clear,
-		rpcParams: &utils.AttrCacheIDsWithArgDispatcher{},
+		rpcParams: &utils.AttrCacheIDsWithAPIOpts{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +36,7 @@ func init() {
 type CmdClear struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.AttrCacheIDsWithArgDispatcher
+	rpcParams *utils.AttrCacheIDsWithAPIOpts
 	*CommandExecuter
 }
 
@@ -48,9 +48,9 @@ func (self *CmdClear) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdClear) RpcParams(reset bool) interface{} {
+func (self *CmdClear) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = new(utils.AttrCacheIDsWithArgDispatcher)
+		self.rpcParams = new(utils.AttrCacheIDsWithAPIOpts)
 	}
 	return self.rpcParams
 }
@@ -59,7 +59,7 @@ func (self *CmdClear) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdClear) RpcResult() interface{} {
+func (self *CmdClear) RpcResult() any {
 	var reply string
 	return &reply
 }

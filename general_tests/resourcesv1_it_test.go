@@ -26,7 +26,6 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
@@ -106,7 +105,7 @@ func testV1RsRpcConn(t *testing.T) {
 }
 
 func testV1RsSetProfile(t *testing.T) {
-	rls := &v1.ResourceWithCache{
+	rls := &engine.ResourceProfileWithAPIOpts{
 		ResourceProfile: &engine.ResourceProfile{
 			Tenant:    "cgrates.org",
 			ID:        "RES_GR_TEST",
@@ -115,11 +114,11 @@ func testV1RsSetProfile(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			UsageTTL:          time.Duration(-1),
+			UsageTTL:          -1,
 			Limit:             2,
 			AllocationMessage: "Account1Channels",
 			Weight:            20,
-			ThresholdIDs:      []string{utils.META_NONE},
+			ThresholdIDs:      []string{utils.MetaNone},
 		},
 	}
 	var result string
@@ -131,40 +130,40 @@ func testV1RsSetProfile(t *testing.T) {
 }
 
 func testV1RsAllocate(t *testing.T) {
-	argsRU := utils.ArgRSv1ResourceUsage{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				"Account":     "1001",
-				"Destination": "1002",
-			},
+	cgrEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			"Account":     "1001",
+			"Destination": "1002",
 		},
-		UsageID: "chan_1",
-		Units:   1,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "chan_1",
+			utils.OptsResourcesUnits:   1,
+		},
 	}
 	var reply string
 	if err := rlsV1Rpc.Call(utils.ResourceSv1AllocateResources,
-		argsRU, &reply); err != nil {
+		cgrEv, &reply); err != nil {
 		t.Error(err)
 	} else if reply != "Account1Channels" {
 		t.Error("Unexpected reply returned", reply)
 	}
 
-	argsRU2 := utils.ArgRSv1ResourceUsage{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				"Account":     "1001",
-				"Destination": "1002",
-			},
+	cgrEv2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			"Account":     "1001",
+			"Destination": "1002",
 		},
-		UsageID: "chan_2",
-		Units:   1,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "chan_2",
+			utils.OptsResourcesUnits:   1,
+		},
 	}
 	if err := rlsV1Rpc.Call(utils.ResourceSv1AllocateResources,
-		argsRU2, &reply); err != nil {
+		cgrEv2, &reply); err != nil {
 		t.Error(err)
 	} else if reply != "Account1Channels" {
 		t.Error("Unexpected reply returned", reply)
@@ -173,16 +172,16 @@ func testV1RsAllocate(t *testing.T) {
 
 func testV1RsAuthorize(t *testing.T) {
 	var reply *engine.Resources
-	args := &utils.ArgRSv1ResourceUsage{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				"Account":     "1001",
-				"Destination": "1002",
-			},
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			"Account":     "1001",
+			"Destination": "1002",
 		},
-		UsageID: "RandomUsageID",
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "RandomUsageID",
+		},
 	}
 	if err := rlsV1Rpc.Call(utils.ResourceSv1GetResourcesForEvent,
 		args, &reply); err != nil {
@@ -206,19 +205,20 @@ func testV1RsAuthorize(t *testing.T) {
 	}
 
 	var reply2 string
-	argsRU := utils.ArgRSv1ResourceUsage{
-		UsageID: "chan_1",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				"Account":     "1001",
-				"Destination": "1002"},
+	cgrEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			"Account":     "1001",
+			"Destination": "1002",
 		},
-		Units: 1,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "chan_1",
+			utils.OptsResourcesUnits:   1,
+		},
 	}
 	if err := rlsV1Rpc.Call(utils.ResourceSv1AuthorizeResources,
-		argsRU, &reply2); err.Error() != "RESOURCE_UNAUTHORIZED" {
+		&cgrEv, &reply2); err.Error() != "RESOURCE_UNAUTHORIZED" {
 		t.Error(err)
 	}
 }

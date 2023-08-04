@@ -28,9 +28,8 @@
 	"attributes_conns": ["*localhost"],
 	"rals_conns": ["*internal"],
 	"cdrs_conns": ["*internal"],
-	"stats_conns": ["*localhost"],
 	"chargers_conns": ["*internal"],
-	"suppliers_conns": ["*localhost"],
+	"routes_conns": ["*localhost"],
 },
 
 
@@ -55,20 +54,34 @@
 },
 
 
-"suppliers": {
+"routes": {
 	"enabled": true,
 },
 
-
-"stats": {
-	"enabled": true,
-	"indexed_selects": false
+"tls": {
+	"server_certificate" : "/usr/share/cgrates/tls/server.crt",			// path to server certificate(must conatin server.crt + ca.crt)
+	"server_key":"/usr/share/cgrates/tls/server.key",					// path to server key
+	"client_certificate" : "/usr/share/cgrates/tls/client.crt",			// path to client certificate(must conatin client.crt + ca.crt)
+	"client_key":"/usr/share/cgrates/tls/client.key",					// path to client key
+	"ca_certificate":"/usr/share/cgrates/tls/ca.crt",
 },
-
 
 "dns_agent": {
 	"enabled": true,
-	"listen": ":2053",
+	"listeners":[
+		{
+			"address":":2053",
+			"network":"udp"
+		},
+		{
+			"address":":2053",
+			"network":"tcp"
+		},
+		{
+			"address":":2054",
+			"network":"tcp-tls"
+		},
+    ],
 	"sessions_conns": ["*localhost"],
 },
 

@@ -36,61 +36,20 @@ func SliceHasMember(ss []string, s string) bool {
 	return i < len(ss) && ss[i] == s
 }
 
-func SliceWithoutMember(ss []string, s string) []string {
-	sort.Strings(ss)
-	if i := sort.SearchStrings(ss, s); i < len(ss) && ss[i] == s {
-		ss[i], ss = ss[len(ss)-1], ss[:len(ss)-1]
-	}
-	return ss
-}
-
-// Iterates over slice members and returns true if one starts with prefix
-func SliceMemberHasPrefix(ss []string, prfx string) bool {
-	for _, mbr := range ss {
-		if strings.HasPrefix(mbr, prfx) {
-			return true
+// PrefixSliceItems iterates through slice and add a prefix before every element
+func PrefixSliceItems(prfx string, slc []string) (out []string) {
+	out = make([]string, 0, len(slc))
+	for _, itm := range slc {
+		if itm != EmptyString {
+			out = append(out, prfx+itm)
 		}
-	}
-	return false
-}
-
-func Avg(values []float64) float64 {
-	if len(values) == 0 {
-		return 0.0
-	}
-	var sum float64
-	for _, val := range values {
-		sum += val
-	}
-	return sum / float64(len(values))
-}
-
-func AvgNegative(values []float64) float64 {
-	if len(values) == 0 {
-		return -1 // return -1 if no data
-	}
-	return Avg(values)
-}
-
-func PrefixSliceItems(slc []string, prfx string) (out []string) {
-	out = make([]string, len(slc))
-	for i, itm := range slc {
-		out[i] = prfx + itm
 	}
 	return
 }
 
-// StripSlicePrefix will strip a number of items from the beginning of the slice
-func StripSlicePrefix(slc []string, nrItems int) []string {
-	if len(slc) < nrItems {
-		return []string{}
-	}
-	return slc[nrItems:]
-}
-
 // SliceStringToIface converts slice of strings into a slice of interfaces
-func SliceStringToIface(slc []string) (ifc []interface{}) {
-	ifc = make([]interface{}, len(slc))
+func SliceStringToIface(slc []string) (ifc []any) {
+	ifc = make([]any, len(slc))
 	for i, itm := range slc {
 		ifc[i] = itm
 	}
@@ -112,4 +71,22 @@ func HasPrefixSlice(prfxs []string, el string) bool {
 		}
 	}
 	return false
+}
+
+func CloneStringSlice(in []string) (cl []string) {
+	cl = make([]string, len(in))
+	copy(cl, in)
+	return
+}
+
+func SliceStringEqual(v1, v2 []string) bool {
+	if len(v1) != len(v2) {
+		return false
+	}
+	for i := range v1 {
+		if v1[i] != v2[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -20,8 +20,7 @@ package engine
 
 import (
 	"encoding/json"
-	"fmt"
-	"reflect"
+	"io"
 	"strconv"
 	"strings"
 
@@ -48,26 +47,26 @@ const (
 	FsIPv4                = "FreeSWITCH-IPv4"
 )
 
-func NewFSCdr(body []byte, cgrCfg *config.CGRConfig) (*FSCdr, error) {
+func NewFSCdr(body io.Reader, cgrCfg *config.CGRConfig) (*FSCdr, error) {
 	fsCdr := &FSCdr{cgrCfg: cgrCfg, vars: make(map[string]string)}
 	var err error
-	if err = json.Unmarshal(body, &fsCdr.body); err == nil {
-		if variables, ok := fsCdr.body[FS_CDR_MAP]; ok {
-			if variables, ok := variables.(map[string]interface{}); ok {
-				for k, v := range variables {
-					fsCdr.vars[k] = v.(string)
-				}
+	if err = json.NewDecoder(body).Decode(&fsCdr.body); err != nil {
+		return nil, err
+	}
+	if variables, ok := fsCdr.body[FS_CDR_MAP]; ok {
+		if variables, ok := variables.(map[string]any); ok {
+			for k, v := range variables {
+				fsCdr.vars[k] = v.(string)
 			}
-			return fsCdr, nil
 		}
 	}
-	return nil, err
+	return fsCdr, nil
 }
 
 type FSCdr struct {
 	cgrCfg *config.CGRConfig
 	vars   map[string]string
-	body   map[string]interface{} // keeps the loaded body for extra field search
+	body   map[string]any // keeps the loaded body for extra field search
 }
 
 func (fsCdr FSCdr) getCGRID() string {
@@ -77,49 +76,41 @@ func (fsCdr FSCdr) getCGRID() string {
 
 func (fsCdr FSCdr) getExtraFields() map[string]string {
 	extraFields := make(map[string]string, len(fsCdr.cgrCfg.CdrsCfg().ExtraFields))
+	const dynprefix string = utils.MetaDynReq + utils.NestingSep
 	for _, field := range fsCdr.cgrCfg.CdrsCfg().ExtraFields {
-		origFieldVal, foundInVars := fsCdr.vars[field.Id]
-		if strings.HasPrefix(field.Id, utils.STATIC_VALUE_PREFIX) { // Support for static values injected in the CDRS. it will show up as {^value:value}
-			foundInVars = true
+		if !strings.HasPrefix(field.Rules, dynprefix) {
+			continue
 		}
+		attrName := field.AttrName()[5:]
+		origFieldVal, foundInVars := fsCdr.vars[attrName]
 		if !foundInVars {
-			origFieldVal = fsCdr.searchExtraField(field.Id, fsCdr.body)
+			origFieldVal = fsCdr.searchExtraField(attrName, fsCdr.body)
 		}
-		if parsed, err := field.Parse(origFieldVal); err == nil {
-			extraFields[field.Id] = parsed
+		if parsed, err := field.ParseValue(origFieldVal); err == nil {
+			extraFields[attrName] = parsed
 		}
-
 	}
 	return extraFields
 }
 
-func (fsCdr FSCdr) searchExtraField(field string, body map[string]interface{}) (result string) {
+func (fsCdr FSCdr) searchExtraField(field string, body map[string]any) (result string) {
 	for key, value := range body {
+		if key == field {
+			return utils.IfaceAsString(value)
+		}
 		switch v := value.(type) {
-		case string:
-			if key == field {
-				return v
-			}
-		case float64:
-			if key == field {
-				return strconv.FormatFloat(v, 'f', -1, 64)
-			}
-		case map[string]interface{}:
-			if result = fsCdr.searchExtraField(field, v); result != "" {
+		case map[string]any:
+			if result = fsCdr.searchExtraField(field, v); len(result) != 0 {
 				return
 			}
-		case []interface{}:
+		case []any:
 			for _, item := range v {
-				if otherMap, ok := item.(map[string]interface{}); ok {
-					if result = fsCdr.searchExtraField(field, otherMap); result != "" {
+				if otherMap, ok := item.(map[string]any); ok {
+					if result = fsCdr.searchExtraField(field, otherMap); len(result) != 0 {
 						return
 					}
-				} else {
-					utils.Logger.Warning(fmt.Sprintf("Slice with no maps: %v", reflect.TypeOf(item)))
 				}
 			}
-		default:
-			utils.Logger.Warning(fmt.Sprintf("Unexpected type: %v", reflect.TypeOf(v)))
 		}
 	}
 	return
@@ -136,32 +127,54 @@ func (fsCdr FSCdr) firstDefined(fldNames []string, dfltFld string) (val string) 
 	return fsCdr.searchExtraField(dfltFld, fsCdr.body)
 }
 
-func (fsCdr FSCdr) AsCDR(timezone string) *CDR {
-	storCdr := new(CDR)
-	storCdr.CGRID = fsCdr.getCGRID()
-	storCdr.ToR = utils.VOICE
-	storCdr.OriginID = fsCdr.vars[FS_UUID]
-	storCdr.OriginHost = utils.FirstNonEmpty(fsCdr.vars[utils.CGROriginHost],
-		fsCdr.vars[FsIPv4])
-	storCdr.Source = FS_CDR_SOURCE
-	storCdr.RequestType = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_REQTYPE],
-		fsCdr.cgrCfg.GeneralCfg().DefaultReqType)
-	storCdr.Tenant = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_TENANT],
-		fsCdr.cgrCfg.GeneralCfg().DefaultTenant)
-	storCdr.Category = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_CATEGORY],
-		fsCdr.cgrCfg.GeneralCfg().DefaultCategory)
-	storCdr.Account = fsCdr.firstDefined([]string{utils.CGR_ACCOUNT, FS_USERNAME},
-		FsUsername)
-	storCdr.Subject = fsCdr.firstDefined([]string{utils.CGR_SUBJECT,
-		utils.CGR_ACCOUNT, FS_USERNAME}, FsUsername)
-	storCdr.Destination = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_DESTINATION],
-		fsCdr.vars[FS_CALL_DEST_NR], fsCdr.vars[FS_SIP_REQUSER])
-	storCdr.SetupTime, _ = utils.ParseTimeDetectLayout(fsCdr.vars[FS_SETUP_TIME],
-		timezone) // Not interested to process errors, should do them if necessary in a previous step
-	storCdr.AnswerTime, _ = utils.ParseTimeDetectLayout(fsCdr.vars[FS_ANSWER_TIME],
-		timezone)
-	storCdr.Usage, _ = utils.ParseDurationWithSecs(fsCdr.vars[FS_DURATION])
-	storCdr.ExtraFields = fsCdr.getExtraFields()
-	storCdr.Cost = -1
-	return storCdr
+func (fsCdr FSCdr) AsCDR(timezone string) (storCdr *CDR, err error) {
+	storCdr = &CDR{
+		CGRID:       fsCdr.getCGRID(),
+		RunID:       fsCdr.vars["cgr_runid"],
+		OriginHost:  utils.FirstNonEmpty(fsCdr.vars[utils.CGROriginHost], fsCdr.vars[FsIPv4]),
+		Source:      FS_CDR_SOURCE,
+		OriginID:    fsCdr.vars[FS_UUID],
+		ToR:         utils.MetaVoice,
+		RequestType: utils.FirstNonEmpty(fsCdr.vars[utils.CGRReqType], fsCdr.cgrCfg.GeneralCfg().DefaultReqType),
+		Tenant:      utils.FirstNonEmpty(fsCdr.vars[utils.CGRTenant], fsCdr.cgrCfg.GeneralCfg().DefaultTenant),
+		Category:    utils.FirstNonEmpty(fsCdr.vars[utils.CGRCategory], fsCdr.cgrCfg.GeneralCfg().DefaultCategory),
+		Account:     fsCdr.firstDefined([]string{utils.CGRAccount, FS_USERNAME}, FsUsername),
+		Subject:     fsCdr.firstDefined([]string{utils.CGRSubject, utils.CGRAccount, FS_USERNAME}, FsUsername),
+		Destination: utils.FirstNonEmpty(fsCdr.vars[utils.CGRDestination], fsCdr.vars[FS_CALL_DEST_NR], fsCdr.vars[FS_SIP_REQUSER]),
+		ExtraFields: fsCdr.getExtraFields(),
+		ExtraInfo:   fsCdr.vars["cgr_extrainfo"],
+		CostSource:  fsCdr.vars["cgr_costsource"],
+		Cost:        -1,
+	}
+	if orderID, hasIt := fsCdr.vars["cgr_orderid"]; hasIt {
+		if storCdr.OrderID, err = strconv.ParseInt(orderID, 10, 64); err != nil {
+			return nil, err
+		}
+	}
+	if setupTime, hasIt := fsCdr.vars[FS_SETUP_TIME]; hasIt {
+		if storCdr.SetupTime, err = utils.ParseTimeDetectLayout(setupTime, timezone); err != nil {
+			return nil, err
+		} // Not interested to process errors, should do them if necessary in a previous step
+	}
+	if answerTime, hasIt := fsCdr.vars[FS_ANSWER_TIME]; hasIt {
+		if storCdr.AnswerTime, err = utils.ParseTimeDetectLayout(answerTime, timezone); err != nil {
+			return nil, err
+		}
+	}
+	if usage, hasIt := fsCdr.vars[FS_DURATION]; hasIt {
+		if storCdr.Usage, err = utils.ParseDurationWithSecs(usage); err != nil {
+			return nil, err
+		}
+	}
+	if partial, hasIt := fsCdr.vars["cgr_partial"]; hasIt {
+		if storCdr.Partial, err = strconv.ParseBool(partial); err != nil {
+			return nil, err
+		}
+	}
+	if preRated, hasIt := fsCdr.vars["cgr_prerated"]; hasIt {
+		if storCdr.PreRated, err = strconv.ParseBool(preRated); err != nil {
+			return nil, err
+		}
+	}
+	return
 }

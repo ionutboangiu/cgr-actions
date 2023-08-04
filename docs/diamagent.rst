@@ -38,110 +38,7 @@ With explanations in the comments:
 	"product_name": "CGRateS",			// diameter Product-Name AVP used in replies
 	"concurrent_requests": -1,			// limit the number of active requests processed by the server <-1|0-n>
 	"synced_conn_requests": false,		// process one request at the time per connection
-	"asr_template": "*asr",				// enable AbortSession message being sent to client 
-										// forcing session disconnection from CGRateS side
-	"templates":{						// message templates which can be injected within request/replies
-		"*err": [						// *err is used mostly in automatic diameter replies with errors
-				{
-					"tag": "SessionId", "path": "*rep.Session-Id",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.Session-Id"
-				},
-				{
-					"tag": "OriginHost", "path": "*rep.Origin-Host",
-					"type": "*variable", "mandatory": true,
-					"value": "~*vars.OriginHost"
-				},
-				{
-					"tag": "OriginRealm", "path": "*rep.Origin-Realm",
-					"type": "*variable", "mandatory": true,
-					"value": "~*vars.OriginRealm"
-				},
-		],
-		"*cca": [		// *cca is used into CallControlAnswer messages
-				{
-					"tag": "SessionId", "path": "*rep.Session-Id",
-					"type": "*composed", "mandatory": true,
-					"value": "~*req.Session-Id"
-				},
-				{
-					"tag": "ResultCode", "path": "*rep.Result-Code",
-					"type": "*constant", "value": "2001"},
-				{
-					"tag": "OriginHost", "path": "*rep.Origin-Host",
-					"type": "*variable", "mandatory": true,
-					"value": "~*vars.OriginHost"
-				},
-				{
-					"tag": "OriginRealm", "path": "*rep.Origin-Realm",
-					"type": "*variable", "mandatory": true,
-					"value": "~*vars.OriginRealm"
-				},
-				{
-					"tag": "AuthApplicationId",
-					"path": "rep.Auth-Application-Id",
-					"type": "*variable", "mandatory": true,
-					 "value": "~*vars.*appid"
-				},
-				{
-					"tag": "CCRequestType",
-					"path": "*rep.CC-Request-Type",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.CC-Request-Type"
-				},
-				{
-					"tag": "CCRequestNumber",
-					"path": "*rep.CC-Request-Number",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.CC-Request-Number"
-				},
-		],
-		"*asr": [	// *asr is used to build AbortSessionRequest
-				{
-					"tag": "SessionId", "path": "*diamreq.Session-Id",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.Session-Id"
-				},
-				{
-					"tag": "OriginHost", "path": "diamreq.Origin-Host",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.Destination-Host"
-				},
-				{
-					"tag": "OriginRealm", "path": "diamreq.Origin-Realm",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.Destination-Realm"
-				},
-				{
-					"tag": "DestinationRealm",
-					"path": "*diamreq.Destination-Realm",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.Origin-Realm"
-				},
-				{
-					"tag": "DestinationHost", 
-					"path": "*diamreq.Destination-Host",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.Origin-Host"
-				},
-				{
-					"tag": "AuthApplicationId", 
-					"path": "*diamreq.Auth-Application-Id",
-					"type": "*variable", "mandatory": true,
-					 "value": "~*vars.*appid"
-				},
-				{
-					"tag": "UserName", "path": "*diamreq.User-Name",
-					"type": "*variable", "mandatory": true,
-					"value": "~*req.User-Name"
-				},
-				{
-					"tag": "OriginStateID",
-					"path": "*diamreq.Origin-State-Id",
-					"type": "*constant", "value": "1"
-				}
-		]
-	},
+	"asr_template": "*asr",				// enable AbortSession message being sent to client
 	"request_processors": [		// decision logic for message processing
 		{
 			"id": "SMSes",		// id is used for debug in logs (ie: using *log flag)
@@ -188,7 +85,7 @@ With explanations in the comments:
 					"path": "*cgreq.Account",
 					"type": "*variable",		// value is taken dynamically from a group AVP
 					"mandatory": true,			//   where Subscription-Id-Type is 0
-					"value": "~*req.Subscription-Id.Subscription-Id-Data[~Subscription-Id-Type(0)]" 
+					"value": "~*req.Subscription-Id.Subscription-Id-Data<~Subscription-Id-Type(0)>" 
 				},
 				{
 					"tag": "Destination",			// Destination is used for charging
@@ -324,10 +221,10 @@ filters
 	**\*req**
 		Diameter request as it comes from the *DiameterClient*. 
 
-		Special selector format defined in case of groups *\*req.Path.To.Attribute[$groupIndex]* or *\*req.Absolute.Path.To.Attribute[~AnotherAttributeRelativePath($valueAnotherAttribute)]*. 
+		Special selector format defined in case of groups *\*req.Path.To.Attribute[$groupIndex]* or *\*req.Absolute.Path.To.Attribute<~AnotherAttributeRelativePath($valueAnotherAttribute)>*. 
 
-		Example 1: *~\*req.Multiple-Services-Credit-Control.Rating-Group[1]* translates to: value of the group attribute at path Multiple-Services-Credit-Control.Rating-Group which is located in the second group (groups start at index 0).
-		Example 2: *~\*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets[~Rating-Group(1)]* which translates to: value of the group attribute at path: *Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets* where Multiple-Services-Credit-Control.Used-Service-Unit.Rating-Group has value of "1".
+		Example 1: *~\*req.Multiple-Services-Credit-Control.Rating-Group<1>* translates to: value of the group attribute at path Multiple-Services-Credit-Control.Rating-Group which is located in the second group (groups start at index 0).
+		Example 2: *~\*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets<~Rating-Group(1)>* which translates to: value of the group attribute at path: *Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets* where Multiple-Services-Credit-Control.Used-Service-Unit.Rating-Group has value of "1".
 
 	**\*rep**
 		Diameter reply going to *DiameterClient*. 
@@ -364,7 +261,7 @@ flags
 	**\*auth**
 		Sends the request for authorization on CGRateS.
 
-		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*suppliers**, **\*suppliers_ignore_errors**, **\*suppliers_event_cost** which are used to influence the auth behavior on CGRateS side. More info on that can be found on the **SessionS** component's API behavior.
+		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*routes**, **\*routes_ignore_errors**, **\*routes_event_cost**, **\*routes_maxcost** which are used to influence the auth behavior on CGRateS side. More info on that can be found on the **SessionS** component's API behavior.
 
 	**\*initiate**
 		Initiates a session out of request on CGRateS side.
@@ -384,7 +281,7 @@ flags
 	**\*message**
 		Process the request as individual message charging on CGRateS side.
 
-		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*suppliers**, **\*suppliers_ignore_errors**, **\*suppliers_event_cost** which are used to influence the behavior on CGRateS side.
+		Auxiliary flags available: **\*attributes**, **\*thresholds**, **\*stats**, **\*resources**, **\*accounts**, **\*routes**, **\*routes_ignore_errors**, **\*routes_event_cost**, **\*routes_maxcost** which are used to influence the behavior on CGRateS side.
 
 
 	**\*event**
@@ -425,9 +322,6 @@ type
 
 	**\*constant**
 		Writes out a constant
-
-	**\*remote_host**
-		Writes out the Address of the remote *DiameterClient* sending us the request
 
 	**\*variable**
 		Writes out the variable value, overwriting previous one set

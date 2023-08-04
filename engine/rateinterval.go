@@ -40,17 +40,19 @@ type RateInterval struct {
 
 // Separate structure used for rating plan size optimization
 type RITiming struct {
-	Years              utils.Years
-	Months             utils.Months
-	MonthDays          utils.MonthDays
-	WeekDays           utils.WeekDays
-	StartTime, EndTime string // ##:##:## format
-	cronString         string
-	tag                string // loading validation only
+	ID         string
+	Years      utils.Years
+	Months     utils.Months
+	MonthDays  utils.MonthDays
+	WeekDays   utils.WeekDays
+	StartTime  string // ##:##:## format
+	EndTime    string // ##:##:## format
+	cronString string
+	tag        string // loading validation only
 }
 
 func (rit *RITiming) CronString() string {
-	if rit.cronString != "" {
+	if rit.cronString != "" && rit.ID != utils.MetaMonthlyEstimated {
 		return rit.cronString
 	}
 	var sec, min, hour, monthday, month, weekday, year string
@@ -68,15 +70,9 @@ func (rit *RITiming) CronString() string {
 		} else {
 			hour, min, sec = "*", "*", "*"
 		}
-		if strings.HasPrefix(hour, "0") {
-			hour = hour[1:]
-		}
-		if strings.HasPrefix(min, "0") {
-			min = min[1:]
-		}
-		if strings.HasPrefix(sec, "0") {
-			sec = sec[1:]
-		}
+		hour = strings.TrimPrefix(hour, "0")
+		min = strings.TrimPrefix(min, "0")
+		sec = strings.TrimPrefix(sec, "0")
 	}
 	if len(rit.MonthDays) == 0 {
 		monthday = "*"
@@ -117,6 +113,9 @@ func (rit *RITiming) CronString() string {
 			}
 			year += strconv.Itoa(int(md))
 		}
+	}
+	if monthday == "-1" { // in case we receive -1 we send to cron special character L ( Last )
+		monthday = "L"
 	}
 	rit.cronString = fmt.Sprintf("%s %s %s %s %s %s %s", sec, min, hour, monthday, month, weekday, year)
 	return rit.cronString
@@ -214,7 +213,7 @@ type RIRate struct {
 	RoundingDecimals int
 	MaxCost          float64
 	MaxCostStrategy  string
-	Rates            RateGroups // GroupRateInterval (start time): Rate
+	Rates            RateGroups // GroupRateInterval (start time): RGRate
 	tag              string     // loading validation only
 }
 
@@ -226,7 +225,7 @@ func (rir *RIRate) Stringify() string {
 	return utils.Sha1(str)[:8]
 }
 
-type Rate struct {
+type RGRate struct {
 	GroupIntervalStart time.Duration
 	Value              float64
 	RateIncrement      time.Duration
@@ -234,7 +233,7 @@ type Rate struct {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (r *Rate) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (r *RGRate) FieldAsInterface(fldPath []string) (val any, err error) {
 	if r == nil || len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -252,18 +251,18 @@ func (r *Rate) FieldAsInterface(fldPath []string) (val interface{}, err error) {
 	}
 }
 
-func (r *Rate) Stringify() string {
+func (r *RGRate) Stringify() string {
 	return utils.Sha1(fmt.Sprintf("%v", r))[:8]
 }
 
-func (p *Rate) Equal(o *Rate) bool {
+func (p *RGRate) Equal(o *RGRate) bool {
 	return p.GroupIntervalStart == o.GroupIntervalStart &&
 		p.Value == o.Value &&
 		p.RateIncrement == o.RateIncrement &&
 		p.RateUnit == o.RateUnit
 }
 
-type RateGroups []*Rate
+type RateGroups []*RGRate
 
 func (pg RateGroups) Len() int {
 	return len(pg)
@@ -293,7 +292,7 @@ func (pg RateGroups) Equal(og RateGroups) bool {
 	return true
 }
 
-func (pg *RateGroups) AddRate(ps ...*Rate) {
+func (pg *RateGroups) AddRate(ps ...*RGRate) {
 	for _, p := range ps {
 		found := false
 		for _, op := range *pg {
@@ -323,7 +322,7 @@ func (pg RateGroups) Equals(oRG RateGroups) bool {
 func (pg RateGroups) Clone() (cln RateGroups) {
 	cln = make(RateGroups, len(pg))
 	for i, rt := range pg {
-		cln[i] = new(Rate)
+		cln[i] = new(RGRate)
 		*cln[i] = *rt
 	}
 	return
@@ -370,7 +369,7 @@ func (i *RateInterval) GetCost(duration, startSecond time.Duration) float64 {
 	price, _, rateUnit := i.GetRateParameters(startSecond)
 	price /= float64(rateUnit.Nanoseconds())
 	d := float64(duration.Nanoseconds())
-	return utils.Round(d*price, globalRoundingDecimals, utils.ROUNDING_MIDDLE)
+	return utils.Round(d*price, globalRoundingDecimals, utils.MetaRoundingMiddle)
 }
 
 // Gets the price for a the provided start second
@@ -464,12 +463,33 @@ func (rit *RITiming) Clone() (cln *RITiming) {
 		return
 	}
 	cln = &RITiming{
-		Years:     rit.Years,
-		Months:    rit.Months,
-		MonthDays: rit.MonthDays,
-		WeekDays:  rit.WeekDays,
+		ID:        rit.ID,
 		StartTime: rit.StartTime,
 		EndTime:   rit.EndTime,
+	}
+	if len(rit.Years) != 0 {
+		cln.Years = make(utils.Years, len(rit.Years))
+		for i, year := range rit.Years {
+			cln.Years[i] = year
+		}
+	}
+	if len(rit.Months) != 0 {
+		cln.Months = make(utils.Months, len(rit.Months))
+		for i, month := range rit.Months {
+			cln.Months[i] = month
+		}
+	}
+	if len(rit.MonthDays) != 0 {
+		cln.MonthDays = make(utils.MonthDays, len(rit.MonthDays))
+		for i, monthDay := range rit.MonthDays {
+			cln.MonthDays[i] = monthDay
+		}
+	}
+	if len(rit.WeekDays) != 0 {
+		cln.WeekDays = make(utils.WeekDays, len(rit.WeekDays))
+		for i, weekDay := range rit.WeekDays {
+			cln.WeekDays[i] = weekDay
+		}
 	}
 	return
 }
@@ -487,7 +507,7 @@ func (rit *RIRate) Clone() (cln *RIRate) {
 		MaxCostStrategy:  rit.MaxCostStrategy,
 	}
 	if rit.Rates != nil {
-		cln.Rates = make([]*Rate, len(rit.Rates))
+		cln.Rates = make([]*RGRate, len(rit.Rates))
 		for i, rate := range rit.Rates {
 			cln.Rates[i] = rate.Clone()
 		}
@@ -496,15 +516,138 @@ func (rit *RIRate) Clone() (cln *RIRate) {
 }
 
 // Clone clones Rates
-func (r *Rate) Clone() (cln *Rate) {
+func (r *RGRate) Clone() (cln *RGRate) {
 	if r == nil {
 		return
 	}
-	cln = &Rate{
+	cln = &RGRate{
 		GroupIntervalStart: r.GroupIntervalStart,
 		Value:              r.Value,
 		RateIncrement:      r.RateIncrement,
 		RateUnit:           r.RateUnit,
 	}
 	return
+}
+
+func (rit *RITiming) FieldAsInterface(fldPath []string) (val any, err error) {
+	if rit == nil || len(fldPath) == 0 {
+		return nil, utils.ErrNotFound
+	}
+	switch fldPath[0] {
+	default:
+		opath, indx := utils.GetPathIndex(fldPath[0])
+		if indx != nil {
+			switch opath {
+			case utils.YearsFieldName:
+				if len(fldPath) != 1 || len(rit.Years) <= *indx {
+					return nil, utils.ErrNotFound
+				}
+				return rit.Years[*indx], nil
+			case utils.MonthsFieldName:
+				if len(fldPath) != 1 || len(rit.Months) <= *indx {
+					return nil, utils.ErrNotFound
+				}
+				return rit.Months[*indx], nil
+			case utils.MonthDaysFieldName:
+				if len(fldPath) != 1 || len(rit.MonthDays) <= *indx {
+					return nil, utils.ErrNotFound
+				}
+				return rit.MonthDays[*indx], nil
+			case utils.WeekDaysFieldName:
+				if len(fldPath) != 1 || len(rit.WeekDays) <= *indx {
+					return nil, utils.ErrNotFound
+				}
+				return rit.WeekDays[*indx], nil
+			}
+		}
+		return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
+	case utils.ID:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return rit.ID, nil
+	case utils.StartTime:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return rit.StartTime, nil
+	case utils.EndTime:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return rit.EndTime, nil
+	case utils.YearsFieldName:
+		switch len(fldPath) {
+		case 1:
+			return rit.Years, nil
+		case 2:
+			var idx int
+			if idx, err = strconv.Atoi(fldPath[1]); err != nil {
+				return
+			}
+			if len(rit.Years) <= idx {
+				return nil, utils.ErrNotFound
+			}
+			return rit.Years[idx], nil
+		default:
+			return nil, utils.ErrNotFound
+		}
+	case utils.MonthsFieldName:
+		switch len(fldPath) {
+		case 1:
+			return rit.Months, nil
+		case 2:
+			var idx int
+			if idx, err = strconv.Atoi(fldPath[1]); err != nil {
+				return
+			}
+			if len(rit.Months) <= idx {
+				return nil, utils.ErrNotFound
+			}
+			return rit.Months[idx], nil
+		default:
+			return nil, utils.ErrNotFound
+		}
+	case utils.MonthDaysFieldName:
+		switch len(fldPath) {
+		case 1:
+			return rit.MonthDays, nil
+		case 2:
+			var idx int
+			if idx, err = strconv.Atoi(fldPath[1]); err != nil {
+				return
+			}
+			if len(rit.MonthDays) <= idx {
+				return nil, utils.ErrNotFound
+			}
+			return rit.MonthDays[idx], nil
+		default:
+			return nil, utils.ErrNotFound
+		}
+	case utils.WeekDaysFieldName:
+		switch len(fldPath) {
+		case 1:
+			return rit.WeekDays, nil
+		case 2:
+			var idx int
+			if idx, err = strconv.Atoi(fldPath[1]); err != nil {
+				return
+			}
+			if len(rit.WeekDays) <= idx {
+				return nil, utils.ErrNotFound
+			}
+			return rit.WeekDays[idx], nil
+		default:
+			return nil, utils.ErrNotFound
+		}
+	}
+}
+
+func (rit *RITiming) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = rit.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return utils.IfaceAsString(iface), nil
 }

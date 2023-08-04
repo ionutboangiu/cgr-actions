@@ -22,31 +22,37 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-// Creates a new resource within a tariff plan
-func (self *APIerSv1) SetTPResource(attr *utils.TPResourceProfile, reply *string) error {
-	if missing := utils.MissingStructFields(attr, []string{"TPid", "Tenant", "ID", "Limit"}); len(missing) != 0 {
+// SetTPResource creates a new resource within a tariff plan
+func (apierSv1 *APIerSv1) SetTPResource(attr *utils.TPResourceProfile, reply *string) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.TPid, utils.ID, utils.Limit}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := self.StorDb.SetTPResources([]*utils.TPResourceProfile{attr}); err != nil {
+	if attr.Tenant == utils.EmptyString {
+		attr.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if err := apierSv1.StorDb.SetTPResources([]*utils.TPResourceProfile{attr}); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
 	return nil
 }
 
-// Queries specific Resource on Tariff plan
-func (self *APIerSv1) GetTPResource(attr *utils.TPTntID, reply *utils.TPResourceProfile) error {
-	if missing := utils.MissingStructFields(attr, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 { //Params missing
+// GetTPResource queries specific Resource on Tariff plan
+func (apierSv1 *APIerSv1) GetTPResource(attr *utils.TPTntID, reply *utils.TPResourceProfile) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.TPid, utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if rls, err := self.StorDb.GetTPResources(attr.TPid, attr.Tenant, attr.ID); err != nil {
+	if attr.Tenant == utils.EmptyString {
+		attr.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	rls, err := apierSv1.StorDb.GetTPResources(attr.TPid, attr.Tenant, attr.ID)
+	if err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
 		return err
-	} else {
-		*reply = *rls[0]
 	}
+	*reply = *rls[0]
 	return nil
 }
 
@@ -55,33 +61,35 @@ type AttrGetTPResourceIds struct {
 	utils.PaginatorWithSearch
 }
 
-// Queries Resource identities on specific tariff plan.
-func (self *APIerSv1) GetTPResourceIDs(attrs *AttrGetTPResourceIds, reply *[]string) error {
-	if missing := utils.MissingStructFields(attrs, []string{"TPid"}); len(missing) != 0 { //Params missing
+// GetTPResourceIDs queries Resource identities on specific tariff plan.
+func (apierSv1 *APIerSv1) GetTPResourceIDs(attrs *AttrGetTPResourceIds, reply *[]string) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.TPid}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if ids, err := self.StorDb.GetTpTableIds(attrs.TPid, utils.TBLTPResources,
-		utils.TPDistinctIds{"id"}, nil, &attrs.PaginatorWithSearch); err != nil {
+	ids, err := apierSv1.StorDb.GetTpTableIds(attrs.TPid, utils.TBLTPResources,
+		utils.TPDistinctIds{utils.TenantCfg, utils.IDCfg}, nil, &attrs.PaginatorWithSearch)
+	if err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
 		return err
-	} else {
-		*reply = ids
 	}
+	*reply = ids
 	return nil
 }
 
-// Removes specific Resource on Tariff plan
-func (self *APIerSv1) RemoveTPResource(attrs *utils.TPTntID, reply *string) error {
-	if missing := utils.MissingStructFields(attrs, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 { //Params missing
+// RemoveTPResource removes specific Resource on Tariff plan
+func (apierSv1 *APIerSv1) RemoveTPResource(attrs *utils.TPTntID, reply *string) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.TPid, utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := self.StorDb.RemTpData(utils.TBLTPResources, attrs.TPid, map[string]string{"tenant": attrs.Tenant, "id": attrs.ID}); err != nil {
-		return utils.NewErrServerError(err)
-	} else {
-		*reply = utils.OK
+	if attrs.Tenant == utils.EmptyString {
+		attrs.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
+	if err := apierSv1.StorDb.RemTpData(utils.TBLTPResources, attrs.TPid, map[string]string{utils.TenantCfg: attrs.Tenant, utils.IDCfg: attrs.ID}); err != nil {
+		return utils.NewErrServerError(err)
+	}
+	*reply = utils.OK
 	return nil
 
 }

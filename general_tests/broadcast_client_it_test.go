@@ -43,8 +43,8 @@ var (
 
 	sTestBrodcastIt = []func(t *testing.T){
 		testbrodcastItLoadConfig,
-		// testbrodcastItResetDataDB,
-		// testbrodcastItResetStorDb,
+		testbrodcastItResetDataDB,
+		testbrodcastItResetStorDb,
 		testbrodcastItStartEngine,
 		testbrodcastItRPCConn,
 		testbrodcastItLoadFromFolder,
@@ -88,17 +88,17 @@ func testbrodcastItLoadConfig(t *testing.T) {
 	}
 }
 
-// func testbrodcastItResetDataDB(t *testing.T) {
-// 	if err := engine.InitDataDb(brodcastCfg); err != nil {
-// 		t.Fatal(err)
-// 	}
-// }
+func testbrodcastItResetDataDB(t *testing.T) {
+	if err := engine.InitDataDb(brodcastInternalCfg); err != nil {
+		t.Fatal(err)
+	}
+}
 
-// func testbrodcastItResetStorDb(t *testing.T) {
-// 	if err := engine.InitStorDb(brodcastCfg); err != nil {
-// 		t.Fatal(err)
-// 	}
-// }
+func testbrodcastItResetStorDb(t *testing.T) {
+	if err := engine.InitStorDb(brodcastInternalCfg); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func testbrodcastItStartEngine(t *testing.T) {
 	if _, err := engine.StopStartEngine(brodcastCfgPath, *waitRater); err != nil {
@@ -130,26 +130,24 @@ func testbrodcastItLoadFromFolder(t *testing.T) {
 	if err := brodcastInternalRPC.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 }
 
 func testbrodcastItProccessEvent(t *testing.T) {
-	args := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "TestSSv1ItProcessCDR",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.Category:    utils.CALL,
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1Brodcast",
-				utils.RequestType: utils.META_POSTPAID,
-				utils.Account:     "1001",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       10 * time.Minute,
-			},
+	args := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "TestSSv1ItProcessCDR",
+		Event: map[string]any{
+			utils.Tenant:       "cgrates.org",
+			utils.Category:     utils.Call,
+			utils.ToR:          utils.MetaVoice,
+			utils.OriginID:     "TestSSv1It1Brodcast",
+			utils.RequestType:  utils.MetaPostpaid,
+			utils.AccountField: "1001",
+			utils.Destination:  "1002",
+			utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+			utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+			utils.Usage:        10 * time.Minute,
 		},
 	}
 
@@ -160,7 +158,7 @@ func testbrodcastItProccessEvent(t *testing.T) {
 	if rply != utils.OK {
 		t.Errorf("Unexpected reply: %s", rply)
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 }
 func testbrodcastItGetCDRs(t *testing.T) {
 	eCDR := &engine.CDR{
@@ -188,8 +186,8 @@ func testbrodcastItGetCDRs(t *testing.T) {
 		Cost:        -1,
 	}
 	var cdrs []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}}
-	if err := brodcastRPC.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
+	args := utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}}
+	if err := brodcastRPC.Call(utils.CDRsV1GetCDRs, &args, &cdrs); err != nil {
 		t.Fatal("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Fatal("Unexpected number of CDRs returned: ", len(cdrs))
@@ -199,7 +197,7 @@ func testbrodcastItGetCDRs(t *testing.T) {
 		t.Errorf("Expected: %s ,received: %s", utils.ToJSON(eCDR), utils.ToJSON(cdrs[0]))
 	}
 
-	if err := brodcastInternalRPC.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
+	if err := brodcastInternalRPC.Call(utils.CDRsV1GetCDRs, &args, &cdrs); err != nil {
 		t.Fatal("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -208,7 +206,7 @@ func testbrodcastItGetCDRs(t *testing.T) {
 	cdrs[0].SetupTime = cdrs[0].SetupTime.UTC()   // uniform time
 	cdrs[0].AnswerTime = cdrs[0].AnswerTime.UTC() // uniform time
 	if !reflect.DeepEqual(eCDR, cdrs[0]) {
-		t.Errorf("Expected: %s ,received: %s", utils.ToJSON(eCDR), utils.ToJSON(cdrs[0]))
+		t.Errorf("Expected: %s \n,received: %s", utils.ToJSON(eCDR), utils.ToJSON(cdrs[0]))
 	}
 }
 

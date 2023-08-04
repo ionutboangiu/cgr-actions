@@ -189,7 +189,7 @@ func testTPitTimings(t *testing.T) {
 	}
 	var rplyTmIDs []string
 	expectedTmIDs := []string{"OFFPEAK_EVENING", "OFFPEAK_MORNING", "OFFPEAK_WEEKEND", "PEAK", tmDummyRemove.ID}
-	if err := tpRPC.Call(utils.APIerSv1GetTPTimingIds, v1.AttrGetTPTimingIds{testTPid, utils.PaginatorWithSearch{}}, &rplyTmIDs); err != nil {
+	if err := tpRPC.Call(utils.APIerSv1GetTPTimingIds, &v1.AttrGetTPTimingIds{testTPid, utils.PaginatorWithSearch{}}, &rplyTmIDs); err != nil {
 		t.Error("Calling APIerSv1.GetTPTimingIds, got error: ", err.Error())
 	} else if len(expectedTmIDs) != len(rplyTmIDs) {
 		t.Errorf("Calling APIerSv1.GetTPTimingIds expected: %v, received: %v", expectedTmIDs, rplyTmIDs)
@@ -203,7 +203,7 @@ func testTPitTimings(t *testing.T) {
 	// Test getIds
 	rplyTmIDs = []string{}
 	expectedTmIDs = []string{"OFFPEAK_EVENING", "OFFPEAK_MORNING", "OFFPEAK_WEEKEND", "PEAK"}
-	if err := tpRPC.Call(utils.APIerSv1GetTPTimingIds, v1.AttrGetTPTimingIds{testTPid, utils.PaginatorWithSearch{}}, &rplyTmIDs); err != nil {
+	if err := tpRPC.Call(utils.APIerSv1GetTPTimingIds, &v1.AttrGetTPTimingIds{testTPid, utils.PaginatorWithSearch{}}, &rplyTmIDs); err != nil {
 		t.Error("Calling APIerSv1.GetTPTimingIds, got error: ", err.Error())
 	} else if len(expectedTmIDs) != len(rplyTmIDs) {
 		t.Errorf("Calling APIerSv1.GetTPTimingIds expected: %v, received: %v", expectedTmIDs, rplyTmIDs)
@@ -234,13 +234,13 @@ func testTPitDestinations(t *testing.T) {
 	}
 	// Test get
 	var rplyDst *utils.TPDestination
-	if err := tpRPC.Call(utils.APIerSv2GetTPDestination, AttrGetTPDestination{testTPid, dstDEMobile.ID}, &rplyDst); err != nil {
+	if err := tpRPC.Call(utils.APIerSv2GetTPDestination, &AttrGetTPDestination{testTPid, dstDEMobile.ID}, &rplyDst); err != nil {
 		t.Error("Calling APIerSv2.GetTPDestination, got error: ", err.Error())
 	} else if len(dstDEMobile.Prefixes) != len(rplyDst.Prefixes) {
 		t.Errorf("Calling APIerSv2.GetTPDestination expected: %v, received: %v", dstDEMobile, rplyDst)
 	}
 	// Test remove
-	if err := tpRPC.Call(utils.APIerSv2RemoveTPDestination, AttrGetTPDestination{testTPid, dstDUMMY.ID}, &reply); err != nil {
+	if err := tpRPC.Call(utils.APIerSv2RemoveTPDestination, &AttrGetTPDestination{testTPid, dstDUMMY.ID}, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Error("Received: ", reply)

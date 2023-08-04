@@ -71,20 +71,18 @@ func testTpFltrITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpFltrCfgIn.StorDbCfg().Type,
 		tpFltrCfgIn.StorDbCfg().Host, tpFltrCfgIn.StorDbCfg().Port,
 		tpFltrCfgIn.StorDbCfg().Name, tpFltrCfgIn.StorDbCfg().User,
-		tpFltrCfgIn.StorDbCfg().Password, tpFltrCfgIn.GeneralCfg().DBDataEncoding, tpFltrCfgOut.StorDbCfg().SSLMode,
-		tpFltrCfgOut.StorDbCfg().MaxOpenConns, tpFltrCfgOut.StorDbCfg().MaxIdleConns,
-		tpFltrCfgOut.StorDbCfg().ConnMaxLifetime, tpFltrCfgOut.StorDbCfg().StringIndexedFields,
-		tpFltrCfgOut.StorDbCfg().PrefixIndexedFields, tpFltrCfgIn.StorDbCfg().Items)
+		tpFltrCfgIn.StorDbCfg().Password, tpFltrCfgIn.GeneralCfg().DBDataEncoding,
+		tpFltrCfgOut.StorDbCfg().StringIndexedFields, tpFltrCfgOut.StorDbCfg().PrefixIndexedFields,
+		tpFltrCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpFltrCfgOut.StorDbCfg().Type,
 		tpFltrCfgOut.StorDbCfg().Host, tpFltrCfgOut.StorDbCfg().Port,
 		tpFltrCfgOut.StorDbCfg().Name, tpFltrCfgOut.StorDbCfg().User,
-		tpFltrCfgOut.StorDbCfg().Password, tpFltrCfgOut.GeneralCfg().DBDataEncoding, tpFltrCfgOut.StorDbCfg().SSLMode,
-		tpFltrCfgOut.StorDbCfg().MaxOpenConns, tpFltrCfgOut.StorDbCfg().MaxIdleConns,
-		tpFltrCfgOut.StorDbCfg().ConnMaxLifetime, tpFltrCfgOut.StorDbCfg().StringIndexedFields,
-		tpFltrCfgOut.StorDbCfg().PrefixIndexedFields, tpFltrCfgOut.StorDbCfg().Items)
+		tpFltrCfgOut.StorDbCfg().Password, tpFltrCfgOut.GeneralCfg().DBDataEncoding,
+		tpFltrCfgOut.StorDbCfg().StringIndexedFields, tpFltrCfgOut.StorDbCfg().PrefixIndexedFields,
+		tpFltrCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -129,7 +127,7 @@ func testTpFltrITPopulate(t *testing.T) {
 		t.Error("Error when setting TpFilter ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpFltrMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpFltrMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpFilter ", err.Error())
 	}

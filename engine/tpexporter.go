@@ -32,10 +32,6 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-// var (
-// 	TPExportFormats = []string{utils.CSV}
-// )
-
 func NewTPExporter(storDb LoadStorage, tpID, expPath, fileFormat, sep string, compress bool) (*TPExporter, error) {
 	if len(tpID) == 0 {
 		return nil, errors.New("Missing TPid")
@@ -84,257 +80,349 @@ type TPExporter struct {
 	exportedFiles []string
 }
 
-func (self *TPExporter) Run() error {
-	self.removeFiles() // Make sure we clean the folder before starting with new one
-	toExportMap := make(map[string][]interface{})
+func (tpExp *TPExporter) Run() error {
+	tpExp.removeFiles() // Make sure we clean the folder before starting with new one
+	var withError bool
+	toExportMap := make(map[string][]any)
 
-	storDataTimings, err := self.storDb.GetTPTimings(self.tpID, "")
+	storDataTimings, err := tpExp.storDb.GetTPTimings(tpExp.tpID, "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpTiming))
+		withError = true
+
 	}
-	storDataModelTimings := APItoModelTimings(storDataTimings)
-	toExportMap[utils.TimingsCsv] = make([]interface{}, len(storDataTimings))
-	for i, sd := range storDataModelTimings {
-		toExportMap[utils.TimingsCsv][i] = sd
+	if len(storDataTimings) != 0 {
+		storDataModelTimings := APItoModelTimings(storDataTimings)
+		toExportMap[utils.TimingsCsv] = make([]any, 0, len(storDataModelTimings))
+		for _, sd := range storDataModelTimings {
+			toExportMap[utils.TimingsCsv] = append(toExportMap[utils.TimingsCsv], sd)
+		}
+	}
+	storDataDestinations, err := tpExp.storDb.GetTPDestinations(tpExp.tpID, "")
+	if err != nil && err.Error() != utils.ErrNotFound.Error() {
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpDestinations))
+		withError = true
+	}
+	if len(storDataDestinations) != 0 {
+		toExportMap[utils.DestinationsCsv] = make([]any, 0, len(storDataDestinations))
+		for _, sd := range storDataDestinations {
+			sdModels := APItoModelDestination(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.DestinationsCsv] = append(toExportMap[utils.DestinationsCsv], sdModel)
+			}
+		}
+	}
+	storDataRates, err := tpExp.storDb.GetTPRates(tpExp.tpID, "")
+	if err != nil && err.Error() != utils.ErrNotFound.Error() {
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpRates))
+		withError = true
+	}
+	if len(storDataRates) != 0 {
+		toExportMap[utils.RatesCsv] = make([]any, 0, len(storDataRates))
+		for _, sd := range storDataRates {
+			sdModels := APItoModelRate(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.RatesCsv] = append(toExportMap[utils.RatesCsv], sdModel)
+			}
+		}
+	}
+	storDataDestinationRates, err := tpExp.storDb.GetTPDestinationRates(tpExp.tpID, "", nil)
+	if err != nil && err.Error() != utils.ErrNotFound.Error() {
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpDestinationRates))
+		withError = true
 	}
 
-	storDataDestinations, err := self.storDb.GetTPDestinations(self.tpID, "")
-	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
-	}
-	for _, sd := range storDataDestinations {
-		sdModels := APItoModelDestination(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.DestinationsCsv] = append(toExportMap[utils.DestinationsCsv], sdModel)
+	if len(storDataDestinationRates) != 0 {
+		toExportMap[utils.DestinationRatesCsv] = make([]any, 0, len(storDataDestinationRates))
+		for _, sd := range storDataDestinationRates {
+			sdModels := APItoModelDestinationRate(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.DestinationRatesCsv] = append(toExportMap[utils.DestinationRatesCsv], sdModel)
+			}
 		}
 	}
 
-	storDataRates, err := self.storDb.GetTPRates(self.tpID, "")
+	storDataRatingPlans, err := tpExp.storDb.GetTPRatingPlans(tpExp.tpID, "", nil)
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpRatingPlans))
+		withError = true
 	}
-	for _, sd := range storDataRates {
-		sdModels := APItoModelRate(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.RatesCsv] = append(toExportMap[utils.RatesCsv], sdModel)
+	if len(storDataRatingPlans) != 0 {
+		toExportMap[utils.RatingPlansCsv] = make([]any, 0, len(storDataRatingPlans))
+		for _, sd := range storDataRatingPlans {
+			sdModels := APItoModelRatingPlan(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.RatingPlansCsv] = append(toExportMap[utils.RatingPlansCsv], sdModel)
+			}
 		}
 	}
 
-	storDataDestinationRates, err := self.storDb.GetTPDestinationRates(self.tpID, "", nil)
+	storDataRatingProfiles, err := tpExp.storDb.GetTPRatingProfiles(&utils.TPRatingProfile{TPid: tpExp.tpID})
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpRatingProfiles))
+		withError = true
 	}
-	for _, sd := range storDataDestinationRates {
-		sdModels := APItoModelDestinationRate(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.DestinationRatesCsv] = append(toExportMap[utils.DestinationRatesCsv], sdModel)
+
+	if len(storDataRatingProfiles) != 0 {
+		toExportMap[utils.RatingProfilesCsv] = make([]any, 0, len(storDataRatingProfiles))
+		for _, sd := range storDataRatingProfiles {
+			sdModels := APItoModelRatingProfile(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.RatingProfilesCsv] = append(toExportMap[utils.RatingProfilesCsv], sdModel)
+			}
 		}
 	}
 
-	storDataRatingPlans, err := self.storDb.GetTPRatingPlans(self.tpID, "", nil)
+	storDataSharedGroups, err := tpExp.storDb.GetTPSharedGroups(tpExp.tpID, "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpSharedGroups))
+		withError = true
 	}
-	for _, sd := range storDataRatingPlans {
-		sdModels := APItoModelRatingPlan(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.RatingPlansCsv] = append(toExportMap[utils.RatingPlansCsv], sdModel)
+
+	if len(storDataSharedGroups) != 0 {
+		toExportMap[utils.SharedGroupsCsv] = make([]any, 0, len(storDataSharedGroups))
+		for _, sd := range storDataSharedGroups {
+			sdModels := APItoModelSharedGroup(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.SharedGroupsCsv] = append(toExportMap[utils.SharedGroupsCsv], sdModel)
+			}
 		}
 	}
 
-	storDataRatingProfiles, err := self.storDb.GetTPRatingProfiles(&utils.TPRatingProfile{TPid: self.tpID})
+	storDataActions, err := tpExp.storDb.GetTPActions(tpExp.tpID, "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpActions))
+		withError = true
 	}
-	for _, sd := range storDataRatingProfiles {
-		sdModels := APItoModelRatingProfile(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.RatingProfilesCsv] = append(toExportMap[utils.RatingProfilesCsv], sdModel)
+
+	if len(storDataActions) != 0 {
+		toExportMap[utils.ActionsCsv] = make([]any, 0, len(storDataActions))
+		for _, sd := range storDataActions {
+			sdModels := APItoModelAction(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.ActionsCsv] = append(toExportMap[utils.ActionsCsv], sdModel)
+			}
 		}
 	}
 
-	storDataSharedGroups, err := self.storDb.GetTPSharedGroups(self.tpID, "")
+	storDataActionPlans, err := tpExp.storDb.GetTPActionPlans(tpExp.tpID, "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpActionPlans))
+		withError = true
 	}
-
-	for _, sd := range storDataSharedGroups {
-		sdModels := APItoModelSharedGroup(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.SharedGroupsCsv] = append(toExportMap[utils.SharedGroupsCsv], sdModel)
+	if len(storDataActionPlans) != 0 {
+		toExportMap[utils.ActionPlansCsv] = make([]any, 0, len(storDataActionPlans))
+		for _, sd := range storDataActionPlans {
+			sdModels := APItoModelActionPlan(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.ActionPlansCsv] = append(toExportMap[utils.ActionPlansCsv], sdModel)
+			}
 		}
 	}
 
-	storDataActions, err := self.storDb.GetTPActions(self.tpID, "")
+	storDataActionTriggers, err := tpExp.storDb.GetTPActionTriggers(tpExp.tpID, "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpActionTriggers))
+		withError = true
 	}
-	for _, sd := range storDataActions {
-		sdModels := APItoModelAction(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.ActionsCsv] = append(toExportMap[utils.ActionsCsv], sdModel)
+
+	if len(storDataActionTriggers) != 0 {
+		toExportMap[utils.ActionTriggersCsv] = make([]any, 0, len(storDataActionTriggers))
+		for _, sd := range storDataActionTriggers {
+			sdModels := APItoModelActionTrigger(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.ActionTriggersCsv] = append(toExportMap[utils.ActionTriggersCsv], sdModel)
+			}
 		}
 	}
 
-	storDataActionPlans, err := self.storDb.GetTPActionPlans(self.tpID, "")
+	storDataAccountActions, err := tpExp.storDb.GetTPAccountActions(&utils.TPAccountActions{TPid: tpExp.tpID})
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpAccountActionsV))
+		withError = true
 	}
-	for _, sd := range storDataActionPlans {
-		sdModels := APItoModelActionPlan(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.ActionPlansCsv] = append(toExportMap[utils.ActionPlansCsv], sdModel)
+	if len(storDataAccountActions) != 0 {
+		toExportMap[utils.AccountActionsCsv] = make([]any, 0, len(storDataAccountActions))
+		for _, sd := range storDataAccountActions {
+			sdModel := APItoModelAccountAction(sd)
+			toExportMap[utils.AccountActionsCsv] = append(toExportMap[utils.AccountActionsCsv], sdModel)
 		}
 	}
 
-	storDataActionTriggers, err := self.storDb.GetTPActionTriggers(self.tpID, "")
+	storDataResources, err := tpExp.storDb.GetTPResources(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpResources))
+		withError = true
 	}
-	for _, sd := range storDataActionTriggers {
-		sdModels := APItoModelActionTrigger(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.ActionTriggersCsv] = append(toExportMap[utils.ActionTriggersCsv], sdModel)
+	if len(storDataResources) != 0 {
+		toExportMap[utils.ResourcesCsv] = make([]any, 0, len(storDataResources))
+		for _, sd := range storDataResources {
+			sdModels := APItoModelResource(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.ResourcesCsv] = append(toExportMap[utils.ResourcesCsv], sdModel)
+			}
 		}
 	}
 
-	storDataAccountActions, err := self.storDb.GetTPAccountActions(&utils.TPAccountActions{TPid: self.tpID})
+	storDataStats, err := tpExp.storDb.GetTPStats(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpStats))
+		withError = true
 	}
-	for _, sd := range storDataAccountActions {
-		sdModel := APItoModelAccountAction(sd)
-		toExportMap[utils.AccountActionsCsv] = append(toExportMap[utils.AccountActionsCsv], sdModel)
-	}
-
-	storDataResources, err := self.storDb.GetTPResources(self.tpID, "", "")
-	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
-	}
-	for _, sd := range storDataResources {
-		sdModels := APItoModelResource(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.ResourcesCsv] = append(toExportMap[utils.ResourcesCsv], sdModel)
+	if len(storDataStats) != 0 {
+		toExportMap[utils.StatsCsv] = make([]any, 0, len(storDataStats))
+		for _, sd := range storDataStats {
+			sdModels := APItoModelStats(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.StatsCsv] = append(toExportMap[utils.StatsCsv], sdModel)
+			}
 		}
 	}
 
-	storDataStats, err := self.storDb.GetTPStats(self.tpID, "", "")
+	storDataThresholds, err := tpExp.storDb.GetTPThresholds(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpThresholds))
+		withError = true
 	}
-	for _, sd := range storDataStats {
-		sdModels := APItoModelStats(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.StatsCsv] = append(toExportMap[utils.StatsCsv], sdModel)
+
+	if len(storDataThresholds) != 0 {
+		toExportMap[utils.ThresholdsCsv] = make([]any, 0, len(storDataThresholds))
+		for _, sd := range storDataThresholds {
+			sdModels := APItoModelTPThreshold(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.ThresholdsCsv] = append(toExportMap[utils.ThresholdsCsv], sdModel)
+			}
 		}
 	}
 
-	storDataThresholds, err := self.storDb.GetTPThresholds(self.tpID, "", "")
+	storDataFilters, err := tpExp.storDb.GetTPFilters(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpFilters))
+		withError = true
 	}
-	for _, sd := range storDataThresholds {
-		sdModels := APItoModelTPThreshold(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.ThresholdsCsv] = append(toExportMap[utils.ThresholdsCsv], sdModel)
+
+	if len(storDataFilters) != 0 {
+		toExportMap[utils.FiltersCsv] = make([]any, 0, len(storDataFilters))
+		for _, sd := range storDataFilters {
+			sdModels := APItoModelTPFilter(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.FiltersCsv] = append(toExportMap[utils.FiltersCsv], sdModel)
+			}
 		}
 	}
 
-	storDataFilters, err := self.storDb.GetTPFilters(self.tpID, "", "")
+	storDataRoutes, err := tpExp.storDb.GetTPRoutes(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpRoutes))
+		withError = true
 	}
-	for _, sd := range storDataFilters {
-		sdModels := APItoModelTPFilter(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.FiltersCsv] = append(toExportMap[utils.FiltersCsv], sdModel)
+
+	if len(storDataRoutes) != 0 {
+		toExportMap[utils.RoutesCsv] = make([]any, 0, len(storDataRoutes))
+		for _, sd := range storDataRoutes {
+			sdModels := APItoModelTPRoutes(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.RoutesCsv] = append(toExportMap[utils.RoutesCsv], sdModel)
+			}
 		}
 	}
 
-	storDataSuppliers, err := self.storDb.GetTPSuppliers(self.tpID, "", "")
+	storeDataAttributes, err := tpExp.storDb.GetTPAttributes(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpAttributes))
+		withError = true
 	}
-	for _, sd := range storDataSuppliers {
-		sdModels := APItoModelTPSuppliers(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.SuppliersCsv] = append(toExportMap[utils.SuppliersCsv], sdModel)
+
+	if len(storeDataAttributes) != 0 {
+		toExportMap[utils.AttributesCsv] = make([]any, 0, len(storeDataAttributes))
+		for _, sd := range storeDataAttributes {
+			sdModels := APItoModelTPAttribute(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.AttributesCsv] = append(toExportMap[utils.AttributesCsv], sdModel)
+			}
 		}
 	}
 
-	storeDataAttributes, err := self.storDb.GetTPAttributes(self.tpID, "", "")
+	storDataChargers, err := tpExp.storDb.GetTPChargers(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpChargers))
+		withError = true
 	}
-	for _, sd := range storeDataAttributes {
-		sdModels := APItoModelTPAttribute(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.AttributesCsv] = append(toExportMap[utils.AttributesCsv], sdModel)
+
+	if len(storDataChargers) != 0 {
+		toExportMap[utils.ChargersCsv] = make([]any, 0, len(storDataChargers))
+		for _, sd := range storDataChargers {
+			sdModels := APItoModelTPCharger(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.ChargersCsv] = append(toExportMap[utils.ChargersCsv], sdModel)
+			}
 		}
 	}
 
-	storDataChargers, err := self.storDb.GetTPChargers(self.tpID, "", "")
+	storDataDispatcherProfiles, err := tpExp.storDb.GetTPDispatcherProfiles(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpDispatcherProfiles))
+		withError = true
 	}
-	for _, sd := range storDataChargers {
-		sdModels := APItoModelTPCharger(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.ChargersCsv] = append(toExportMap[utils.ChargersCsv], sdModel)
+	if len(storDataDispatcherProfiles) != 0 {
+		toExportMap[utils.DispatcherProfilesCsv] = make([]any, 0, len(storDataDispatcherProfiles))
+		for _, sd := range storDataDispatcherProfiles {
+			sdModels := APItoModelTPDispatcherProfile(sd)
+			for _, sdModel := range sdModels {
+				toExportMap[utils.DispatcherProfilesCsv] = append(toExportMap[utils.DispatcherProfilesCsv], sdModel)
+			}
 		}
 	}
 
-	storDataDispatcherProfiles, err := self.storDb.GetTPDispatcherProfiles(self.tpID, "", "")
+	storDataDispatcherHosts, err := tpExp.storDb.GetTPDispatcherHosts(tpExp.tpID, "", "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
+		utils.Logger.Warning(fmt.Sprintf("<%s> error: %s, when getting %s from stordb for export", utils.ApierS, err, utils.TpDispatcherHosts))
+		withError = true
 	}
-	for _, sd := range storDataDispatcherProfiles {
-		sdModels := APItoModelTPDispatcherProfile(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.DispatcherProfilesCsv] = append(toExportMap[utils.DispatcherProfilesCsv], sdModel)
+
+	if len(storDataDispatcherHosts) != 0 {
+		toExportMap[utils.DispatcherHostsCsv] = make([]any, 0, len(storDataDispatcherHosts))
+		for _, sd := range storDataDispatcherHosts {
+			toExportMap[utils.DispatcherHostsCsv] = append(toExportMap[utils.DispatcherHostsCsv], APItoModelTPDispatcherHost(sd))
 		}
 	}
 
-	storDataDispatcherHosts, err := self.storDb.GetTPDispatcherHosts(self.tpID, "", "")
-	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
-	}
-	for _, sd := range storDataDispatcherHosts {
-		sdModels := APItoModelTPDispatcherHost(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.DispatcherHostsCsv] = append(toExportMap[utils.DispatcherHostsCsv], sdModel)
-		}
+	if len(toExportMap) == 0 { // if we don't have anything to export we return not found error
+		return utils.ErrNotFound
 	}
 
 	for fileName, storData := range toExportMap {
-		if err := self.writeOut(fileName, storData); err != nil {
-			self.removeFiles()
+		if err := tpExp.writeOut(fileName, storData); err != nil {
+			tpExp.removeFiles()
 			return err
 		}
-		self.exportedFiles = append(self.exportedFiles, fileName)
+		tpExp.exportedFiles = append(tpExp.exportedFiles, fileName)
 	}
 
-	if self.compress {
-		if err := self.zipWritter.Close(); err != nil {
+	if tpExp.compress {
+		if err := tpExp.zipWritter.Close(); err != nil {
 			return err
 		}
+	}
+	if withError { // if we export something but have error we return partially executed
+		return utils.ErrPartiallyExecuted
 	}
 	return nil
 }
 
 // Some export did not end up well, remove the files here
-func (self *TPExporter) removeFiles() error {
-	if len(self.exportPath) == 0 {
+func (tpExp *TPExporter) removeFiles() error {
+	if len(tpExp.exportPath) == 0 {
 		return nil
 	}
-	for _, fileName := range self.exportedFiles {
-		os.Remove(path.Join(self.exportPath, fileName))
+	for _, fileName := range tpExp.exportedFiles {
+		os.Remove(path.Join(tpExp.exportPath, fileName))
 	}
 	return nil
 }
 
 // General method to write the content out to a file on path or zip archive
-func (self *TPExporter) writeOut(fileName string, tpData []interface{}) error {
+func (tpExp *TPExporter) writeOut(fileName string, tpData []any) error {
 	if len(tpData) == 0 {
 		return nil
 	}
@@ -342,12 +430,12 @@ func (self *TPExporter) writeOut(fileName string, tpData []interface{}) error {
 	var writerOut utils.CgrRecordWriter
 	var err error
 
-	if self.compress {
-		if fWriter, err = self.zipWritter.Create(fileName); err != nil {
+	if tpExp.compress {
+		if fWriter, err = tpExp.zipWritter.Create(fileName); err != nil {
 			return err
 		}
-	} else if len(self.exportPath) != 0 {
-		if f, err := os.Create(path.Join(self.exportPath, fileName)); err != nil {
+	} else if len(tpExp.exportPath) != 0 {
+		if f, err := os.Create(path.Join(tpExp.exportPath, fileName)); err != nil {
 			return err
 		} else {
 			fWriter = f
@@ -358,16 +446,16 @@ func (self *TPExporter) writeOut(fileName string, tpData []interface{}) error {
 		fWriter = new(bytes.Buffer)
 	}
 
-	switch self.fileFormat {
+	switch tpExp.fileFormat {
 	case utils.CSV:
 		csvWriter := csv.NewWriter(fWriter)
-		csvWriter.Comma = self.sep
+		csvWriter.Comma = tpExp.sep
 		writerOut = csvWriter
 	default:
 		writerOut = utils.NewCgrIORecordWriter(fWriter)
 	}
 	for _, tpItem := range tpData {
-		record, err := csvDump(tpItem)
+		record, err := CsvDump(tpItem)
 		if err != nil {
 			return err
 		}
@@ -379,10 +467,10 @@ func (self *TPExporter) writeOut(fileName string, tpData []interface{}) error {
 	return nil
 }
 
-func (self *TPExporter) ExportStats() *utils.ExportedTPStats {
-	return &utils.ExportedTPStats{ExportPath: self.exportPath, ExportedFiles: self.exportedFiles, Compressed: self.compress}
+func (tpExp *TPExporter) ExportStats() *utils.ExportedTPStats {
+	return &utils.ExportedTPStats{ExportPath: tpExp.exportPath, ExportedFiles: tpExp.exportedFiles, Compressed: tpExp.compress}
 }
 
-func (self *TPExporter) GetCacheBuffer() *bytes.Buffer {
-	return self.cacheBuff
+func (tpExp *TPExporter) GetCacheBuffer() *bytes.Buffer {
+	return tpExp.cacheBuff
 }

@@ -26,8 +26,8 @@ import (
 func init() {
 	c := &CmdRelaodConfigSection{
 		name:      "reload_config",
-		rpcMethod: utils.ConfigSv1ReloadConfigFromPath,
-		rpcParams: &config.ConfigReloadWithArgDispatcher{},
+		rpcMethod: utils.ConfigSv1ReloadConfig,
+		rpcParams: &config.ReloadArgs{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -37,7 +37,7 @@ func init() {
 type CmdRelaodConfigSection struct {
 	name      string
 	rpcMethod string
-	rpcParams *config.ConfigReloadWithArgDispatcher
+	rpcParams *config.ReloadArgs
 	*CommandExecuter
 }
 
@@ -49,9 +49,9 @@ func (self *CmdRelaodConfigSection) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdRelaodConfigSection) RpcParams(reset bool) interface{} {
+func (self *CmdRelaodConfigSection) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &config.ConfigReloadWithArgDispatcher{ArgDispatcher: new(utils.ArgDispatcher)}
+		self.rpcParams = &config.ReloadArgs{APIOpts: make(map[string]any)}
 	}
 	return self.rpcParams
 }
@@ -60,7 +60,7 @@ func (self *CmdRelaodConfigSection) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdRelaodConfigSection) RpcResult() interface{} {
+func (self *CmdRelaodConfigSection) RpcResult() any {
 	var s string
 	return &s
 }

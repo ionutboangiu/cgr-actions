@@ -19,12 +19,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
-	"strings"
 	"time"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
+type StatsOpts struct {
+	ProfileIDs           []string
+	ProfileIgnoreFilters bool
+}
+
+// StatSCfg the stats config section
 type StatSCfg struct {
 	Enabled                bool
 	IndexedSelects         bool
@@ -33,10 +38,24 @@ type StatSCfg struct {
 	ThresholdSConns        []string
 	StringIndexedFields    *[]string
 	PrefixIndexedFields    *[]string
+	SuffixIndexedFields    *[]string
 	NestedFields           bool
+	Opts                   *StatsOpts
 }
 
-func (st *StatSCfg) loadFromJsonCfg(jsnCfg *StatServJsonCfg) (err error) {
+func (sqOpts *StatsOpts) loadFromJSONCfg(jsnCfg *StatsOptsJson) {
+	if jsnCfg == nil {
+		return
+	}
+	if jsnCfg.ProfileIDs != nil {
+		sqOpts.ProfileIDs = *jsnCfg.ProfileIDs
+	}
+	if jsnCfg.ProfileIgnoreFilters != nil {
+		sqOpts.ProfileIgnoreFilters = *jsnCfg.ProfileIgnoreFilters
+	}
+}
+
+func (st *StatSCfg) loadFromJSONCfg(jsnCfg *StatServJsonCfg) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
@@ -58,10 +77,9 @@ func (st *StatSCfg) loadFromJsonCfg(jsnCfg *StatServJsonCfg) (err error) {
 		st.ThresholdSConns = make([]string, len(*jsnCfg.Thresholds_conns))
 		for idx, conn := range *jsnCfg.Thresholds_conns {
 			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			st.ThresholdSConns[idx] = conn
 			if conn == utils.MetaInternal {
 				st.ThresholdSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)
-			} else {
-				st.ThresholdSConns[idx] = conn
 			}
 		}
 	}
@@ -79,50 +97,120 @@ func (st *StatSCfg) loadFromJsonCfg(jsnCfg *StatServJsonCfg) (err error) {
 		}
 		st.PrefixIndexedFields = &pif
 	}
+	if jsnCfg.Suffix_indexed_fields != nil {
+		sif := make([]string, len(*jsnCfg.Suffix_indexed_fields))
+		for i, fID := range *jsnCfg.Suffix_indexed_fields {
+			sif[i] = fID
+		}
+		st.SuffixIndexedFields = &sif
+	}
 	if jsnCfg.Nested_fields != nil {
 		st.NestedFields = *jsnCfg.Nested_fields
+	}
+	if jsnCfg.Opts != nil {
+		st.Opts.loadFromJSONCfg(jsnCfg.Opts)
 	}
 	return nil
 }
 
-func (st *StatSCfg) AsMapInterface() map[string]interface{} {
-	var storeInterval string = ""
-	if st.StoreInterval != 0 {
-		storeInterval = st.StoreInterval.String()
+// AsMapInterface returns the config as a map[string]any
+func (st *StatSCfg) AsMapInterface() (initialMP map[string]any) {
+	opts := map[string]any{
+		utils.MetaProfileIDs:              st.Opts.ProfileIDs,
+		utils.MetaProfileIgnoreFiltersCfg: st.Opts.ProfileIgnoreFilters,
 	}
-	stringIndexedFields := []string{}
+	initialMP = map[string]any{
+		utils.EnabledCfg:                st.Enabled,
+		utils.IndexedSelectsCfg:         st.IndexedSelects,
+		utils.StoreUncompressedLimitCfg: st.StoreUncompressedLimit,
+		utils.NestedFieldsCfg:           st.NestedFields,
+		utils.StoreIntervalCfg:          utils.EmptyString,
+		utils.OptsCfg:                   opts,
+	}
+	if st.StoreInterval != 0 {
+		initialMP[utils.StoreIntervalCfg] = st.StoreInterval.String()
+	}
 	if st.StringIndexedFields != nil {
-		stringIndexedFields = make([]string, len(*st.StringIndexedFields))
+		stringIndexedFields := make([]string, len(*st.StringIndexedFields))
 		for i, item := range *st.StringIndexedFields {
 			stringIndexedFields[i] = item
 		}
+
+		initialMP[utils.StringIndexedFieldsCfg] = stringIndexedFields
 	}
-	prefixIndexedFields := []string{}
 	if st.PrefixIndexedFields != nil {
-		prefixIndexedFields = make([]string, len(*st.PrefixIndexedFields))
+		prefixIndexedFields := make([]string, len(*st.PrefixIndexedFields))
 		for i, item := range *st.PrefixIndexedFields {
 			prefixIndexedFields[i] = item
 		}
+
+		initialMP[utils.PrefixIndexedFieldsCfg] = prefixIndexedFields
 	}
-	thresholdSConns := make([]string, len(st.ThresholdSConns))
-	for i, item := range st.ThresholdSConns {
-		buf := utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)
-		if item == buf {
-			thresholdSConns[i] = strings.ReplaceAll(item, utils.CONCATENATED_KEY_SEP+utils.MetaThresholds, utils.EmptyString)
-		} else {
+	if st.SuffixIndexedFields != nil {
+		suffixIndexedFields := make([]string, len(*st.SuffixIndexedFields))
+		for i, item := range *st.SuffixIndexedFields {
+			suffixIndexedFields[i] = item
+		}
+		initialMP[utils.SuffixIndexedFieldsCfg] = suffixIndexedFields
+
+	}
+	if st.ThresholdSConns != nil {
+		thresholdSConns := make([]string, len(st.ThresholdSConns))
+		for i, item := range st.ThresholdSConns {
 			thresholdSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds) {
+				thresholdSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.ThresholdSConnsCfg] = thresholdSConns
+	}
+	return
+}
+
+func (stOpts *StatsOpts) Clone() *StatsOpts {
+	return &StatsOpts{
+		ProfileIDs:           utils.CloneStringSlice(stOpts.ProfileIDs),
+		ProfileIgnoreFilters: stOpts.ProfileIgnoreFilters,
+	}
+}
+
+// Clone returns a deep copy of StatSCfg
+func (st StatSCfg) Clone() (cln *StatSCfg) {
+	cln = &StatSCfg{
+		Enabled:                st.Enabled,
+		IndexedSelects:         st.IndexedSelects,
+		StoreInterval:          st.StoreInterval,
+		StoreUncompressedLimit: st.StoreUncompressedLimit,
+		NestedFields:           st.NestedFields,
+		Opts:                   st.Opts.Clone(),
+	}
+	if st.ThresholdSConns != nil {
+		cln.ThresholdSConns = make([]string, len(st.ThresholdSConns))
+		for i, con := range st.ThresholdSConns {
+			cln.ThresholdSConns[i] = con
 		}
 	}
 
-	return map[string]interface{}{
-		utils.EnabledCfg:                st.Enabled,
-		utils.IndexedSelectsCfg:         st.IndexedSelects,
-		utils.StoreIntervalCfg:          storeInterval,
-		utils.StoreUncompressedLimitCfg: st.StoreUncompressedLimit,
-		utils.ThresholdSConnsCfg:        thresholdSConns,
-		utils.StringIndexedFieldsCfg:    stringIndexedFields,
-		utils.PrefixIndexedFieldsCfg:    prefixIndexedFields,
-		utils.NestedFieldsCfg:           st.NestedFields,
+	if st.StringIndexedFields != nil {
+		idx := make([]string, len(*st.StringIndexedFields))
+		for i, dx := range *st.StringIndexedFields {
+			idx[i] = dx
+		}
+		cln.StringIndexedFields = &idx
 	}
-
+	if st.PrefixIndexedFields != nil {
+		idx := make([]string, len(*st.PrefixIndexedFields))
+		for i, dx := range *st.PrefixIndexedFields {
+			idx[i] = dx
+		}
+		cln.PrefixIndexedFields = &idx
+	}
+	if st.SuffixIndexedFields != nil {
+		idx := make([]string, len(*st.SuffixIndexedFields))
+		for i, dx := range *st.SuffixIndexedFields {
+			idx[i] = dx
+		}
+		cln.SuffixIndexedFields = &idx
+	}
+	return
 }

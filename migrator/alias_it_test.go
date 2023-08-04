@@ -34,6 +34,8 @@ import (
 )
 
 var (
+	inPath      string
+	outPath     string
 	alsCfgIn    *config.CGRConfig
 	alsCfgOut   *config.CGRConfig
 	alsMigrator *Migrator
@@ -46,22 +48,24 @@ var sTestsAlsIT = []func(t *testing.T){
 }
 
 func TestAliasMigrateITRedis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testStart("TestAliasMigrateITRedis", inPath, inPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testStart("TestAliasMigrateITRedis", t)
 }
 
 func TestAliasMigrateITMongo(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	testStart("TestAliasMigrateITMongo", inPath, inPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	testStart("TestAliasMigrateITMongo", t)
 }
 
 func TestAliasITMigrateMongo2Redis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testStart("TestAliasITMigrateMongo2Redis", inPath, outPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testStart("TestAliasITMigrateMongo2Redis", t)
 }
 
-func testStart(testName, inPath, outPath string, t *testing.T) {
+func testStart(testName string, t *testing.T) {
 	var err error
 	if alsCfgIn, err = config.NewCGRConfigFromPath(inPath); err != nil {
 		t.Fatal(err)
@@ -76,24 +80,29 @@ func testStart(testName, inPath, outPath string, t *testing.T) {
 }
 
 func testAlsITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(alsCfgIn.DataDbCfg().DataDbType,
-		alsCfgIn.DataDbCfg().DataDbHost, alsCfgIn.DataDbCfg().DataDbPort,
-		alsCfgIn.DataDbCfg().DataDbName, alsCfgIn.DataDbCfg().DataDbUser,
-		alsCfgIn.DataDbCfg().DataDbPass, alsCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", alsCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(alsCfgIn.DataDbCfg().Type,
+		alsCfgIn.DataDbCfg().Host, alsCfgIn.DataDbCfg().Port,
+		alsCfgIn.DataDbCfg().Name, alsCfgIn.DataDbCfg().User,
+		alsCfgIn.DataDbCfg().Password, alsCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), alsCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(alsCfgOut.DataDbCfg().DataDbType,
-		alsCfgOut.DataDbCfg().DataDbHost, alsCfgOut.DataDbCfg().DataDbPort,
-		alsCfgOut.DataDbCfg().DataDbName, alsCfgOut.DataDbCfg().DataDbUser,
-		alsCfgOut.DataDbCfg().DataDbPass, alsCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", alsCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(alsCfgOut.DataDbCfg().Type,
+		alsCfgOut.DataDbCfg().Host, alsCfgOut.DataDbCfg().Port,
+		alsCfgOut.DataDbCfg().Name, alsCfgOut.DataDbCfg().User,
+		alsCfgOut.DataDbCfg().Password, alsCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), alsCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	alsMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil, false, false, false, false)
+	if reflect.DeepEqual(inPath, outPath) {
+		alsMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		alsMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -112,9 +121,9 @@ func testAlsITFlush(t *testing.T) {
 
 func testAlsITMigrateAndMove(t *testing.T) {
 	alias := &v1Alias{
-		Tenant:    utils.META_ANY,
+		Tenant:    utils.MetaAny,
 		Direction: "*out",
-		Category:  utils.META_ANY,
+		Category:  utils.MetaAny,
 		Account:   "1001",
 		Subject:   "call_1001",
 		Context:   "*rated",
@@ -136,7 +145,7 @@ func testAlsITMigrateAndMove(t *testing.T) {
 	attrProf := &engine.AttributeProfile{
 		Tenant:   "cgrates.org",
 		ID:       alias.GetId(),
-		Contexts: []string{utils.META_ANY},
+		Contexts: []string{utils.MetaAny},
 		FilterIDs: []string{
 			"*string:~*req.Account:1001",
 			"*string:~*req.Subject:call_1001",
@@ -147,13 +156,13 @@ func testAlsITMigrateAndMove(t *testing.T) {
 			{
 				Path:  utils.MetaReq + utils.NestingSep + "Account",
 				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("1002", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("1002", utils.InfieldSep),
 			},
 			{
 				FilterIDs: []string{"*string:~*req.Category:call_1001"},
 				Path:      utils.MetaReq + utils.NestingSep + "Category",
 				Type:      utils.MetaVariable,
-				Value:     config.NewRSRParsersMustCompile("call_1002", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("call_1002", utils.InfieldSep),
 			},
 		},
 		Blocker: false,
@@ -202,23 +211,28 @@ func testAlsITMigrateAndMove(t *testing.T) {
 	if !reflect.DeepEqual(*attrProf, *result) {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(attrProf), utils.ToJSON(result))
 	}
-	//check if old account was deleted
-	if _, err = alsMigrator.dmIN.getV1Alias(); err != utils.ErrNoMoreData {
-		t.Error("Error should be not found : ", err)
+	//check if old account was deleted (only if dmIN != dmOut)
+	if !alsMigrator.sameDataDB {
+		if _, err = alsMigrator.dmIN.getV1Alias(); err != utils.ErrNoMoreData {
+			t.Error("Error should be not found : ", err)
+		}
 	}
 
-	expAlsIdx := map[string]utils.StringMap{
-		"*string:~*req.Account:1001": {
-			"*out:*any:*any:1001:call_1001:*rated": true,
+	expAlsIdx := map[string]utils.StringSet{
+		"*string:*req.Account:1001": {
+			"*out:*any:*any:1001:call_1001:*rated": struct{}{},
 		},
-		"*string:~*req.Subject:call_1001": {
-			"*out:*any:*any:1001:call_1001:*rated": true,
+		"*string:*req.Subject:call_1001": {
+			"*out:*any:*any:1001:call_1001:*rated": struct{}{},
 		},
 	}
-	if alsidx, err := alsMigrator.dmOut.DataManager().GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		utils.ConcatenatedKey("cgrates.org", utils.META_ANY), utils.MetaString, nil); err != nil {
+	if alsidx, err := alsMigrator.dmOut.DataManager().GetIndexes(
+		utils.CacheAttributeFilterIndexes, utils.ConcatenatedKey("cgrates.org", utils.MetaAny),
+		"", false, false); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expAlsIdx, alsidx) {
-		t.Errorf("Expected %v, recived: %v", utils.ToJSON(expAlsIdx), utils.ToJSON(alsidx))
+		t.Errorf("Expected %v, received: %v", utils.ToJSON(expAlsIdx), utils.ToJSON(alsidx))
+	} else if alsMigrator.stats[Alias] != 1 {
+		t.Errorf("Expected 1, received: %v", alsMigrator.stats[Alias] != 1)
 	}
 }

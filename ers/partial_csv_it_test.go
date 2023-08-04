@@ -43,7 +43,7 @@ var (
 	partRPC     *rpc.Client
 
 	partTests = []func(t *testing.T){
-		testPartITCreateCdrDirs,
+		testCreateDirs,
 		testPartITInitConfig,
 		testPartITInitCdrDb,
 		testPartITResetDataDb,
@@ -55,7 +55,7 @@ var (
 		testPartITHandleCdr3File,
 		testPartITVerifyFiles,
 		testPartITAnalyseCDRs,
-		testPartITCleanupFiles,
+		testCleanupFiles,
 		testPartITKillEngine,
 	}
 
@@ -66,9 +66,7 @@ var (
 	partCsvFileContent2 = `4986517174963,004986517174964,DE-National,04.07.2016 19:00:00,04.07.2016 18:58:55,0,15,Offpeak,0.003360,498651,partial`
 	partCsvFileContent3 = `4986517174964,004986517174960,DE-National,04.07.2016 19:05:55,04.07.2016 19:05:55,0,23,Offpeak,0.003360,498651,partial`
 
-	eCacheDumpFile1 = `4986517174963_004986517174964_04.07.2016 18:58:55,1467658800,*rated,086517174963,+4986517174964,2016-07-04T18:58:55Z,2016-07-04T18:58:55Z,15s,-1.00000
-4986517174963_004986517174964_04.07.2016 18:58:55,1467658735,*rated,086517174963,+4986517174964,2016-07-04T18:58:55Z,2016-07-04T18:58:55Z,1m5s,-1.00000
-`
+	eCacheDumpFile1 = "4986517174963_004986517174964_04.07.2016 18:58:55,1467658735,*rated,086517174963,+4986517174964,04.07.2016 18:58:55,04.07.2016 18:58:55,65s\n"
 )
 
 func TestPartReadFile(t *testing.T) {
@@ -86,23 +84,6 @@ func TestPartReadFile(t *testing.T) {
 	}
 	for _, test := range partTests {
 		t.Run(partCfgDIR, test)
-	}
-}
-
-func testPartITCreateCdrDirs(t *testing.T) {
-	for _, dir := range []string{"/tmp/ers/in", "/tmp/ers/out",
-		"/tmp/ers2/in", "/tmp/ers2/out", "/tmp/init_session/in", "/tmp/init_session/out",
-		"/tmp/terminate_session/in", "/tmp/terminate_session/out", "/tmp/cdrs/in",
-		"/tmp/cdrs/out", "/tmp/ers_with_filters/in", "/tmp/ers_with_filters/out",
-		"/tmp/xmlErs/in", "/tmp/xmlErs/out", "/tmp/fwvErs/in", "/tmp/fwvErs/out",
-		"/tmp/partErs1/in", "/tmp/partErs1/out", "/tmp/partErs2/in", "/tmp/partErs2/out",
-		"/tmp/flatstoreErs/in", "/tmp/flatstoreErs/out"} {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatal("Error removing folder: ", dir, err)
-		}
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatal("Error creating folder: ", dir, err)
-		}
 	}
 }
 
@@ -145,7 +126,7 @@ func testPartITRpcConn(t *testing.T) {
 
 func testPartITLoadTPFromFolder(t *testing.T) {
 	//add a default charger
-	chargerProfile := &v1.ChargerWithCache{
+	chargerProfile := &v1.ChargerWithAPIOpts{
 		ChargerProfile: &engine.ChargerProfile{
 			Tenant:       "cgrates.org",
 			ID:           "Default",
@@ -196,7 +177,7 @@ func testPartITHandleCdr3File(t *testing.T) {
 	if err := os.Rename(tmpFilePath, path.Join("/tmp/partErs2/in", fileName)); err != nil {
 		t.Fatal("Error moving file to processing directory: ", err)
 	}
-	time.Sleep(3 * time.Second)
+	time.Sleep(time.Second)
 }
 
 func testPartITVerifyFiles(t *testing.T) {
@@ -206,7 +187,7 @@ func testPartITVerifyFiles(t *testing.T) {
 	}
 	var fileName string
 	for _, file := range filesInDir { // First file in directory is the one we need, harder to find it's name out of config
-		if strings.HasPrefix(file.Name(), "4986517174963_004986517174964") {
+		if strings.HasPrefix(file.Name(), "72533c7f80dde4cf7eb625eda75c93857995f8a8") {
 			fileName = file.Name()
 			break
 		}
@@ -220,31 +201,20 @@ func testPartITVerifyFiles(t *testing.T) {
 
 func testPartITAnalyseCDRs(t *testing.T) {
 	var reply []*engine.ExternalCDR
-	if err := partRPC.Call(utils.APIerSv2GetCDRs, utils.RPCCDRsFilter{}, &reply); err != nil {
+	if err := partRPC.Call(utils.APIerSv2GetCDRs, &utils.RPCCDRsFilter{}, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(reply) != 2 {
 		t.Error("Unexpected number of CDRs returned: ", len(reply))
 	}
-	if err := partRPC.Call(utils.APIerSv2GetCDRs, utils.RPCCDRsFilter{DestinationPrefixes: []string{"+4986517174963"}}, &reply); err != nil {
+	if err := partRPC.Call(utils.APIerSv2GetCDRs, &utils.RPCCDRsFilter{DestinationPrefixes: []string{"+4986517174963"}}, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(reply) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(reply))
 	}
-	if err := partRPC.Call(utils.APIerSv2GetCDRs, utils.RPCCDRsFilter{DestinationPrefixes: []string{"+4986517174960"}}, &reply); err != nil {
+	if err := partRPC.Call(utils.APIerSv2GetCDRs, &utils.RPCCDRsFilter{DestinationPrefixes: []string{"+4986517174960"}}, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(reply) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(reply))
-	}
-}
-
-func testPartITCleanupFiles(t *testing.T) {
-	for _, dir := range []string{"/tmp/ers",
-		"/tmp/ers2", "/tmp/init_session", "/tmp/terminate_session",
-		"/tmp/cdrs", "/tmp/ers_with_filters", "/tmp/xmlErs", "/tmp/fwvErs",
-		"/tmp/partErs1", "/tmp/partErs2", "tmp/flatstoreErs"} {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatal("Error removing folder: ", dir, err)
-		}
 	}
 }
 

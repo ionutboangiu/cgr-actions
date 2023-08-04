@@ -23,11 +23,15 @@ import (
 )
 
 // SetTPAttributeProfile creates a new AttributeProfile within a tariff plan
-func (api *APIerSv1) SetTPAttributeProfile(attrs *utils.TPAttributeProfile, reply *string) error {
-	if missing := utils.MissingStructFields(attrs, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) SetTPAttributeProfile(attrs *utils.TPAttributeProfile, reply *string) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.TPid, utils.ID}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := api.StorDb.SetTPAttributes([]*utils.TPAttributeProfile{attrs}); err != nil {
+
+	if attrs.Tenant == utils.EmptyString {
+		attrs.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if err := apierSv1.StorDb.SetTPAttributes([]*utils.TPAttributeProfile{attrs}); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*reply = utils.OK
@@ -35,11 +39,14 @@ func (api *APIerSv1) SetTPAttributeProfile(attrs *utils.TPAttributeProfile, repl
 }
 
 // GetTPAttributeProfile queries specific AttributeProfile on Tariff plan
-func (api *APIerSv1) GetTPAttributeProfile(attr *utils.TPTntID, reply *utils.TPAttributeProfile) error {
-	if missing := utils.MissingStructFields(attr, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 { //Params missing
+func (apierSv1 *APIerSv1) GetTPAttributeProfile(attr *utils.TPTntID, reply *utils.TPAttributeProfile) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.TPid, utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	als, err := api.StorDb.GetTPAttributes(attr.TPid, attr.Tenant, attr.ID)
+	if attr.Tenant == utils.EmptyString {
+		attr.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	als, err := apierSv1.StorDb.GetTPAttributes(attr.TPid, attr.Tenant, attr.ID)
 	if err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
@@ -56,12 +63,12 @@ type AttrGetTPAttributeProfileIds struct {
 }
 
 // GetTPAttributeProfileIds queries attribute identities on specific tariff plan.
-func (api *APIerSv1) GetTPAttributeProfileIds(attrs *AttrGetTPAttributeProfileIds, reply *[]string) error {
-	if missing := utils.MissingStructFields(attrs, []string{"TPid"}); len(missing) != 0 { //Params missing
+func (apierSv1 *APIerSv1) GetTPAttributeProfileIds(attrs *AttrGetTPAttributeProfileIds, reply *[]string) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.TPid}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	ids, err := api.StorDb.GetTpTableIds(attrs.TPid, utils.TBLTPAttributes,
-		utils.TPDistinctIds{"tenant", "id"}, nil, &attrs.PaginatorWithSearch)
+	ids, err := apierSv1.StorDb.GetTpTableIds(attrs.TPid, utils.TBLTPAttributes,
+		utils.TPDistinctIds{utils.TenantCfg, utils.IDCfg}, nil, &attrs.PaginatorWithSearch)
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -73,12 +80,15 @@ func (api *APIerSv1) GetTPAttributeProfileIds(attrs *AttrGetTPAttributeProfileId
 }
 
 // RemoveTPAttributeProfile removes specific AttributeProfile on Tariff plan
-func (api *APIerSv1) RemoveTPAttributeProfile(attrs *utils.TPTntID, reply *string) error {
-	if missing := utils.MissingStructFields(attrs, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 { //Params missing
+func (apierSv1 *APIerSv1) RemoveTPAttributeProfile(attrs *utils.TPTntID, reply *string) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.TPid, utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := api.StorDb.RemTpData(utils.TBLTPAttributes, attrs.TPid,
-		map[string]string{"tenant": attrs.Tenant, "id": attrs.ID}); err != nil {
+	if attrs.Tenant == utils.EmptyString {
+		attrs.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if err := apierSv1.StorDb.RemTpData(utils.TBLTPAttributes, attrs.TPid,
+		map[string]string{utils.TenantCfg: attrs.Tenant, utils.IDCfg: attrs.ID}); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*reply = utils.OK

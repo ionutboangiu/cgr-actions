@@ -54,12 +54,11 @@
 	"rals_conns": ["*localhost"],
 	"cdrs_conns": ["*localhost"],
 	"resources_conns": ["*localhost"],
-	"suppliers_conns": ["*localhost"],
+	"routes_conns": ["*localhost"],
 	"attributes_conns": ["*localhost"],
 	"stats_conns": ["*localhost"],
 	"thresholds_conns": ["*localhost"],
 	"chargers_conns": ["*internal"],
-	"store_session_costs": true,
 	"debit_interval": "5s",
 	"channel_sync_interval":"7s",
 },
@@ -71,41 +70,41 @@
 		{"address": "127.0.0.1:8088", "user": "cgrates",
 			"password": "CGRateS.org", "connect_attempts": 3,"reconnects": 10}
 	],
-	"sessions_conns": ["*internal"],
+	"sessions_conns": ["*birpc_internal"],
 	"create_cdr": true,
 },
 
 
 "attributes": {
 	"enabled": true,
-	"string_indexed_fields": ["Account"],			
+	"string_indexed_fields": ["*req.Account"],			
 },
 
 
 "resources": {
 	"enabled": true,
-	"string_indexed_fields": ["Account"],
+	"string_indexed_fields": ["*req.Account"],
 },
 
 
 "stats": {
 	"enabled": true,
-	"string_indexed_fields": ["Account","RunID","Destination"],
+	"string_indexed_fields": ["*req.Account","*req.RunID","*req.Destination"],
 },
 
 
 "thresholds": {
 	"enabled": true,
-	"string_indexed_fields": ["Account"],
+	"string_indexed_fields": ["*req.Account"],
 },
 
 
-"suppliers": {
+"routes": {
 	"enabled": true,
 	"resources_conns": ["*internal"],
 	"stats_conns": ["*internal"],
-	"rals_conns": ["*internal"],
-	"string_indexed_fields": ["Account"],
+	"rals_conns": ["*internal"],	
+	"string_indexed_fields": ["*req.Account"],
 },
 
 

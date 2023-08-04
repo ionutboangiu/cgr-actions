@@ -21,9 +21,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package ers
 
 import (
+	"fmt"
 	"net/rpc"
 	"os"
 	"path"
+	"reflect"
 	"testing"
 	"time"
 
@@ -48,7 +50,8 @@ accid22;*postpaid;itsyscom.com;1001;+4986517174963;2013-02-03 19:54:00;123;val_e
 #accid1;*pseudoprepaid;itsyscom.com;1001;+4986517174963;2013-02-03 19:54:00;12;val_extra3;"";val_extra1
 accid23;*rated;cgrates.org;1001;086517174963;2013-02-03 19:54:00;26;val_extra3;"";val_extra1`
 
-	fileContent3 = `cgrates.org,*voice,SessionFromCsv,*prepaid,1001,ANY2CNT,1002,2018-01-07 17:00:00 +0000 UTC,2018-01-07 17:00:10 +0000 UTC,5m
+	fileContent3 = `:Tenant,ToR,OriginID,RequestType,Account,Subject,Destination,SetupTime,AnswerTime,Usage
+cgrates.org,*voice,SessionFromCsv,*prepaid,1001,ANY2CNT,1002,2018-01-07 17:00:00 +0000 UTC,2018-01-07 17:00:10 +0000 UTC,5m
 `
 
 	fileContentForFilter = `accid21;*prepaid;itsyscom.com;1002;086517174963;2013-02-03 19:54:00;62;val_extra3;"";val_extra1
@@ -56,7 +59,7 @@ accid22;*postpaid;itsyscom.com;1002;+4986517174963;2013-02-03 19:54:00;123;val_e
 accid23;*rated;cgrates.org;1001;086517174963;2013-02-03 19:54:00;26;val_extra3;"";val_extra1`
 
 	csvTests = []func(t *testing.T){
-		testCsvITCreateCdrDirs,
+		testCreateDirs,
 		testCsvITInitConfig,
 		testCsvITInitCdrDb,
 		testCsvITResetDataDb,
@@ -73,13 +76,14 @@ accid23;*rated;cgrates.org;1001;086517174963;2013-02-03 19:54:00;26;val_extra3;"
 		testCsvITProcessFilteredCDR,
 		testCsvITAnalyzeFilteredCDR,
 		testCsvITProcessedFiles,
-		testCsvITCleanupFiles,
+		testCsvITReaderWithFilter,
+		testCsvITAnalyzeReaderWithFilter,
+		testCleanupFiles,
 		testCsvITKillEngine,
 	}
 )
 
 func TestCsvReadFile(t *testing.T) {
-
 	switch *dbType {
 	case utils.MetaInternal:
 		csvCfgDIR = "ers_internal"
@@ -120,23 +124,6 @@ func testCsvITResetDataDb(t *testing.T) {
 	}
 }
 
-func testCsvITCreateCdrDirs(t *testing.T) {
-	for _, dir := range []string{"/tmp/ers/in", "/tmp/ers/out",
-		"/tmp/ers2/in", "/tmp/ers2/out", "/tmp/init_session/in", "/tmp/init_session/out",
-		"/tmp/terminate_session/in", "/tmp/terminate_session/out", "/tmp/cdrs/in",
-		"/tmp/cdrs/out", "/tmp/ers_with_filters/in", "/tmp/ers_with_filters/out",
-		"/tmp/xmlErs/in", "/tmp/xmlErs/out", "/tmp/fwvErs/in", "/tmp/fwvErs/out",
-		"/tmp/partErs1/in", "/tmp/partErs1/out", "/tmp/partErs2/in", "/tmp/partErs2/out",
-		"/tmp/flatstoreErs/in", "/tmp/flatstoreErs/out"} {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatal("Error removing folder: ", dir, err)
-		}
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatal("Error creating folder: ", dir, err)
-		}
-	}
-}
-
 func testCsvITStartEngine(t *testing.T) {
 	if _, err := engine.StopStartEngine(csvCfgPath, *waitRater); err != nil {
 		t.Fatal(err)
@@ -160,7 +147,7 @@ func testCsvITLoadTPFromFolder(t *testing.T) {
 		attrs, &loadInst); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 // The default scenario, out of ers defined in .cfg file
@@ -194,8 +181,8 @@ func testCsvITHandleSessionFile(t *testing.T) {
 	eAcntVal := 10.0
 	if err := csvRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != eAcntVal {
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != eAcntVal {
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 
 	aSessions := make([]*sessions.ExternalSession, 0)
@@ -214,7 +201,7 @@ func testCsvITHandleSessionFile(t *testing.T) {
 }
 
 func testCsvITCheckSession(t *testing.T) {
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	aSessions := make([]*sessions.ExternalSession, 0)
 	if err := csvRPC.Call(utils.SessionSv1GetActiveSessions, &utils.SessionFilter{}, &aSessions); err != nil {
 		t.Error(err)
@@ -251,10 +238,10 @@ func testCsvITProcessCDR(t *testing.T) {
 }
 
 func testCsvITAnalyseCDRs(t *testing.T) {
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	var cdrs []*engine.CDR
-	args := &utils.RPCCDRsFilterWithArgDispatcher{
+	args := &utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			RunIDs:    []string{"CustomerCharges"},
 			OriginIDs: []string{"SessionFromCsv"},
@@ -286,8 +273,8 @@ func testCsvITAnalyseCDRs(t *testing.T) {
 	eAcntVal := 9.85
 	if err := csvRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != eAcntVal {
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != eAcntVal {
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 }
 
@@ -303,10 +290,10 @@ func testCsvITProcessFilteredCDR(t *testing.T) {
 }
 
 func testCsvITAnalyzeFilteredCDR(t *testing.T) {
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	var cdrs []*engine.CDR
-	args := &utils.RPCCDRsFilterWithArgDispatcher{
+	args := &utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			NotRunIDs: []string{"CustomerCharges", "SupplierCharges"},
 			Sources:   []string{"ers_csv"},
@@ -324,7 +311,7 @@ func testCsvITAnalyzeFilteredCDR(t *testing.T) {
 }
 
 func testCsvITProcessedFiles(t *testing.T) {
-	time.Sleep(time.Duration(1 * time.Second))
+	time.Sleep(500 * time.Millisecond)
 	if outContent1, err := os.ReadFile("/tmp/ers/out/file1.csv"); err != nil {
 		t.Error(err)
 	} else if fileContent1 != string(outContent1) {
@@ -347,14 +334,37 @@ func testCsvITProcessedFiles(t *testing.T) {
 	}
 }
 
-func testCsvITCleanupFiles(t *testing.T) {
-	for _, dir := range []string{"/tmp/ers",
-		"/tmp/ers2", "/tmp/init_session", "/tmp/terminate_session",
-		"/tmp/cdrs", "/tmp/ers_with_filters", "/tmp/xmlErs", "/tmp/fwvErs",
-		"/tmp/partErs1", "/tmp/partErs2", "tmp/flatstoreErs"} {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatal("Error removing folder: ", dir, err)
-		}
+func testCsvITReaderWithFilter(t *testing.T) {
+	fileName := "file1.csv"
+	tmpFilePath := path.Join("/tmp", fileName)
+	if err := os.WriteFile(tmpFilePath, []byte(fileContent1), 0644); err != nil {
+		t.Fatal(err.Error())
+	}
+	if err := os.Rename(tmpFilePath, path.Join("/tmp/readerWithTemplate/in", fileName)); err != nil {
+		t.Fatal("Error moving file to processing directory: ", err)
+	}
+}
+
+func testCsvITAnalyzeReaderWithFilter(t *testing.T) {
+	time.Sleep(100 * time.Millisecond)
+
+	var cdrs []*engine.CDR
+	args := &utils.RPCCDRsFilterWithAPIOpts{
+		RPCCDRsFilter: &utils.RPCCDRsFilter{
+			NotRunIDs: []string{"CustomerCharges", "SupplierCharges"},
+			Sources:   []string{"ers_template_combined"},
+		},
+	}
+	if err := csvRPC.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if len(cdrs) != 2 {
+		t.Error("Unexpected number of CDRs returned: ", utils.ToJSON(cdrs))
+	} else if cdrs[0].Account != "1001" || cdrs[1].Account != "1001" {
+		t.Errorf("Expecting: 1001, received: <%s> , <%s>", cdrs[0].Account, cdrs[1].Account)
+	} else if cdrs[0].Tenant != "cgrates.org" || cdrs[1].Tenant != "cgrates.org" {
+		t.Errorf("Expecting: itsyscom.com, received: <%s> , <%s>", cdrs[0].Tenant, cdrs[1].Tenant)
+	} else if cdrs[0].ExtraFields["ExtraInfo1"] != "ExtraInfo1" || cdrs[1].ExtraFields["ExtraInfo1"] != "ExtraInfo1" {
+		t.Errorf("Expecting: itsyscom.com, received: <%s> , <%s>", cdrs[1].ExtraFields["ExtraInfo1"], cdrs[1].ExtraFields["ExtraInfo1"])
 	}
 }
 
@@ -362,4 +372,361 @@ func testCsvITKillEngine(t *testing.T) {
 	if err := engine.KillEngine(*waitRater); err != nil {
 		t.Error(err)
 	}
+}
+
+func TestFileCSVProcessEvent(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.ERsCfg().Readers[0].ProcessedPath = ""
+	fltrs := &engine.FilterS{}
+	filePath := "/tmp/TestFileCSVProcessEvent/"
+	if err := os.MkdirAll(filePath, 0777); err != nil {
+		t.Error(err)
+	}
+	file, err := os.Create(path.Join(filePath, "file1.csv"))
+	if err != nil {
+		t.Error(err)
+	}
+	file.Write([]byte(`:Test,,*voice,OriginCDR1,*prepaid,,cgrates.org,*call,1001,SUBJECT_TEST_1001,1002,2021-01-07 17:00:02 +0000 UTC,2021-01-07 17:00:04 +0000 UTC,1h2m
+	:Test2,,*voice,OriginCDR1,*prepaid,,cgrates.org,*call,1001,SUBJECT_TEST_1001,1002,2021-01-07 17:00:02 +0000 UTC,2021-01-07 17:00:04 +0000 UTC,1h2m`))
+	file.Close()
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	expEvent := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.AnswerTime:   "2021-01-07 17:00:04 +0000 UTC",
+			utils.Category:     "*call",
+			utils.Destination:  "1002",
+			utils.OriginID:     "OriginCDR1",
+			utils.RequestType:  "*prepaid",
+			utils.SetupTime:    "2021-01-07 17:00:02 +0000 UTC",
+			utils.Subject:      "SUBJECT_TEST_1001",
+			utils.Tenant:       "cgrates.org",
+			utils.ToR:          "*voice",
+			utils.Usage:        "1h2m",
+		},
+		APIOpts: map[string]any{},
+	}
+	eR.conReqs <- struct{}{}
+
+	eR.Config().Fields = []*config.FCTemplate{
+		{
+			Tag:       "ToR",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.ToR",
+			Value:     config.NewRSRParsersMustCompile("~*req.2", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "OriginID",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.OriginID",
+			Value:     config.NewRSRParsersMustCompile("~*req.3", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "RequestType",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.RequestType",
+			Value:     config.NewRSRParsersMustCompile("~*req.4", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "Tenant",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.Tenant",
+			Value:     config.NewRSRParsersMustCompile("~*req.6", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "Category",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.Category",
+			Value:     config.NewRSRParsersMustCompile("~*req.7", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "Account",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.Account",
+			Value:     config.NewRSRParsersMustCompile("~*req.8", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "Subject",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.Subject",
+			Value:     config.NewRSRParsersMustCompile("~*req.9", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "Destination",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.Destination",
+			Value:     config.NewRSRParsersMustCompile("~*req.10", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "SetupTime",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.SetupTime",
+			Value:     config.NewRSRParsersMustCompile("~*req.11", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "AnswerTime",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.AnswerTime",
+			Value:     config.NewRSRParsersMustCompile("~*req.12", utils.InfieldSep),
+			Mandatory: true,
+		},
+		{
+			Tag:       "Usage",
+			Type:      utils.MetaVariable,
+			Path:      "*cgreq.Usage",
+			Value:     config.NewRSRParsersMustCompile("~*req.13", utils.InfieldSep),
+			Mandatory: true,
+		},
+	}
+
+	for idx := range eR.Config().Fields {
+		eR.Config().Fields[idx].ComputePath()
+	}
+
+	fname := "file1.csv"
+	if err := eR.processFile(filePath, fname); err != nil {
+		t.Error(err)
+	}
+	select {
+	case data := <-eR.rdrEvents:
+		expEvent.ID = data.cgrEvent.ID
+		expEvent.Time = data.cgrEvent.Time
+		if !reflect.DeepEqual(data.cgrEvent, expEvent) {
+			t.Errorf("Expected %v but received %v", utils.ToJSON(expEvent), utils.ToJSON(data.cgrEvent))
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Error("Time limit exceeded")
+	}
+	if err := os.RemoveAll(filePath); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestFileCSVProcessEventError(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	fltrs := &engine.FilterS{}
+	filePath := "/tmp/TestFileCSVProcessEvent/"
+	fname := "file1.csv"
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	eR.conReqs <- struct{}{}
+	errExpect := "open /tmp/TestFileCSVProcessEvent/file1.csv: no such file or directory"
+	if err := eR.processFile(filePath, fname); err == nil || err.Error() != errExpect {
+		t.Errorf("Expected %v but received %v", errExpect, err)
+	}
+}
+
+func TestFileCSVProcessEventError2(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.ERsCfg().Readers[0].ProcessedPath = ""
+	fltrs := &engine.FilterS{}
+	filePath := "/tmp/TestFileCSVProcessEvent/"
+	fname := "file1.csv"
+	if err := os.MkdirAll(filePath, 0777); err != nil {
+		t.Error(err)
+	}
+	file, err := os.Create(path.Join(filePath, fname))
+	if err != nil {
+		t.Error(err)
+	}
+	file.Write([]byte(`#ToR,OriginID,RequestType,Tenant,Category,Account,Subject,Destination,SetupTime,AnswerTime,Usage
+	,,*voice,OriginCDR1,*prepaid,,cgrates.org,*call,1001,SUBJECT_TEST_1001,1002,2021-01-07 17:00:02 +0000 UTC,2021-01-07 17:00:04 +0000 UTC,1h2m`))
+	file.Close()
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	eR.conReqs <- struct{}{}
+
+	eR.Config().Fields = []*config.FCTemplate{
+		{},
+	}
+
+	errExpect := "unsupported type: <>"
+	if err := eR.processFile(filePath, fname); err == nil || err.Error() != errExpect {
+		t.Errorf("Expected %v but received %v", errExpect, err)
+	}
+	if err := os.RemoveAll(filePath); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestFileCSVProcessEventError3(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.ERsCfg().Readers[0].Fields = []*config.FCTemplate{}
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, cfg.CacheCfg(), nil)
+	cfg.ERsCfg().Readers[0].ProcessedPath = ""
+	fltrs := engine.NewFilterS(cfg, nil, dm)
+	filePath := "/tmp/TestFileCSVProcessEvent/"
+	fname := "file1.csv"
+	if err := os.MkdirAll(filePath, 0777); err != nil {
+		t.Error(err)
+	}
+	file, err := os.Create(path.Join(filePath, "file1.csv"))
+	if err != nil {
+		t.Error(err)
+	}
+	file.Write([]byte(`#ToR,OriginID,RequestType,Tenant,Category,Account,Subject,Destination,SetupTime,AnswerTime,Usage
+	,,*voice,OriginCDR1,*prepaid,,cgrates.org,*call,1001,SUBJECT_TEST_1001,1002,2021-01-07 17:00:02 +0000 UTC,2021-01-07 17:00:04 +0000 UTC,1h2m`))
+	file.Close()
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	eR.conReqs <- struct{}{}
+
+	//
+	eR.Config().Filters = []string{"Filter1"}
+	errExpect := "NOT_FOUND:Filter1"
+	if err := eR.processFile(filePath, fname); err == nil || err.Error() != errExpect {
+		t.Errorf("Expected %v but received %v", errExpect, err)
+	}
+
+	//
+	eR.Config().Filters = []string{"*exists:~*req..Account:"}
+	errExpect = "Invalid fieldPath [ Account]"
+	if err := eR.processFile(filePath, fname); err == nil || err.Error() != errExpect {
+		t.Errorf("Expected %v but received %v", errExpect, err)
+	}
+	if err := os.RemoveAll(filePath); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestFileCSVDirErr(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	fltrs := &engine.FilterS{}
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	eR.conReqs <- struct{}{}
+	eR.Config().RunDelay = -1
+	errExpect := "no such file or directory"
+	if err := eR.Serve(); err == nil || err.Error() != errExpect {
+		t.Errorf("Expected %v but received %v", errExpect, err)
+	}
+}
+func TestFileCSV(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	fltrs := &engine.FilterS{}
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	eR.conReqs <- struct{}{}
+	eR.Config().RunDelay = 1 * time.Millisecond
+	if err := eR.Serve(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestFileCSVServeDefault(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	fltrs := &engine.FilterS{}
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	var err error
+	eR.conReqs <- struct{}{}
+	filePath := "/tmp/ers/out/"
+	err = os.MkdirAll(filePath, 0777)
+	if err != nil {
+		t.Error(err)
+	}
+	for i := 1; i < 4; i++ {
+		if _, err := os.Create(path.Join(filePath, fmt.Sprintf("file%d.csv", i))); err != nil {
+			t.Error(err)
+		}
+	}
+	eR.Config().RunDelay = 1 * time.Millisecond
+	os.Create(path.Join(filePath, "file1.txt"))
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		close(eR.rdrExit)
+	}()
+	eR.serveDefault()
+	if err := os.RemoveAll(filePath); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestFileCSVExit(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	fltrs := &engine.FilterS{}
+	eR := &CSVFileER{
+		cgrCfg:    cfg,
+		cfgIdx:    0,
+		fltrS:     fltrs,
+		rdrDir:    "/tmp/ers/out/",
+		rdrEvents: make(chan *erEvent, 1),
+		rdrError:  make(chan error, 1),
+		rdrExit:   make(chan struct{}),
+		conReqs:   make(chan struct{}, 1),
+	}
+	eR.conReqs <- struct{}{}
+	eR.Config().RunDelay = 1 * time.Millisecond
+	if err := eR.Serve(); err != nil {
+		t.Error(err)
+	}
+	eR.rdrExit <- struct{}{}
 }

@@ -19,32 +19,43 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
-	"strings"
-
 	"github.com/cgrates/cgrates/utils"
 )
 
+type Listener struct {
+	Address string
+	Network string // udp or tcp
+}
+
+// DNSAgentCfg the config section that describes the DNS Agent
 type DNSAgentCfg struct {
 	Enabled           bool
-	Listen            string
-	ListenNet         string // udp or tcp
+	Listeners         []Listener
 	SessionSConns     []string
 	Timezone          string
 	RequestProcessors []*RequestProcessor
 }
 
-func (da *DNSAgentCfg) loadFromJsonCfg(jsnCfg *DNSAgentJsonCfg, sep string) (err error) {
+func (da *DNSAgentCfg) loadFromJSONCfg(jsnCfg *DNSAgentJsonCfg, sep string) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
 	if jsnCfg.Enabled != nil {
 		da.Enabled = *jsnCfg.Enabled
 	}
-	if jsnCfg.Listen_net != nil {
-		da.ListenNet = *jsnCfg.Listen_net
-	}
-	if jsnCfg.Listen != nil {
-		da.Listen = *jsnCfg.Listen
+
+	if jsnCfg.Listeners != nil {
+		da.Listeners = make([]Listener, 0, len(*jsnCfg.Listeners))
+		for _, listnr := range *jsnCfg.Listeners {
+			var ls Listener
+			if listnr.Address != nil {
+				ls.Address = *listnr.Address
+			}
+			if listnr.Network != nil {
+				ls.Network = *listnr.Network
+			}
+			da.Listeners = append(da.Listeners, ls)
+		}
 	}
 	if jsnCfg.Timezone != nil {
 		da.Timezone = *jsnCfg.Timezone
@@ -53,10 +64,9 @@ func (da *DNSAgentCfg) loadFromJsonCfg(jsnCfg *DNSAgentJsonCfg, sep string) (err
 		da.SessionSConns = make([]string, len(*jsnCfg.Sessions_conns))
 		for idx, connID := range *jsnCfg.Sessions_conns {
 			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			da.SessionSConns[idx] = connID
 			if connID == utils.MetaInternal {
 				da.SessionSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)
-			} else {
-				da.SessionSConns[idx] = connID
 			}
 		}
 	}
@@ -71,41 +81,84 @@ func (da *DNSAgentCfg) loadFromJsonCfg(jsnCfg *DNSAgentJsonCfg, sep string) (err
 					break
 				}
 			}
-			if err := rp.loadFromJsonCfg(reqProcJsn, sep); err != nil {
-				return nil
+			if err = rp.loadFromJSONCfg(reqProcJsn, sep); err != nil {
+				return
 			}
 			if !haveID {
 				da.RequestProcessors = append(da.RequestProcessors, rp)
 			}
 		}
 	}
-	return nil
+	return
 }
 
-func (da *DNSAgentCfg) AsMapInterface(separator string) map[string]interface{} {
-	requestProcessors := make([]map[string]interface{}, len(da.RequestProcessors))
+// AsMapInterface returns the config as a map[string]any
+func (lstn *Listener) AsMapInterface(separator string) map[string]any {
+	return map[string]any{
+		utils.AddressCfg: lstn.Address,
+		utils.NetworkCfg: lstn.Network,
+	}
+
+}
+
+// AsMapInterface returns the config as a map[string]any
+func (da *DNSAgentCfg) AsMapInterface(separator string) (initialMP map[string]any) {
+	initialMP = map[string]any{
+		utils.EnabledCfg:  da.Enabled,
+		utils.TimezoneCfg: da.Timezone,
+	}
+
+	listeners := make([]map[string]any, len(da.Listeners))
+	for i, item := range da.Listeners {
+		listeners[i] = item.AsMapInterface(separator)
+	}
+	initialMP[utils.ListenersCfg] = listeners
+
+	requestProcessors := make([]map[string]any, len(da.RequestProcessors))
 	for i, item := range da.RequestProcessors {
 		requestProcessors[i] = item.AsMapInterface(separator)
 	}
-	sessionSConns := make([]string, len(da.SessionSConns))
-	for i, item := range da.SessionSConns {
-		buf := utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)
-		if item == buf {
-			sessionSConns[i] = strings.ReplaceAll(item, utils.CONCATENATED_KEY_SEP+utils.MetaSessionS, utils.EmptyString)
-		} else {
+	initialMP[utils.RequestProcessorsCfg] = requestProcessors
+
+	if da.SessionSConns != nil {
+		sessionSConns := make([]string, len(da.SessionSConns))
+		for i, item := range da.SessionSConns {
 			sessionSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS) {
+				sessionSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.SessionSConnsCfg] = sessionSConns
+	}
+	return
+}
+
+// Clone returns a deep copy of DNSAgentCfg
+func (da DNSAgentCfg) Clone() (cln *DNSAgentCfg) {
+	cln = &DNSAgentCfg{
+		Enabled:   da.Enabled,
+		Listeners: da.Listeners,
+		Timezone:  da.Timezone,
+	}
+
+	if da.Listeners != nil {
+		cln.Listeners = make([]Listener, len(da.Listeners))
+		copy(cln.Listeners, da.Listeners)
+	}
+
+	if da.SessionSConns != nil {
+		cln.SessionSConns = make([]string, len(da.SessionSConns))
+		for i, con := range da.SessionSConns {
+			cln.SessionSConns[i] = con
 		}
 	}
-
-	return map[string]interface{}{
-		utils.EnabledCfg:           da.Enabled,
-		utils.ListenCfg:            da.Listen,
-		utils.ListenNetCfg:         da.ListenNet,
-		utils.SessionSConnsCfg:     sessionSConns,
-		utils.TimezoneCfg:          da.Timezone,
-		utils.RequestProcessorsCfg: requestProcessors,
+	if da.RequestProcessors != nil {
+		cln.RequestProcessors = make([]*RequestProcessor, len(da.RequestProcessors))
+		for i, req := range da.RequestProcessors {
+			cln.RequestProcessors[i] = req.Clone()
+		}
 	}
-
+	return
 }
 
 // RequestProcessor is the request processor configuration
@@ -119,7 +172,7 @@ type RequestProcessor struct {
 	ReplyFields   []*FCTemplate
 }
 
-func (rp *RequestProcessor) loadFromJsonCfg(jsnCfg *ReqProcessorJsnCfg, sep string) (err error) {
+func (rp *RequestProcessor) loadFromJSONCfg(jsnCfg *ReqProcessorJsnCfg, sep string) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
@@ -133,63 +186,82 @@ func (rp *RequestProcessor) loadFromJsonCfg(jsnCfg *ReqProcessorJsnCfg, sep stri
 		}
 	}
 	if jsnCfg.Flags != nil {
-		if rp.Flags, err = utils.FlagsWithParamsFromSlice(*jsnCfg.Flags); err != nil {
-			return
-		}
+		rp.Flags = utils.FlagsWithParamsFromSlice(*jsnCfg.Flags)
 	}
 	if jsnCfg.Timezone != nil {
 		rp.Timezone = *jsnCfg.Timezone
 	}
 	if jsnCfg.Tenant != nil {
-		if rp.Tenant, err = NewRSRParsers(*jsnCfg.Tenant, true, sep); err != nil {
+		if rp.Tenant, err = NewRSRParsers(*jsnCfg.Tenant, sep); err != nil {
 			return err
 		}
 	}
 	if jsnCfg.Request_fields != nil {
-		if rp.RequestFields, err = FCTemplatesFromFCTemplatesJsonCfg(*jsnCfg.Request_fields, sep); err != nil {
+		if rp.RequestFields, err = FCTemplatesFromFCTemplatesJSONCfg(*jsnCfg.Request_fields, sep); err != nil {
 			return
 		}
 	}
 	if jsnCfg.Reply_fields != nil {
-		if rp.ReplyFields, err = FCTemplatesFromFCTemplatesJsonCfg(*jsnCfg.Reply_fields, sep); err != nil {
+		if rp.ReplyFields, err = FCTemplatesFromFCTemplatesJSONCfg(*jsnCfg.Reply_fields, sep); err != nil {
 			return
 		}
 	}
 	return nil
 }
 
-func (rp *RequestProcessor) AsMapInterface(separator string) map[string]interface{} {
-	replyFields := make([]map[string]interface{}, len(rp.ReplyFields))
-	for i, item := range rp.ReplyFields {
-		replyFields[i] = item.AsMapInterface(separator)
+// AsMapInterface returns the config as a map[string]any
+func (rp *RequestProcessor) AsMapInterface(separator string) (initialMP map[string]any) {
+	initialMP = map[string]any{
+		utils.IDCfg:       rp.ID,
+		utils.FiltersCfg:  rp.Filters,
+		utils.FlagsCfg:    rp.Flags.SliceFlags(),
+		utils.TimezoneCfg: rp.Timezone,
 	}
-
-	requestFields := make([]map[string]interface{}, len(rp.RequestFields))
-	for i, item := range rp.RequestFields {
-		requestFields[i] = item.AsMapInterface(separator)
-	}
-	var tenant string
 	if rp.Tenant != nil {
-		values := make([]string, len(rp.Tenant))
-		for i, item := range rp.Tenant {
-			values[i] = item.Rules
+		initialMP[utils.TenantCfg] = rp.Tenant.GetRule(separator)
+	}
+	if rp.RequestFields != nil {
+		requestFields := make([]map[string]any, len(rp.RequestFields))
+		for i, item := range rp.RequestFields {
+			requestFields[i] = item.AsMapInterface(separator)
 		}
-		tenant = strings.Join(values, separator)
+		initialMP[utils.RequestFieldsCfg] = requestFields
 	}
-
-	flags := make(map[string][]string, len(rp.Flags))
-	for key, item := range rp.Flags {
-		flags[key] = item
+	if rp.ReplyFields != nil {
+		replyFields := make([]map[string]any, len(rp.ReplyFields))
+		for i, item := range rp.ReplyFields {
+			replyFields[i] = item.AsMapInterface(separator)
+		}
+		initialMP[utils.ReplyFieldsCfg] = replyFields
 	}
+	return
+}
 
-	return map[string]interface{}{
-		utils.IDCfg:            rp.ID,
-		utils.TenantCfg:        tenant,
-		utils.FiltersCfg:       rp.Filters,
-		utils.FlagsCfg:         flags,
-		utils.TimezoneCfgC:     rp.Timezone,
-		utils.RequestFieldsCfg: requestFields,
-		utils.ReplyFieldsCfg:   replyFields,
+// Clone returns a deep copy of APIBanCfg
+func (rp RequestProcessor) Clone() (cln *RequestProcessor) {
+	cln = &RequestProcessor{
+		ID:       rp.ID,
+		Tenant:   rp.Tenant.Clone(),
+		Flags:    rp.Flags.Clone(),
+		Timezone: rp.Timezone,
 	}
-
+	if rp.Filters != nil {
+		cln.Filters = make([]string, len(rp.Filters))
+		for i, fltr := range rp.Filters {
+			cln.Filters[i] = fltr
+		}
+	}
+	if rp.RequestFields != nil {
+		cln.RequestFields = make([]*FCTemplate, len(rp.RequestFields))
+		for i, rf := range rp.RequestFields {
+			cln.RequestFields[i] = rf.Clone()
+		}
+	}
+	if rp.ReplyFields != nil {
+		cln.ReplyFields = make([]*FCTemplate, len(rp.ReplyFields))
+		for i, rf := range rp.ReplyFields {
+			cln.ReplyFields[i] = rf.Clone()
+		}
+	}
+	return
 }

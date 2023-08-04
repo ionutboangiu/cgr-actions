@@ -47,6 +47,12 @@ type AttributeProfile struct {
 	Weight             float64
 }
 
+// AttributeProfileWithAPIOpts is used in replicatorV1 for dispatcher
+type AttributeProfileWithAPIOpts struct {
+	*AttributeProfile
+	APIOpts map[string]any
+}
+
 func (ap *AttributeProfile) compileSubstitutes() (err error) {
 	for _, attr := range ap.Attributes {
 		if err = attr.Value.Compile(); err != nil {
@@ -66,6 +72,14 @@ func (ap *AttributeProfile) TenantID() string {
 	return utils.ConcatenatedKey(ap.Tenant, ap.ID)
 }
 
+// TenantIDInline returns the id for inline
+func (ap *AttributeProfile) TenantIDInline() string {
+	if strings.HasPrefix(ap.ID, utils.Meta) {
+		return ap.ID
+	}
+	return ap.TenantID()
+}
+
 // AttributeProfiles is a sortable list of Attribute profiles
 type AttributeProfiles []*AttributeProfile
 
@@ -82,8 +96,8 @@ type ExternalAttribute struct {
 	Value     string
 }
 
-// ExternalAttributeProfile used by APIs
-type ExternalAttributeProfile struct {
+// APIAttributeProfile used by APIs
+type APIAttributeProfile struct {
 	Tenant             string
 	ID                 string
 	Contexts           []string // bind this AttributeProfile to multiple contexts
@@ -95,18 +109,21 @@ type ExternalAttributeProfile struct {
 }
 
 // AsAttributeProfile converts the external attribute format to the actual AttributeProfile
-func (ext *ExternalAttributeProfile) AsAttributeProfile() (attr *AttributeProfile, err error) {
+func (ext *APIAttributeProfile) AsAttributeProfile() (attr *AttributeProfile, err error) {
 	attr = new(AttributeProfile)
 	if len(ext.Attributes) == 0 {
 		return nil, utils.NewErrMandatoryIeMissing("Attributes")
 	}
 	attr.Attributes = make([]*Attribute, len(ext.Attributes))
 	for i, extAttr := range ext.Attributes {
+		if extAttr.Path == utils.EmptyString {
+			return nil, utils.NewErrMandatoryIeMissing("Path")
+		}
 		if len(extAttr.Value) == 0 {
 			return nil, utils.NewErrMandatoryIeMissing("Value")
 		}
 		attr.Attributes[i] = new(Attribute)
-		if attr.Attributes[i].Value, err = config.NewRSRParsers(extAttr.Value, true, utils.INFIELD_SEP); err != nil {
+		if attr.Attributes[i].Value, err = config.NewRSRParsers(extAttr.Value, utils.InfieldSep); err != nil {
 			return nil, err
 		}
 		attr.Attributes[i].Type = extAttr.Type
@@ -125,26 +142,29 @@ func (ext *ExternalAttributeProfile) AsAttributeProfile() (attr *AttributeProfil
 
 // NewAttributeFromInline parses an inline rule into a compiled AttributeProfile
 func NewAttributeFromInline(tenant, inlnRule string) (attr *AttributeProfile, err error) {
-	ruleSplt := strings.Split(inlnRule, utils.InInFieldSep)
-	if len(ruleSplt) < 3 {
-		return nil, fmt.Errorf("inline parse error for string: <%s>", inlnRule)
-	}
-	var vals config.RSRParsers
-	if vals, err = config.NewRSRParsers(strings.Join(ruleSplt[2:], utils.InInFieldSep), true, utils.INFIELD_SEP); err != nil {
-		return nil, err
-	}
 	attr = &AttributeProfile{
 		Tenant:   tenant,
 		ID:       inlnRule,
-		Contexts: []string{utils.META_ANY},
-		Attributes: []*Attribute{{
+		Contexts: []string{utils.MetaAny},
+	}
+	for _, rule := range strings.Split(inlnRule, utils.InfieldSep) {
+		ruleSplt := strings.SplitN(rule, utils.InInFieldSep, 3)
+		if len(ruleSplt) < 3 {
+			return nil, fmt.Errorf("inline parse error for string: <%s>", rule)
+		}
+		var vals config.RSRParsers
+		if vals, err = config.NewRSRParsers(ruleSplt[2], utils.ANDSep); err != nil {
+			return nil, err
+		}
+		if len(ruleSplt[1]) == 0 {
+			err = fmt.Errorf("empty path in inline AttributeProfile <%s>", inlnRule)
+			return
+		}
+		attr.Attributes = append(attr.Attributes, &Attribute{
 			Path:  ruleSplt[1],
 			Type:  ruleSplt[0],
 			Value: vals,
-		}},
-	}
-	if err = attr.Compile(); err != nil {
-		return nil, err
+		})
 	}
 	return
 }

@@ -47,12 +47,11 @@
       with_file:
         - '/home/{{ host_username.stdout }}/.ssh/id_rsa.pub'
 
-
 - hosts: yum
   vars:
     # CGRateS location
     cgrates_dir: "/home/{{ user }}/go/src/github.com/cgrates/cgrates"
-    cgrates_branch: "v0.10"
+    cgrates_branch: "master"
     cgrates_distribution: "nightly"
     ###############################################################
     ##################### GPG Vars #############################
@@ -71,13 +70,13 @@
     customPath: "{{ lookup('env','PATH') }}:/home/{{ user }}/go/bin:/usr/local/go/bin:{{ ansible_env.PATH }}"
 
     ansible_user: '{{ user }}'
-  tasks:    
+  tasks:
     - name: set cgrates cgrates_distribution
       set_fact:
         cgrates_distribution: "{{ cgrates_distribution }}"
-###########################################################################################################################
-###########################################################################################################################
-# install dependencies
+# ###########################################################################################################################
+# ###########################################################################################################################
+# # install dependencies
     - name: Add epel-relase repo so we can install sshpass
       become: true
       shell: "yum install epel-release -y"
@@ -97,8 +96,8 @@
           - sshpass
           - tar
         state: present
-###########################################################################################################################
-###########################################################################################################################
+# ###########################################################################################################################
+# ###########################################################################################################################
 # Prepare for configuration
     - name: set cgrates distribution
       set_fact:
@@ -163,9 +162,9 @@
 ###########################################################################################################################
 ###########################################################################################################################
 # Install Go
-    - name: Install Go
-      import_role:
-        name: ../roles/install_go
+- name: Install Go
+    import_role:
+      name: ../roles/go
 
 ###########################################################################################################################
 ###########################################################################################################################
@@ -245,11 +244,6 @@
       set_fact:
         releaseTag: ""
 
-    - name: Compose the ReleaseTag with Tag
-      set_fact:
-        releaseTag: "{{ gitTagVar.stdout_lines[0] }}"
-      when: gitTagVar.stdout_lines|length > 0
-
     - name: Compose the ReleaseTag with values
       set_fact:
         releaseTag: "{{ gitDate.stdout_lines[0] }}+{{ gitShortVersion.stdout_lines[0] }}"
@@ -294,7 +288,7 @@
     
     # Move the file to PKG server
     - name: Copy the file to PKG server
-      shell: 'scp cgr_build/RPMS/x86_64/{{ item }} {{ pkgAddr }}:/tmp/'
+      shell: 'scp cgr_build/RPMS/x86_64/{{ item }} {{ pkgAddr }}:/tmp/' 
       with_items: '{{ rmpFileName.stdout_lines }}'
     
     - name: Sign with rpm --addsign the .rpm file

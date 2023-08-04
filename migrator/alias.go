@@ -40,8 +40,8 @@ type v1Alias struct {
 }
 
 var (
-	ALIASES_PREFIX = "als_"
-	Alias          = "Alias"
+	AliasesPrefix = "als_"
+	Alias         = "Alias"
 )
 
 type v1AliasValues []*v1AliasValue
@@ -55,7 +55,7 @@ type v1AliasValue struct {
 type v1AliasPairs map[string]map[string]string
 
 func (al *v1Alias) SetId(id string) error {
-	vals := strings.Split(id, utils.CONCATENATED_KEY_SEP)
+	vals := strings.Split(id, utils.ConcatenatedKeySep)
 	if len(vals) != 6 {
 		return utils.ErrInvalidKey
 	}
@@ -76,31 +76,31 @@ func alias2AtttributeProfile(alias *v1Alias, defaultTenant string) *engine.Attri
 	out := &engine.AttributeProfile{
 		Tenant:             alias.Tenant,
 		ID:                 alias.GetId(),
-		Contexts:           []string{utils.META_ANY},
+		Contexts:           []string{utils.MetaAny},
 		FilterIDs:          make([]string, 0),
 		ActivationInterval: nil,
 		Attributes:         make([]*engine.Attribute, 0),
 		Blocker:            false,
 		Weight:             20, // should have prio against attributes out of users
 	}
-	if len(out.Tenant) == 0 || out.Tenant == utils.META_ANY {
+	if len(out.Tenant) == 0 || out.Tenant == utils.MetaAny {
 		out.Tenant = defaultTenant
 	}
-	if len(alias.Category) != 0 && alias.Category != utils.META_ANY {
+	if len(alias.Category) != 0 && alias.Category != utils.MetaAny {
 		out.FilterIDs = append(out.FilterIDs,
 			fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.Category, alias.Category))
 	}
-	if len(alias.Account) != 0 && alias.Account != utils.META_ANY {
+	if len(alias.Account) != 0 && alias.Account != utils.MetaAny {
 		out.FilterIDs = append(out.FilterIDs,
-			fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.Account, alias.Account))
+			fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.AccountField, alias.Account))
 	}
-	if len(alias.Subject) != 0 && alias.Subject != utils.META_ANY {
+	if len(alias.Subject) != 0 && alias.Subject != utils.MetaAny {
 		out.FilterIDs = append(out.FilterIDs,
 			fmt.Sprintf("%s:~%s:%s", utils.MetaString, utils.MetaReq+utils.NestingSep+utils.Subject, alias.Subject))
 	}
 	var destination string
 	for _, av := range alias.Values {
-		if len(destination) == 0 || destination == utils.META_ANY {
+		if len(destination) == 0 || destination == utils.MetaAny {
 			destination = av.DestinationId
 		}
 		for fieldName, vals := range av.Pairs {
@@ -109,17 +109,19 @@ func alias2AtttributeProfile(alias *v1Alias, defaultTenant string) *engine.Attri
 				if fieldName == utils.Tenant {
 					fieldName = utils.MetaTenant
 					fld = utils.MetaTenant
-				} else {
+				} else if fieldName != utils.EmptyString {
 					fld = utils.MetaReq + utils.NestingSep + fieldName
+				} else {
+					continue // ignore empty fieldNames
 				}
 				attr := &engine.Attribute{
 					Path:  fld,
 					Type:  utils.MetaVariable, //default type for Attribute
-					Value: config.NewRSRParsersMustCompile(substitute, true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile(substitute, utils.InfieldSep),
 				}
 				out.Attributes = append(out.Attributes, attr)
 				// Add attribute filters if needed
-				if initial == "" || initial == utils.META_ANY {
+				if initial == "" || initial == utils.MetaAny {
 					continue
 				}
 				if fieldName == utils.MetaTenant { // no filter for tenant
@@ -128,7 +130,7 @@ func alias2AtttributeProfile(alias *v1Alias, defaultTenant string) *engine.Attri
 				if fieldName == utils.Category && alias.Category == initial {
 					continue
 				}
-				if fieldName == utils.Account && alias.Account == initial {
+				if fieldName == utils.AccountField && alias.Account == initial {
 					continue
 				}
 				if fieldName == utils.Subject && alias.Subject == initial {
@@ -139,11 +141,27 @@ func alias2AtttributeProfile(alias *v1Alias, defaultTenant string) *engine.Attri
 			}
 		}
 	}
-	if len(destination) != 0 && destination != utils.META_ANY {
+	if len(destination) != 0 && destination != utils.MetaAny {
 		out.FilterIDs = append(out.FilterIDs,
 			fmt.Sprintf("%s:~%s:%s", utils.MetaDestinations, utils.MetaReq+utils.NestingSep+utils.Destination, destination))
 	}
 	return out
+}
+
+func (m *Migrator) removeAlias2Attributes() (err error) {
+	for {
+		alias, err := m.dmIN.getV1Alias()
+		if err == utils.ErrNoMoreData {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if err := m.dmIN.remV1Alias(alias.GetId()); err != nil {
+			return err
+		}
+	}
+	return
 }
 
 func (m *Migrator) migrateAlias2Attributes() (err error) {
@@ -165,16 +183,18 @@ func (m *Migrator) migrateAlias2Attributes() (err error) {
 		if len(attr.Attributes) == 0 {
 			continue
 		}
-		if err := m.dmIN.remV1Alias(alias.GetId()); err != nil {
-			return err
-		}
 		if err := m.dmOut.DataManager().SetAttributeProfile(attr, true); err != nil {
 			return err
 		}
-		m.stats[Alias] += 1
+		m.stats[Alias]++
 	}
 	if m.dryRun {
 		return
+	}
+	if !m.sameDataDB {
+		if err = m.removeAlias2Attributes(); err != nil {
+			return
+		}
 	}
 	// All done, update version wtih current one
 	vrs := engine.Versions{Alias: 0} //engine.CurrentDataDBVersions()[utils.Alias]}
@@ -189,7 +209,7 @@ func (m *Migrator) migrateAlias2Attributes() (err error) {
 
 func (m *Migrator) migrateAlias() (err error) {
 	if err = m.migrateAlias2Attributes(); err != nil {
-		return err
+		return
 	}
 	return m.ensureIndexesDataDB(engine.ColAttr)
 }

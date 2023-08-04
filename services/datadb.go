@@ -28,11 +28,13 @@ import (
 )
 
 // NewDataDBService returns the DataDB Service
-func NewDataDBService(cfg *config.CGRConfig, connMgr *engine.ConnManager) *DataDBService {
+func NewDataDBService(cfg *config.CGRConfig, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) *DataDBService {
 	return &DataDBService{
 		cfg:     cfg,
 		dbchan:  make(chan *engine.DataManager, 1),
 		connMgr: connMgr,
+		srvDep:  srvDep,
 	}
 }
 
@@ -43,8 +45,9 @@ type DataDBService struct {
 	oldDBCfg *config.DataDbCfg
 	connMgr  *engine.ConnManager
 
-	db     *engine.DataManager
+	dm     *engine.DataManager
 	dbchan chan *engine.DataManager
+	srvDep map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -55,11 +58,11 @@ func (db *DataDBService) Start() (err error) {
 	db.Lock()
 	defer db.Unlock()
 	db.oldDBCfg = db.cfg.DataDbCfg().Clone()
-	d, err := engine.NewDataDBConn(db.cfg.DataDbCfg().DataDbType,
-		db.cfg.DataDbCfg().DataDbHost, db.cfg.DataDbCfg().DataDbPort,
-		db.cfg.DataDbCfg().DataDbName, db.cfg.DataDbCfg().DataDbUser,
-		db.cfg.DataDbCfg().DataDbPass, db.cfg.GeneralCfg().DBDataEncoding,
-		db.cfg.DataDbCfg().DataDbSentinelName, db.cfg.DataDbCfg().Items)
+	d, err := engine.NewDataDBConn(db.cfg.DataDbCfg().Type,
+		db.cfg.DataDbCfg().Host, db.cfg.DataDbCfg().Port,
+		db.cfg.DataDbCfg().Name, db.cfg.DataDbCfg().User,
+		db.cfg.DataDbCfg().Password, db.cfg.GeneralCfg().DBDataEncoding,
+		db.cfg.DataDbCfg().Opts, db.cfg.DataDbCfg().Items)
 	if db.mandatoryDB() && err != nil { // Cannot configure getter database, show stopper
 		utils.Logger.Crit(fmt.Sprintf("Could not configure dataDb: %s exiting!", err))
 		return
@@ -68,14 +71,12 @@ func (db *DataDBService) Start() (err error) {
 		err = nil // reset the error in case of only SessionS active
 		return
 	}
-
-	db.db = engine.NewDataManager(d, db.cfg.CacheCfg(), db.connMgr)
-	engine.SetDataStorage(db.db)
-	if err = engine.CheckVersions(db.db.DataDB()); err != nil {
-		fmt.Println(err)
-		return
+	db.dm = engine.NewDataManager(d, db.cfg.CacheCfg(), db.connMgr)
+	engine.SetDataStorage(db.dm)
+	if err = engine.CheckVersions(db.dm.DataDB()); err != nil {
+		return err
 	}
-	db.dbchan <- db.db
+	db.dbchan <- db.dm
 	return
 }
 
@@ -84,28 +85,30 @@ func (db *DataDBService) Reload() (err error) {
 	db.Lock()
 	defer db.Unlock()
 	if db.needsConnectionReload() {
-		if err = db.db.Reconnect(db.cfg.GeneralCfg().DBDataEncoding, db.cfg.DataDbCfg()); err != nil {
+		if err = db.dm.Reconnect(db.cfg.GeneralCfg().DBDataEncoding,
+			db.cfg.DataDbCfg(), db.cfg.DataDbCfg().Items); err != nil {
 			return
 		}
 		db.oldDBCfg = db.cfg.DataDbCfg().Clone()
 		return
 	}
-	if db.cfg.DataDbCfg().DataDbType == utils.MetaMongo {
-		mgo, canCast := db.db.DataDB().(*engine.MongoStorage)
+	if db.cfg.DataDbCfg().Type == utils.MetaMongo {
+		mgo, canCast := db.dm.DataDB().(*engine.MongoStorage)
 		if !canCast {
 			return fmt.Errorf("can't conver DataDB of type %s to MongoStorage",
-				db.cfg.DataDbCfg().DataDbType)
+				db.cfg.DataDbCfg().Type)
 		}
-		mgo.SetTTL(db.cfg.DataDbCfg().QueryTimeout)
+		mgo.SetTTL(db.cfg.DataDbCfg().Opts.MongoQueryTimeout)
 	}
 	return
 }
 
 // Shutdown stops the service
 func (db *DataDBService) Shutdown() (err error) {
+	db.srvDep[utils.DataDB].Wait()
 	db.Lock()
-	db.db.DataDB().Close()
-	db.db = nil
+	db.dm.DataDB().Close()
+	db.dm = nil
 	db.Unlock()
 	return
 }
@@ -114,7 +117,7 @@ func (db *DataDBService) Shutdown() (err error) {
 func (db *DataDBService) IsRunning() bool {
 	db.RLock()
 	defer db.RUnlock()
-	return db != nil && db.db != nil && db.db.DataDB() != nil
+	return db != nil && db.dm != nil && db.dm.DataDB() != nil
 }
 
 // ServiceName returns the service name
@@ -131,31 +134,46 @@ func (db *DataDBService) ShouldRun() bool {
 func (db *DataDBService) mandatoryDB() bool {
 	return db.cfg.RalsCfg().Enabled || db.cfg.SchedulerCfg().Enabled || db.cfg.ChargerSCfg().Enabled ||
 		db.cfg.AttributeSCfg().Enabled || db.cfg.ResourceSCfg().Enabled || db.cfg.StatSCfg().Enabled ||
-		db.cfg.ThresholdSCfg().Enabled || db.cfg.SupplierSCfg().Enabled || db.cfg.DispatcherSCfg().Enabled ||
-		db.cfg.LoaderCfg().Enabled() || db.cfg.ApierCfg().Enabled
+		db.cfg.ThresholdSCfg().Enabled || db.cfg.RouteSCfg().Enabled || db.cfg.DispatcherSCfg().Enabled ||
+		db.cfg.LoaderCfg().Enabled() || db.cfg.ApierCfg().Enabled || db.cfg.AnalyzerSCfg().Enabled
 }
 
 // GetDM returns the DataManager
 func (db *DataDBService) GetDM() *engine.DataManager {
 	db.RLock()
 	defer db.RUnlock()
-	return db.db
+	return db.dm
 }
 
 // needsConnectionReload returns if the DB connection needs to reloaded
 func (db *DataDBService) needsConnectionReload() bool {
-	if db.oldDBCfg.DataDbType != db.cfg.DataDbCfg().DataDbType ||
-		db.oldDBCfg.DataDbHost != db.cfg.DataDbCfg().DataDbHost ||
-		db.oldDBCfg.DataDbName != db.cfg.DataDbCfg().DataDbName ||
-		db.oldDBCfg.DataDbPort != db.cfg.DataDbCfg().DataDbPort ||
-		db.oldDBCfg.DataDbUser != db.cfg.DataDbCfg().DataDbUser ||
-		db.oldDBCfg.DataDbPass != db.cfg.DataDbCfg().DataDbPass {
+	if db.oldDBCfg.Type != db.cfg.DataDbCfg().Type ||
+		db.oldDBCfg.Host != db.cfg.DataDbCfg().Host ||
+		db.oldDBCfg.Name != db.cfg.DataDbCfg().Name ||
+		db.oldDBCfg.Port != db.cfg.DataDbCfg().Port ||
+		db.oldDBCfg.User != db.cfg.DataDbCfg().User ||
+		db.oldDBCfg.Password != db.cfg.DataDbCfg().Password {
 		return true
 	}
-	if db.oldDBCfg.DataDbType == utils.MetaRedis {
-		return db.oldDBCfg.DataDbSentinelName != db.cfg.DataDbCfg().DataDbSentinelName
+	if db.cfg.DataDbCfg().Type == utils.MetaInternal { // in case of internal recreate the db using the new config
+		for key, itm := range db.oldDBCfg.Items {
+			if db.cfg.DataDbCfg().Items[key].Limit != itm.Limit &&
+				db.cfg.DataDbCfg().Items[key].StaticTTL != itm.StaticTTL &&
+				db.cfg.DataDbCfg().Items[key].TTL != itm.TTL {
+				return true
+			}
+		}
 	}
-	return false
+	return db.oldDBCfg.Type == utils.MetaRedis &&
+		(db.oldDBCfg.Opts.RedisMaxConns != db.cfg.DataDbCfg().Opts.RedisMaxConns ||
+			db.oldDBCfg.Opts.RedisConnectAttempts != db.cfg.DataDbCfg().Opts.RedisConnectAttempts ||
+			db.oldDBCfg.Opts.RedisSentinel != db.cfg.DataDbCfg().Opts.RedisSentinel ||
+			db.oldDBCfg.Opts.RedisCluster != db.cfg.DataDbCfg().Opts.RedisCluster ||
+			db.oldDBCfg.Opts.RedisClusterSync != db.cfg.DataDbCfg().Opts.RedisClusterSync ||
+			db.oldDBCfg.Opts.RedisClusterOndownDelay != db.cfg.DataDbCfg().Opts.RedisClusterOndownDelay ||
+			db.oldDBCfg.Opts.RedisConnectTimeout != db.cfg.DataDbCfg().Opts.RedisConnectTimeout ||
+			db.oldDBCfg.Opts.RedisReadTimeout != db.cfg.DataDbCfg().Opts.RedisReadTimeout ||
+			db.oldDBCfg.Opts.RedisWriteTimeout != db.cfg.DataDbCfg().Opts.RedisWriteTimeout)
 }
 
 // GetDMChan returns the DataManager chanel

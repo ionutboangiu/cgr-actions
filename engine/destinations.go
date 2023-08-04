@@ -37,6 +37,12 @@ type Destination struct {
 	Prefixes []string
 }
 
+type DestinationWithAPIOpts struct {
+	*Destination
+	Tenant  string
+	APIOpts map[string]any
+}
+
 // returns prefix precision
 func (d *Destination) containsPrefix(prefix string) int {
 	if d == nil {
@@ -65,33 +71,8 @@ func (d *Destination) AddPrefix(pfx string) {
 
 // Reverse search in cache to see if prefix belongs to destination id
 func CachedDestHasPrefix(destId, prefix string) bool {
-	if cached, err := dm.GetReverseDestination(prefix, false, utils.NonTransactional); err == nil {
+	if cached, err := dm.GetReverseDestination(prefix, true, true, utils.NonTransactional); err == nil {
 		return utils.IsSliceMember(cached, destId)
 	}
 	return false
 }
-
-/*func CleanStalePrefixes(destIds []string) {
-	utils.Logger.Info("Cleaning stale dest prefixes: " + utils.ToJSON(destIds))
-	prefixMap := cache.GetAllEntries(utils.REVERSE_DESTINATION_PREFIX)
-	for prefix, idIDs := range prefixMap {
-		dIDs := idIDs.(map[string]struct{})
-		changed := false
-		for _, searchedDID := range destIds {
-			if _, found := dIDs[searchedDID]; found {
-				if len(dIDs) == 1 {
-					// remove de prefix from cache
-					cache.RemKey(utils.REVERSE_DESTINATION_PREFIX + prefix)
-				} else {
-					// delete the destination from list and put the new list in chache
-					delete(dIDs, searchedDID)
-					changed = true
-				}
-			}
-		}
-		if changed {
-			cache.Set(utils.REVERSE_DESTINATION_PREFIX+prefix, dIDs)
-		}
-	}
-}
-*/

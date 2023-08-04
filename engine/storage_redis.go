@@ -21,35 +21,24 @@ package engine
 import (
 	"bytes"
 	"compress/zlib"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
-	"fmt"
 	"io"
+	"os"
 	"strconv"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/guardian"
 	"github.com/cgrates/cgrates/utils"
-	"github.com/mediocregopher/radix.v2/pool"
-	"github.com/mediocregopher/radix.v2/redis"
-	"github.com/mediocregopher/radix.v2/sentinel"
+	"github.com/mediocregopher/radix/v3"
 )
 
 type RedisStorage struct {
-	dbPool        *pool.Pool
-	maxConns      int
-	ms            Marshaler
-	sentinelName  string
-	sentinelInsts []*sentinelInst
-	db            int    //database number used when recconect sentinel
-	pass          string //password used when recconect sentinel
-	sentinelMux   sync.RWMutex
-}
-
-type sentinelInst struct {
-	addr string
-	conn *sentinel.Client
+	client radix.Client
+	ms     Marshaler
 }
 
 // Redis commands
@@ -77,167 +66,136 @@ const (
 	redis_HGET     = "HGET"
 	redis_RENAME   = "RENAME"
 	redis_HMSET    = "HMSET"
+
+	redisLoadError = "Redis is loading the dataset in memory"
+	RedisLimit     = 524287 // https://github.com/StackExchange/StackExchange.Redis/issues/201#issuecomment-98639005
 )
 
-func NewRedisStorage(address string, db int, pass, mrshlerStr string,
-	maxConns int, sentinelName string) (*RedisStorage, error) {
-
-	df := func(network, addr string) (*redis.Client, error) {
-		client, err := redis.Dial(network, addr)
-		if err != nil {
-			return nil, err
-		}
-		if len(pass) != 0 {
-			if err = client.Cmd(redis_AUTH, pass).Err; err != nil {
-				client.Close()
-				return nil, err
-			}
-		}
-		if db != 0 {
-			if err = client.Cmd(redis_SELECT, db).Err; err != nil {
-				client.Close()
-				return nil, err
-			}
-		}
-		return client, nil
+func NewRedisStorage(address string, db int, user, pass, mrshlerStr string,
+	maxConns, attempts int, sentinelName string, isCluster bool, clusterSync,
+	clusterOnDownDelay time.Duration, connTimeout, readTimeout, writeTimeout time.Duration,
+	tlsConn bool, tlsClientCert, tlsClientKey, tlsCACert string) (_ *RedisStorage, err error) {
+	var ms Marshaler
+	if ms, err = NewMarshaler(mrshlerStr); err != nil {
+		return
 	}
 
-	ms, err := NewMarshaler(mrshlerStr)
-	if err != nil {
-		return nil, err
+	dialOpts := make([]radix.DialOpt, 1, 6)
+	dialOpts[0] = radix.DialSelectDB(db)
+	if pass != utils.EmptyString {
+		if user == utils.EmptyString {
+			dialOpts = append(dialOpts, radix.DialAuthPass(pass))
+		} else {
+			dialOpts = append(dialOpts, radix.DialAuthUser(user, pass))
+		}
 	}
 
-	if sentinelName != "" {
-		var err error
-		addrs := utils.InfieldSplit(address)
-		sentinelInsts := make([]*sentinelInst, len(addrs))
-		for i, addr := range addrs {
-			sentinelInsts[i] = &sentinelInst{addr: addr}
-			if sentinelInsts[i].conn, err = sentinel.NewClientCustom(utils.TCP,
-				addr, maxConns, df, sentinelName); err != nil {
-				sentinelInsts[i].conn = nil
-				utils.Logger.Warning(fmt.Sprintf("<RedisStorage> could not connenct to sentinel at address: %s because error: %s ",
-					sentinelInsts[i].addr, err.Error()))
-				// return nil, err
+	if tlsConn {
+		var cert tls.Certificate
+		if tlsClientCert != "" && tlsClientKey != "" {
+			if cert, err = tls.LoadX509KeyPair(tlsClientCert, tlsClientKey); err != nil {
+				return
 			}
 		}
-		if err != nil {
-			return nil, err
+		var rootCAs *x509.CertPool
+		if rootCAs, err = x509.SystemCertPool(); err != nil {
+			return
 		}
-		return &RedisStorage{
-			maxConns:      maxConns,
-			ms:            ms,
-			sentinelName:  sentinelName,
-			sentinelInsts: sentinelInsts,
-			db:            db,
-			pass:          pass}, nil
-	} else {
-		p, err := pool.NewCustom(utils.TCP, address, maxConns, df)
-		if err != nil {
-			return nil, err
+		if rootCAs == nil {
+			rootCAs = x509.NewCertPool()
 		}
-		return &RedisStorage{
-			dbPool:   p,
-			maxConns: maxConns,
-			ms:       ms,
-		}, nil
+		if tlsCACert != "" {
+			var ca []byte
+			if ca, err = os.ReadFile(tlsCACert); err != nil {
+				return
+			}
+			if !rootCAs.AppendCertsFromPEM(ca) {
+				return
+			}
+		}
+		dialOpts = append(dialOpts, radix.DialUseTLS(&tls.Config{
+			Certificates: []tls.Certificate{cert},
+			RootCAs:      rootCAs,
+		}))
+	}
+
+	dialOpts = append(dialOpts,
+		radix.DialReadTimeout(readTimeout),
+		radix.DialWriteTimeout(writeTimeout),
+		radix.DialConnectTimeout(connTimeout))
+
+	var client radix.Client
+	if client, err = newRedisClient(address, sentinelName,
+		isCluster, clusterSync, clusterOnDownDelay,
+		maxConns, attempts, dialOpts); err != nil {
+		return
+	}
+	return &RedisStorage{
+		ms:     ms,
+		client: client,
+	}, nil
+}
+
+func redisDial(network, addr string, attempts int, opts ...radix.DialOpt) (conn radix.Conn, err error) {
+	fib := utils.FibDuration(time.Millisecond, 0)
+	for i := 0; i < attempts; i++ {
+		if conn, err = radix.Dial(network, addr, opts...); err == nil ||
+			(err != nil && !strings.Contains(err.Error(), redisLoadError)) {
+			break
+		}
+		time.Sleep(fib())
+	}
+	return
+}
+
+func newRedisClient(address, sentinelName string, isCluster bool,
+	clusterSync, clusterOnDownDelay time.Duration, maxConns, attempts int, dialOpts []radix.DialOpt) (radix.Client, error) {
+	dialFunc := func(network, addr string) (radix.Conn, error) {
+		return redisDial(network, addr, attempts, dialOpts...)
+	}
+	dialFuncAuthOnly := func(network, addr string) (radix.Conn, error) {
+		return redisDial(network, addr, attempts, dialOpts[1:]...)
+	}
+	switch {
+	case isCluster:
+		return radix.NewCluster(utils.InfieldSplit(address),
+			radix.ClusterSyncEvery(clusterSync),
+			radix.ClusterOnDownDelayActionsBy(clusterOnDownDelay),
+			radix.ClusterPoolFunc(func(network, addr string) (radix.Client, error) {
+				// in cluster enviorment do not select the DB as we expect to have only one DB
+				return radix.NewPool(network, addr, maxConns, radix.PoolConnFunc(dialFuncAuthOnly))
+			}))
+	case sentinelName != utils.EmptyString:
+		return radix.NewSentinel(sentinelName, utils.InfieldSplit(address),
+			radix.SentinelConnFunc(dialFuncAuthOnly),
+			radix.SentinelPoolFunc(func(network, addr string) (radix.Client, error) {
+				return radix.NewPool(network, addr, maxConns, radix.PoolConnFunc(dialFunc))
+			}))
+	default:
+		return radix.NewPool(utils.TCP, address, maxConns, radix.PoolConnFunc(dialFunc))
 	}
 }
 
-func reconnectSentinel(addr, sentinelName string, db int, pass string, maxConns int) (*sentinel.Client, error) {
-	df := func(network, addr string) (*redis.Client, error) {
-		client, err := redis.Dial(network, addr)
-		if err != nil {
-			return nil, err
-		}
-		if len(pass) != 0 {
-			if err = client.Cmd(redis_AUTH, pass).Err; err != nil {
-				client.Close()
-				return nil, err
-			}
-		}
-		if db != 0 {
-			if err = client.Cmd(redis_SELECT, db).Err; err != nil {
-				client.Close()
-				return nil, err
-			}
-		}
-		return client, nil
-	}
-	return sentinel.NewClientCustom(utils.TCP, addr, maxConns, df, sentinelName)
-}
-
-// This CMD function get a connection from the pool.
+// Cmd function get a connection from the pool.
 // Handles automatic failover in case of network disconnects
-func (rs *RedisStorage) Cmd(cmd string, args ...interface{}) *redis.Resp {
-	if rs.sentinelName != "" {
-		var err error
-		for i := range rs.sentinelInsts {
-			rs.sentinelMux.Lock()
+func (rs *RedisStorage) Cmd(rcv any, cmd string, args ...string) error {
+	return rs.client.Do(radix.Cmd(rcv, cmd, args...))
+}
 
-			if rs.sentinelInsts[i].conn == nil {
-				rs.sentinelInsts[i].conn, err = reconnectSentinel(rs.sentinelInsts[i].addr,
-					rs.sentinelName, rs.db, rs.pass, rs.maxConns)
-				if err != nil {
-					if i == len(rs.sentinelInsts)-1 {
-						rs.sentinelMux.Unlock()
-						return redis.NewResp(fmt.Errorf("No sentinels active"))
-					}
-					rs.sentinelMux.Unlock()
-					continue
-				}
-			}
-			sConn := rs.sentinelInsts[i].conn
-			rs.sentinelMux.Unlock()
-
-			conn, err := sConn.GetMaster(rs.sentinelName)
-			if err != nil {
-				if i == len(rs.sentinelInsts)-1 {
-					return redis.NewResp(fmt.Errorf("No sentinels active"))
-				}
-				rs.sentinelMux.Lock()
-				rs.sentinelInsts[i].conn = nil
-				rs.sentinelMux.Unlock()
-				utils.Logger.Warning(fmt.Sprintf("<RedisStorage> sentinel at address: %s became nil error: %s ",
-					rs.sentinelInsts[i].addr, err.Error()))
-				continue
-			}
-			result := conn.Cmd(cmd, args...)
-			sConn.PutMaster(rs.sentinelName, conn)
-			return result
-		}
-	}
-
-	c1, err := rs.dbPool.Get()
-	if err != nil {
-		return redis.NewResp(err)
-	}
-	result := c1.Cmd(cmd, args...)
-	if result.IsType(redis.IOErr) { // Failover mecanism
-		utils.Logger.Warning(fmt.Sprintf("<RedisStorage> error <%s>, attempting failover.", result.Err.Error()))
-		for i := 0; i < rs.maxConns; i++ { // Two attempts, one on connection of original pool, one on new pool
-			c2, err := rs.dbPool.Get()
-			if err == nil {
-				if result2 := c2.Cmd(cmd, args...); !result2.IsType(redis.IOErr) {
-					rs.dbPool.Put(c2)
-					return result2
-				}
-			}
-		}
-	} else {
-		rs.dbPool.Put(c1)
-	}
-	return result
+// FlatCmd function get a connection from the pool.
+// Handles automatic failover in case of network disconnects
+func (rs *RedisStorage) FlatCmd(rcv any, cmd, key string, args ...any) error {
+	return rs.client.Do(radix.FlatCmd(rcv, cmd, key, args...))
 }
 
 func (rs *RedisStorage) Close() {
-	if rs.dbPool != nil {
-		rs.dbPool.Empty()
+	if rs.client != nil {
+		rs.client.Close()
 	}
 }
 
 func (rs *RedisStorage) Flush(ignore string) error {
-	return rs.Cmd(redis_FLUSHDB).Err
+	return rs.Cmd(nil, redis_FLUSHDB)
 }
 
 func (rs *RedisStorage) Marshaler() Marshaler {
@@ -245,7 +203,7 @@ func (rs *RedisStorage) Marshaler() Marshaler {
 }
 
 func (rs *RedisStorage) SelectDatabase(dbName string) (err error) {
-	return rs.Cmd(redis_SELECT, dbName).Err
+	return rs.Cmd(nil, redis_SELECT, dbName)
 }
 
 func (rs *RedisStorage) IsDBEmpty() (resp bool, err error) {
@@ -262,12 +220,11 @@ func (rs *RedisStorage) IsDBEmpty() (resp bool, err error) {
 
 func (rs *RedisStorage) RemoveKeysForPrefix(prefix string) (err error) {
 	var keys []string
-	keys, err = rs.GetKeysForPrefix(prefix)
-	if err != nil {
+	if keys, err = rs.GetKeysForPrefix(prefix); err != nil {
 		return
 	}
 	for _, key := range keys {
-		if err = rs.Cmd(redis_DEL, key).Err; err != nil {
+		if err = rs.Cmd(nil, redis_DEL, key); err != nil {
 			return
 		}
 	}
@@ -277,8 +234,7 @@ func (rs *RedisStorage) RemoveKeysForPrefix(prefix string) (err error) {
 func (rs *RedisStorage) getKeysForFilterIndexesKeys(fkeys []string) (keys []string, err error) {
 	for _, itemIDPrefix := range fkeys {
 		mp := make(map[string]string)
-		mp, err = rs.Cmd(redis_HGETALL, itemIDPrefix).Map()
-		if err != nil {
+		if err = rs.Cmd(&mp, redis_HGETALL, itemIDPrefix); err != nil {
 			return
 		} else if len(mp) == 0 {
 			return nil, utils.ErrNotFound
@@ -290,351 +246,236 @@ func (rs *RedisStorage) getKeysForFilterIndexesKeys(fkeys []string) (keys []stri
 	return
 }
 
-func (rs *RedisStorage) RebbuildActionPlanKeys() error {
-	r := rs.Cmd(redis_KEYS, utils.ACTION_PLAN_PREFIX+"*")
-	if r.Err != nil {
-		return r.Err
+func (rs *RedisStorage) RebbuildActionPlanKeys() (err error) {
+	var keys []string
+	if err = rs.Cmd(&keys, redis_KEYS, utils.ActionPlanPrefix+"*"); err != nil {
+		return
 	}
-	keys, _ := r.List()
 	for _, key := range keys {
-		if err := rs.Cmd(redis_SADD, utils.ActionPlanIndexes, key).Err; err != nil {
-			return err
+		if err = rs.Cmd(nil, redis_SADD, utils.ActionPlanIndexes, key); err != nil {
+			return
 		}
 	}
-	return nil
+	return
 }
 
-func (rs *RedisStorage) GetKeysForPrefix(prefix string) ([]string, error) {
-	var r *redis.Resp
-	if prefix == utils.ACTION_PLAN_PREFIX { // so we can avoid the full scan on scheduler reloads
-		r = rs.Cmd(redis_SMEMBERS, utils.ActionPlanIndexes)
+func (rs *RedisStorage) GetKeysForPrefix(prefix string) (keys []string, err error) {
+	if prefix == utils.ActionPlanPrefix { // so we can avoid the full scan on scheduler reloads
+		err = rs.Cmd(&keys, redis_SMEMBERS, utils.ActionPlanIndexes)
 	} else {
-		r = rs.Cmd(redis_KEYS, prefix+"*")
+		err = rs.Cmd(&keys, redis_KEYS, prefix+"*")
 	}
-	if r.Err != nil {
-		return nil, r.Err
+	if err != nil {
+		return
 	}
-	if keys, _ := r.List(); len(keys) != 0 {
-		if filterIndexesPrefixMap.HasKey(prefix) {
+	if len(keys) != 0 {
+		if filterIndexesPrefixMap.Has(prefix) {
 			return rs.getKeysForFilterIndexesKeys(keys)
 		}
-		return keys, nil
+		return
 	}
 	return nil, nil
 }
 
 // Used to check if specific subject is stored using prefix key attached to entity
-func (rs *RedisStorage) HasDataDrv(category, subject, tenant string) (bool, error) {
+func (rs *RedisStorage) HasDataDrv(category, subject, tenant string) (exists bool, err error) {
+	var i int
 	switch category {
-	case utils.DESTINATION_PREFIX, utils.RATING_PLAN_PREFIX, utils.RATING_PROFILE_PREFIX,
-		utils.ACTION_PREFIX, utils.ACTION_PLAN_PREFIX, utils.ACCOUNT_PREFIX:
-		i, err := rs.Cmd(redis_EXISTS, category+subject).Int()
+	case utils.DestinationPrefix, utils.RatingPlanPrefix, utils.RatingProfilePrefix,
+		utils.ActionPrefix, utils.ActionPlanPrefix, utils.AccountPrefix:
+		err = rs.Cmd(&i, redis_EXISTS, category+subject)
 		return i == 1, err
 	case utils.ResourcesPrefix, utils.ResourceProfilesPrefix, utils.StatQueuePrefix,
 		utils.StatQueueProfilePrefix, utils.ThresholdPrefix, utils.ThresholdProfilePrefix,
-		utils.FilterPrefix, utils.SupplierProfilePrefix, utils.AttributeProfilePrefix,
+		utils.FilterPrefix, utils.RouteProfilePrefix, utils.AttributeProfilePrefix,
 		utils.ChargerProfilePrefix, utils.DispatcherProfilePrefix, utils.DispatcherHostPrefix:
-		i, err := rs.Cmd(redis_EXISTS, category+utils.ConcatenatedKey(tenant, subject)).Int()
+		err := rs.Cmd(&i, redis_EXISTS, category+utils.ConcatenatedKey(tenant, subject))
 		return i == 1, err
 	}
 	return false, errors.New("unsupported HasData category")
 }
 
 func (rs *RedisStorage) GetRatingPlanDrv(key string) (rp *RatingPlan, err error) {
-	key = utils.RATING_PLAN_PREFIX + key
+	key = utils.RatingPlanPrefix + key
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
-		return nil, err
+	if err = rs.Cmd(&values, redis_GET, key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
+		return
 	}
 	b := bytes.NewBuffer(values)
-	r, err := zlib.NewReader(b)
-	if err != nil {
-		return nil, err
+	var r io.ReadCloser
+	if r, err = zlib.NewReader(b); err != nil {
+		return
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
+	var out []byte
+	if out, err = io.ReadAll(r); err != nil {
+		return
 	}
 	r.Close()
 	err = rs.ms.Unmarshal(out, &rp)
-	if err != nil {
-		return nil, err
-	}
 	return
 }
 
 func (rs *RedisStorage) SetRatingPlanDrv(rp *RatingPlan) (err error) {
-	result, err := rs.ms.Marshal(rp)
+	var result []byte
+	if result, err = rs.ms.Marshal(rp); err != nil {
+		return
+	}
 	var b bytes.Buffer
 	w := zlib.NewWriter(&b)
 	w.Write(result)
 	w.Close()
-	err = rs.Cmd(redis_SET, utils.RATING_PLAN_PREFIX+rp.Id, b.Bytes()).Err
+	err = rs.Cmd(nil, redis_SET, utils.RatingPlanPrefix+rp.Id, b.String())
 	return
 }
 
-func (rs *RedisStorage) RemoveRatingPlanDrv(key string) error {
-	keys, err := rs.Cmd(redis_KEYS, utils.RATING_PLAN_PREFIX+key+"*").List()
-	if err != nil {
-		return err
+func (rs *RedisStorage) RemoveRatingPlanDrv(key string) (err error) {
+	var keys []string
+	if err = rs.Cmd(&keys, redis_KEYS, utils.RatingPlanPrefix+key+"*"); err != nil {
+		return
 	}
 	for _, key := range keys {
-		if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-			return err
+		if err = rs.Cmd(nil, redis_DEL, key); err != nil {
+			return
 		}
 	}
-	return nil
+	return
 }
 
 func (rs *RedisStorage) GetRatingProfileDrv(key string) (rpf *RatingProfile, err error) {
-	key = utils.RATING_PROFILE_PREFIX + key
+	key = utils.RatingProfilePrefix + key
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &rpf); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &rpf)
 	return
 }
 
 func (rs *RedisStorage) SetRatingProfileDrv(rpf *RatingProfile) (err error) {
-	result, err := rs.ms.Marshal(rpf)
-	if err != nil {
-		return err
-	}
-	key := utils.RATING_PROFILE_PREFIX + rpf.Id
-	if err = rs.Cmd(redis_SET, key, result).Err; err != nil {
+	var result []byte
+	if result, err = rs.ms.Marshal(rpf); err != nil {
 		return
+	}
+	key := utils.RatingProfilePrefix + rpf.Id
+	err = rs.Cmd(nil, redis_SET, key, string(result))
+	return
+}
+
+func (rs *RedisStorage) RemoveRatingProfileDrv(key string) (err error) {
+	var keys []string
+	if err = rs.Cmd(&keys, redis_KEYS, utils.RatingProfilePrefix+key+"*"); err != nil {
+		return
+	}
+	for _, key := range keys {
+		if err = rs.Cmd(nil, redis_DEL, key); err != nil {
+			return
+		}
 	}
 	return
 }
 
-func (rs *RedisStorage) RemoveRatingProfileDrv(key string) error {
-	keys, err := rs.Cmd(redis_KEYS, utils.RATING_PROFILE_PREFIX+key+"*").List()
-	if err != nil {
-		return err
-	}
-	for _, key := range keys {
-		if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // GetDestination retrieves a destination with id from  tp_db
-func (rs *RedisStorage) GetDestinationDrv(key string, skipCache bool,
-	transactionID string) (dest *Destination, err error) {
-	if !skipCache {
-		if x, ok := Cache.Get(utils.CacheDestinations, key); ok {
-			if x == nil {
-				return nil, utils.ErrNotFound
-			}
-			return x.(*Destination), nil
-		}
-	}
+func (rs *RedisStorage) GetDestinationDrv(key, transactionID string) (dest *Destination, err error) {
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, utils.DESTINATION_PREFIX+key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			Cache.Set(utils.CacheDestinations, key, nil, nil,
-				cacheCommit(transactionID), transactionID)
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.DestinationPrefix+key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
 	b := bytes.NewBuffer(values)
-	r, err := zlib.NewReader(b)
-	if err != nil {
-		return nil, err
+	var r io.ReadCloser
+	if r, err = zlib.NewReader(b); err != nil {
+		return
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
+	var out []byte
+	if out, err = io.ReadAll(r); err != nil {
+		return
 	}
 	r.Close()
 	err = rs.ms.Unmarshal(out, &dest)
-	if err != nil {
-		return nil, err
-	}
-	Cache.Set(utils.CacheDestinations, key, dest, nil,
-		cacheCommit(transactionID), transactionID)
 	return
 }
 
 func (rs *RedisStorage) SetDestinationDrv(dest *Destination, transactionID string) (err error) {
-	result, err := rs.ms.Marshal(dest)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(dest); err != nil {
+		return
 	}
 	var b bytes.Buffer
 	w := zlib.NewWriter(&b)
 	w.Write(result)
 	w.Close()
-	key := utils.DESTINATION_PREFIX + dest.Id
-	if err = rs.Cmd(redis_SET, key, b.Bytes()).Err; err != nil {
-		return err
-	}
+	err = rs.Cmd(nil, redis_SET, utils.DestinationPrefix+dest.Id, b.String())
 	return
 }
 
-func (rs *RedisStorage) GetReverseDestinationDrv(key string,
-	skipCache bool, transactionID string) (ids []string, err error) {
-	if !skipCache {
-		if x, ok := Cache.Get(utils.CacheReverseDestinations, key); ok {
-			if x == nil {
-				return nil, utils.ErrNotFound
-			}
-			return x.([]string), nil
-		}
-	}
-	if ids, err = rs.Cmd(redis_SMEMBERS, utils.REVERSE_DESTINATION_PREFIX+key).List(); err != nil {
+func (rs *RedisStorage) GetReverseDestinationDrv(key, transactionID string) (ids []string, err error) {
+	if err = rs.Cmd(&ids, redis_SMEMBERS, utils.ReverseDestinationPrefix+key); err != nil {
 		return
-	} else if len(ids) == 0 {
-		Cache.Set(utils.CacheReverseDestinations, key, nil, nil,
-			cacheCommit(transactionID), transactionID)
+	}
+	if len(ids) == 0 {
 		err = utils.ErrNotFound
-		return
 	}
-	Cache.Set(utils.CacheReverseDestinations, key, ids, nil,
-		cacheCommit(transactionID), transactionID)
 	return
 }
 
-func (rs *RedisStorage) SetReverseDestinationDrv(dest *Destination, transactionID string) (err error) {
-	for _, p := range dest.Prefixes {
-		key := utils.REVERSE_DESTINATION_PREFIX + p
-		if err = rs.Cmd(redis_SADD, key, dest.Id).Err; err != nil {
-			break
+func (rs *RedisStorage) SetReverseDestinationDrv(destID string, prefixes []string, transactionID string) (err error) {
+	for _, p := range prefixes {
+		if err = rs.Cmd(nil, redis_SADD, utils.ReverseDestinationPrefix+p, destID); err != nil {
+			return
 		}
 	}
 	return
 }
 
 func (rs *RedisStorage) RemoveDestinationDrv(destID, transactionID string) (err error) {
-	// get destination for prefix list
-	d, err := rs.GetDestinationDrv(destID, false, transactionID)
-	if err != nil {
-		return
-	}
-	err = rs.Cmd(redis_DEL, utils.DESTINATION_PREFIX+destID).Err
-	if err != nil {
-		return err
-	}
-	Cache.Remove(utils.CacheDestinations, destID,
-		cacheCommit(transactionID), transactionID)
-	if d == nil {
-		return utils.ErrNotFound
-	}
-	for _, prefix := range d.Prefixes {
-		err = rs.Cmd(redis_SREM, utils.REVERSE_DESTINATION_PREFIX+prefix, destID).Err
-		if err != nil {
-			return err
-		}
-		rs.GetReverseDestinationDrv(prefix, true, transactionID) // it will recache the destination
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.DestinationPrefix+destID)
 }
 
-func (rs *RedisStorage) UpdateReverseDestinationDrv(oldDest, newDest *Destination, transactionID string) error {
-	//log.Printf("Old: %+v, New: %+v", oldDest, newDest)
-	var obsoletePrefixes []string
-	var addedPrefixes []string
-	var found bool
-	if oldDest == nil {
-		oldDest = new(Destination) // so we can process prefixes
-	}
-	for _, oldPrefix := range oldDest.Prefixes {
-		found = false
-		for _, newPrefix := range newDest.Prefixes {
-			if oldPrefix == newPrefix {
-				found = true
-				break
-			}
-		}
-		if !found {
-			obsoletePrefixes = append(obsoletePrefixes, oldPrefix)
-		}
-	}
-	for _, newPrefix := range newDest.Prefixes {
-		found = false
-		for _, oldPrefix := range oldDest.Prefixes {
-			if newPrefix == oldPrefix {
-				found = true
-				break
-			}
-		}
-		if !found {
-			addedPrefixes = append(addedPrefixes, newPrefix)
-		}
-	}
-	// remove id for all obsolete prefixes
-	cCommit := cacheCommit(transactionID)
-	var err error
-	for _, obsoletePrefix := range obsoletePrefixes {
-		err = rs.Cmd(redis_SREM,
-			utils.REVERSE_DESTINATION_PREFIX+obsoletePrefix, oldDest.Id).Err
-		if err != nil {
-			return err
-		}
-		Cache.Remove(utils.CacheReverseDestinations, obsoletePrefix,
-			cCommit, transactionID)
-	}
-
-	// add the id to all new prefixes
-	for _, addedPrefix := range addedPrefixes {
-		err = rs.Cmd(redis_SADD, utils.REVERSE_DESTINATION_PREFIX+addedPrefix, newDest.Id).Err
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+func (rs *RedisStorage) RemoveReverseDestinationDrv(dstID, prfx, transactionID string) (err error) {
+	return rs.Cmd(nil, redis_SREM, utils.ReverseDestinationPrefix+prfx, dstID)
 }
 
 func (rs *RedisStorage) GetActionsDrv(key string) (as Actions, err error) {
-	key = utils.ACTION_PREFIX + key
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ActionPrefix+key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &as); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &as)
 	return
 }
 
 func (rs *RedisStorage) SetActionsDrv(key string, as Actions) (err error) {
-	result, err := rs.ms.Marshal(&as)
-	err = rs.Cmd(redis_SET, utils.ACTION_PREFIX+key, result).Err
-	return
+	var result []byte
+	if result, err = rs.ms.Marshal(&as); err != nil {
+		return
+	}
+	return rs.Cmd(nil, redis_SET, utils.ActionPrefix+key, string(result))
 }
 
 func (rs *RedisStorage) RemoveActionsDrv(key string) (err error) {
-	err = rs.Cmd(redis_DEL, utils.ACTION_PREFIX+key).Err
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ActionPrefix+key)
 }
 
 func (rs *RedisStorage) GetSharedGroupDrv(key string) (sg *SharedGroup, err error) {
-	key = utils.SHARED_GROUP_PREFIX + key
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.SharedGroupPrefix+key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &sg); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &sg)
 	return
 }
 
@@ -643,26 +484,22 @@ func (rs *RedisStorage) SetSharedGroupDrv(sg *SharedGroup) (err error) {
 	if result, err = rs.ms.Marshal(sg); err != nil {
 		return
 	}
-	err = rs.Cmd(redis_SET, utils.SHARED_GROUP_PREFIX+sg.Id, result).Err
-	return
+	return rs.Cmd(nil, redis_SET, utils.SharedGroupPrefix+sg.Id, string(result))
 }
 
 func (rs *RedisStorage) RemoveSharedGroupDrv(id string) (err error) {
-	return rs.Cmd(redis_DEL, utils.SHARED_GROUP_PREFIX+id).Err
+	return rs.Cmd(nil, redis_DEL, utils.SharedGroupPrefix+id)
 }
 
-func (rs *RedisStorage) GetAccountDrv(key string) (*Account, error) {
-	rpl := rs.Cmd(redis_GET, utils.ACCOUNT_PREFIX+key)
-	if rpl.Err != nil {
-		return nil, rpl.Err
-	} else if rpl.IsType(redis.Nil) {
-		return nil, utils.ErrNotFound
+func (rs *RedisStorage) GetAccountDrv(key string) (ub *Account, err error) {
+	var values []byte
+	if err = rs.Cmd(&values, redis_GET, utils.AccountPrefix+key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
+		return
 	}
-	values, err := rpl.Bytes()
-	if err != nil {
-		return nil, err
-	}
-	ub := &Account{ID: key}
+	ub = &Account{ID: key}
 	if err = rs.ms.Unmarshal(values, ub); err != nil {
 		return nil, err
 	}
@@ -674,7 +511,8 @@ func (rs *RedisStorage) SetAccountDrv(acc *Account) (err error) {
 	// UPDATE: if all balances expired and were cleaned it makes
 	// sense to write empty balance map
 	if len(acc.BalanceMap) == 0 {
-		if ac, err := rs.GetAccountDrv(acc.ID); err == nil && !ac.allBalancesExpired() {
+		var ac *Account
+		if ac, err = rs.GetAccountDrv(acc.ID); err == nil && !ac.allBalancesExpired() {
 			ac.ActionTriggers = acc.ActionTriggers
 			ac.UnitCounters = acc.UnitCounters
 			ac.AllowNegative = acc.AllowNegative
@@ -683,28 +521,26 @@ func (rs *RedisStorage) SetAccountDrv(acc *Account) (err error) {
 		}
 	}
 	acc.UpdateTime = time.Now()
-	result, err := rs.ms.Marshal(acc)
-	err = rs.Cmd(redis_SET, utils.ACCOUNT_PREFIX+acc.ID, result).Err
-	return
+	var result []byte
+	if result, err = rs.ms.Marshal(acc); err != nil {
+		return
+	}
+	return rs.Cmd(nil, redis_SET, utils.AccountPrefix+acc.ID, string(result))
 }
 
 func (rs *RedisStorage) RemoveAccountDrv(key string) (err error) {
-	err = rs.Cmd(redis_DEL, utils.ACCOUNT_PREFIX+key).Err
-	if err == redis.ErrRespNil {
-		err = utils.ErrNotFound
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.AccountPrefix+key)
 }
 
 // Limit will only retrieve the last n items out of history, newest first
 func (rs *RedisStorage) GetLoadHistory(limit int, skipCache bool,
-	transactionID string) ([]*utils.LoadInstance, error) {
+	transactionID string) (loadInsts []*utils.LoadInstance, err error) {
 	if limit == 0 {
 		return nil, nil
 	}
 
 	if !skipCache {
-		if x, ok := Cache.Get(utils.LOADINST_KEY, ""); ok {
+		if x, ok := Cache.Get(utils.LoadInstKey, ""); ok {
 			if x != nil {
 				items := x.([]*utils.LoadInstance)
 				if len(items) < limit || limit == -1 {
@@ -718,26 +554,29 @@ func (rs *RedisStorage) GetLoadHistory(limit int, skipCache bool,
 	if limit != -1 {
 		limit -= -1 // Decrease limit to match redis approach on lrange
 	}
-	marshaleds, err := rs.Cmd(redis_LRANGE,
-		utils.LOADINST_KEY, 0, limit).ListBytes()
 	cCommit := cacheCommit(transactionID)
-	if err != nil {
-		Cache.Set(utils.LOADINST_KEY, "", nil, nil,
-			cCommit, transactionID)
-		return nil, err
+	var marshaleds [][]byte
+	if err = rs.Cmd(&marshaleds, redis_LRANGE,
+		utils.LoadInstKey, "0", strconv.Itoa(limit)); err != nil {
+		if errCh := Cache.Set(utils.LoadInstKey, "", nil, nil,
+			cCommit, transactionID); errCh != nil {
+			return nil, errCh
+		}
+		return
 	}
-	loadInsts := make([]*utils.LoadInstance, len(marshaleds))
+	loadInsts = make([]*utils.LoadInstance, len(marshaleds))
 	for idx, marshaled := range marshaleds {
-		var lInst utils.LoadInstance
-		err = rs.ms.Unmarshal(marshaled, &lInst)
-		if err != nil {
+		if err = rs.ms.Unmarshal(marshaled, loadInsts[idx]); err != nil {
 			return nil, err
 		}
-		loadInsts[idx] = &lInst
 	}
-	Cache.Remove(utils.LOADINST_KEY, "", cCommit, transactionID)
-	Cache.Set(utils.LOADINST_KEY, "", loadInsts, nil,
-		cCommit, transactionID)
+	if err = Cache.Remove(utils.LoadInstKey, "", cCommit, transactionID); err != nil {
+		return nil, err
+	}
+	if err := Cache.Set(utils.LoadInstKey, "", loadInsts, nil,
+		cCommit, transactionID); err != nil {
+		return nil, err
+	}
 	if len(loadInsts) < limit || limit == -1 {
 		return loadInsts, nil
 	}
@@ -745,95 +584,91 @@ func (rs *RedisStorage) GetLoadHistory(limit int, skipCache bool,
 }
 
 // Adds a single load instance to load history
-func (rs *RedisStorage) AddLoadHistory(ldInst *utils.LoadInstance, loadHistSize int, transactionID string) error {
+func (rs *RedisStorage) AddLoadHistory(ldInst *utils.LoadInstance, loadHistSize int, transactionID string) (err error) {
 	if loadHistSize == 0 { // Load history disabled
-		return nil
+		return
 	}
-	marshaled, err := rs.ms.Marshal(&ldInst)
-	if err != nil {
-		return err
+	var marshaled []byte
+	if marshaled, err = rs.ms.Marshal(&ldInst); err != nil {
+		return
 	}
-	_, err = guardian.Guardian.Guard(func() (interface{}, error) { // Make sure we do it locked since other instance can modify history while we read it
-		histLen, err := rs.Cmd(redis_LLEN, utils.LOADINST_KEY).Int()
-		if err != nil {
-			return nil, err
+	err = guardian.Guardian.Guard(func() error { // Make sure we do it locked since other instance can modify history while we read it
+		var histLen int
+		if err := rs.Cmd(&histLen, redis_LLEN, utils.LoadInstKey); err != nil {
+			return err
 		}
 		if histLen >= loadHistSize { // Have hit maximum history allowed, remove oldest element in order to add new one
-			if err := rs.Cmd(redis_RPOP, utils.LOADINST_KEY).Err; err != nil {
-				return nil, err
+			if err = rs.Cmd(nil, redis_RPOP, utils.LoadInstKey); err != nil {
+				return err
 			}
 		}
-		return nil, rs.Cmd(redis_LPUSH, utils.LOADINST_KEY, marshaled).Err
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.LOADINST_KEY)
+		return rs.Cmd(nil, redis_LPUSH, utils.LoadInstKey, string(marshaled))
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.LoadInstKey)
 
-	Cache.Remove(utils.LOADINST_KEY, "",
-		cacheCommit(transactionID), transactionID)
-	return err
+	if errCh := Cache.Remove(utils.LoadInstKey, "",
+		cacheCommit(transactionID), transactionID); errCh != nil {
+		return errCh
+	}
+	return
 }
 
 func (rs *RedisStorage) GetActionTriggersDrv(key string) (atrs ActionTriggers, err error) {
-	key = utils.ACTION_TRIGGER_PREFIX + key
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ActionTriggerPrefix+key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &atrs); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &atrs)
 	return
 }
 
 func (rs *RedisStorage) SetActionTriggersDrv(key string, atrs ActionTriggers) (err error) {
 	if len(atrs) == 0 {
 		// delete the key
-		return rs.Cmd(redis_DEL, utils.ACTION_TRIGGER_PREFIX+key).Err
+		return rs.Cmd(nil, redis_DEL, utils.ActionTriggerPrefix+key)
 	}
 	var result []byte
 	if result, err = rs.ms.Marshal(atrs); err != nil {
-		return err
+		return
 	}
-	if err = rs.Cmd(redis_SET, utils.ACTION_TRIGGER_PREFIX+key, result).Err; err != nil {
+	if err = rs.Cmd(nil, redis_SET, utils.ActionTriggerPrefix+key, string(result)); err != nil {
 		return
 	}
 	return
 }
 
 func (rs *RedisStorage) RemoveActionTriggersDrv(key string) (err error) {
-	key = utils.ACTION_TRIGGER_PREFIX + key
-	err = rs.Cmd(redis_DEL, key).Err
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ActionTriggerPrefix+key)
 }
 
 func (rs *RedisStorage) GetActionPlanDrv(key string) (ats *ActionPlan, err error) {
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, utils.ACTION_PLAN_PREFIX+key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ActionPlanPrefix+key); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
 	b := bytes.NewBuffer(values)
-	r, err := zlib.NewReader(b)
-	if err != nil {
-		return nil, err
+	var r io.ReadCloser
+	if r, err = zlib.NewReader(b); err != nil {
+		return
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
+	var out []byte
+	if out, err = io.ReadAll(r); err != nil {
+		return
 	}
 	r.Close()
 	err = rs.ms.Unmarshal(out, &ats)
 	return
 }
-
-func (rs *RedisStorage) RemoveActionPlanDrv(key string) error {
-	if err := rs.Cmd(redis_SREM, utils.ActionPlanIndexes, utils.ACTION_PLAN_PREFIX+key).Err; err != nil {
-		return err
+func (rs *RedisStorage) RemoveActionPlanDrv(key string) (err error) {
+	if err = rs.Cmd(nil, redis_SREM, utils.ActionPlanIndexes, utils.ActionPlanPrefix+key); err != nil {
+		return
 	}
-	return rs.Cmd(redis_DEL, utils.ACTION_PLAN_PREFIX+key).Err
+	return rs.Cmd(nil, redis_DEL, utils.ActionPlanPrefix+key)
 }
 
 func (rs *RedisStorage) SetActionPlanDrv(key string, ats *ActionPlan) (err error) {
@@ -845,38 +680,37 @@ func (rs *RedisStorage) SetActionPlanDrv(key string, ats *ActionPlan) (err error
 	w := zlib.NewWriter(&b)
 	w.Write(result)
 	w.Close()
-	if err := rs.Cmd(redis_SADD, utils.ActionPlanIndexes, utils.ACTION_PLAN_PREFIX+key).Err; err != nil {
-		return err
+	if err = rs.Cmd(nil, redis_SADD, utils.ActionPlanIndexes, utils.ActionPlanPrefix+key); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.ACTION_PLAN_PREFIX+key, b.Bytes()).Err
+	return rs.Cmd(nil, redis_SET, utils.ActionPlanPrefix+key, b.String())
 }
 
 func (rs *RedisStorage) GetAllActionPlansDrv() (ats map[string]*ActionPlan, err error) {
-	keys, err := rs.GetKeysForPrefix(utils.ACTION_PLAN_PREFIX)
-	if err != nil {
-		return nil, err
+	var keys []string
+	if keys, err = rs.GetKeysForPrefix(utils.ActionPlanPrefix); err != nil {
+		return
 	}
 	if len(keys) == 0 {
-		return nil, utils.ErrNotFound
+		err = utils.ErrNotFound
+		return
 	}
 	ats = make(map[string]*ActionPlan, len(keys))
 	for _, key := range keys {
-		ap, err := rs.GetActionPlanDrv(key[len(utils.ACTION_PLAN_PREFIX):])
-		if err != nil {
+		if ats[key[len(utils.ActionPlanPrefix):]], err = rs.GetActionPlanDrv(key[len(utils.ActionPlanPrefix):]); err != nil {
 			return nil, err
 		}
-		ats[key[len(utils.ACTION_PLAN_PREFIX):]] = ap
 	}
 	return
 }
 
 func (rs *RedisStorage) GetAccountActionPlansDrv(acntID string) (aPlIDs []string, err error) {
 	var values []byte
-	if values, err = rs.Cmd(redis_GET,
-		utils.AccountActionPlansPrefix+acntID).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET,
+		utils.AccountActionPlansPrefix+acntID); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
 	err = rs.ms.Unmarshal(values, &aPlIDs)
@@ -886,243 +720,126 @@ func (rs *RedisStorage) GetAccountActionPlansDrv(acntID string) (aPlIDs []string
 func (rs *RedisStorage) SetAccountActionPlansDrv(acntID string, aPlIDs []string) (err error) {
 	var result []byte
 	if result, err = rs.ms.Marshal(aPlIDs); err != nil {
-		return err
+		return
 	}
-	return rs.Cmd(redis_SET, utils.AccountActionPlansPrefix+acntID, result).Err
+	return rs.Cmd(nil, redis_SET, utils.AccountActionPlansPrefix+acntID, string(result))
 }
 
 func (rs *RedisStorage) RemAccountActionPlansDrv(acntID string) (err error) {
-	return rs.Cmd(redis_DEL, utils.AccountActionPlansPrefix+acntID).Err
+	return rs.Cmd(nil, redis_DEL, utils.AccountActionPlansPrefix+acntID)
 }
 
-func (rs *RedisStorage) PushTask(t *Task) error {
-	result, err := rs.ms.Marshal(t)
-	if err != nil {
-		return err
+func (rs *RedisStorage) PushTask(t *Task) (err error) {
+	var result []byte
+	if result, err = rs.ms.Marshal(t); err != nil {
+		return
 	}
-	return rs.Cmd(redis_RPUSH, utils.TASKS_KEY, result).Err
+	return rs.Cmd(nil, redis_RPUSH, utils.TasksKey, string(result))
 }
 
 func (rs *RedisStorage) PopTask() (t *Task, err error) {
 	var values []byte
-	if values, err = rs.Cmd(redis_LPOP, utils.TASKS_KEY).Bytes(); err == nil {
-		t = &Task{}
-		err = rs.ms.Unmarshal(values, t)
+	if err = rs.Cmd(&values, redis_LPOP, utils.TasksKey); err != nil {
+		return
 	}
+	t = &Task{}
+	err = rs.ms.Unmarshal(values, t)
 	return
 }
 
 func (rs *RedisStorage) GetResourceProfileDrv(tenant, id string) (rsp *ResourceProfile, err error) {
-	key := utils.ResourceProfilesPrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ResourceProfilesPrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &rsp); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &rsp)
 	return
 }
 
-func (rs *RedisStorage) SetResourceProfileDrv(rsp *ResourceProfile) error {
-	result, err := rs.ms.Marshal(rsp)
-	if err != nil {
-		return err
+func (rs *RedisStorage) SetResourceProfileDrv(rsp *ResourceProfile) (err error) {
+	var result []byte
+	if result, err = rs.ms.Marshal(rsp); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.ResourceProfilesPrefix+rsp.TenantID(), result).Err
+	return rs.Cmd(nil, redis_SET, utils.ResourceProfilesPrefix+rsp.TenantID(), string(result))
 }
 
 func (rs *RedisStorage) RemoveResourceProfileDrv(tenant, id string) (err error) {
-	key := utils.ResourceProfilesPrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ResourceProfilesPrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetResourceDrv(tenant, id string) (r *Resource, err error) {
-	key := utils.ResourcesPrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ResourcesPrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetResourceDrv(r *Resource) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.ResourcesPrefix+r.TenantID(), result).Err
+	return rs.Cmd(nil, redis_SET, utils.ResourcesPrefix+r.TenantID(), string(result))
 }
 
 func (rs *RedisStorage) RemoveResourceDrv(tenant, id string) (err error) {
-	key := utils.ResourcesPrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ResourcesPrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetTimingDrv(id string) (t *utils.TPTiming, err error) {
-	key := utils.TimingsPrefix + id
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.TimingsPrefix+id); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &t); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &t)
 	return
 }
 
-func (rs *RedisStorage) SetTimingDrv(t *utils.TPTiming) error {
-	result, err := rs.ms.Marshal(t)
-	if err != nil {
-		return err
+func (rs *RedisStorage) SetTimingDrv(t *utils.TPTiming) (err error) {
+	var result []byte
+	if result, err = rs.ms.Marshal(t); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.TimingsPrefix+t.ID, result).Err
+	return rs.Cmd(nil, redis_SET, utils.TimingsPrefix+t.ID, string(result))
 }
 
 func (rs *RedisStorage) RemoveTimingDrv(id string) (err error) {
-	key := utils.TimingsPrefix + id
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
-}
-
-// GetFilterIndexesDrv retrieves Indexes from dataDB
-// filterType is used togheter with fieldName:Val
-func (rs *RedisStorage) GetFilterIndexesDrv(cacheID, itemIDPrefix, filterType string,
-	fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error) {
-	mp := make(map[string]string)
-	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
-	if len(fldNameVal) == 0 {
-		mp, err = rs.Cmd(redis_HGETALL, dbKey).Map()
-		if err != nil {
-			return
-		} else if len(mp) == 0 {
-			return nil, utils.ErrNotFound
-		}
-	} else {
-		var itmMpStrLst []string
-		for fldName, fldVal := range fldNameVal {
-			concatTypeNameVal := utils.ConcatenatedKey(filterType, fldName, fldVal)
-			itmMpStrLst, err = rs.Cmd(redis_HMGET, dbKey, concatTypeNameVal).List()
-			if err != nil {
-				return
-			} else if itmMpStrLst[0] == "" {
-				return nil, utils.ErrNotFound
-			}
-			mp[concatTypeNameVal] = itmMpStrLst[0]
-		}
-	}
-	indexes = make(map[string]utils.StringMap)
-	for k, v := range mp {
-		var sm utils.StringMap
-		if err = rs.ms.Unmarshal([]byte(v), &sm); err != nil {
-			return
-		}
-		indexes[k] = sm
-	}
-	return
-}
-
-// SetFilterIndexesDrv stores Indexes into DataDB
-func (rs *RedisStorage) SetFilterIndexesDrv(cacheID, itemIDPrefix string,
-	indexes map[string]utils.StringMap, commit bool, transactionID string) (err error) {
-	originKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
-	dbKey := originKey
-	if transactionID != "" {
-		dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
-	}
-	if commit && transactionID != "" {
-		return rs.Cmd(redis_RENAME, dbKey, originKey).Err
-	} else {
-		mp := make(map[string]string)
-		nameValSls := []interface{}{dbKey}
-		for key, strMp := range indexes {
-			if len(strMp) == 0 { // remove with no more elements inside
-				nameValSls = append(nameValSls, key)
-				continue
-			}
-			if encodedMp, err := rs.ms.Marshal(strMp); err != nil {
-				return err
-			} else {
-				mp[key] = string(encodedMp)
-			}
-		}
-		if len(nameValSls) != 1 {
-			if err = rs.Cmd(redis_HDEL, nameValSls...).Err; err != nil {
-				return err
-			}
-		}
-		if len(mp) != 0 {
-			return rs.Cmd(redis_HMSET, dbKey, mp).Err
-		}
-		return
-	}
-}
-
-func (rs *RedisStorage) RemoveFilterIndexesDrv(cacheID, itemIDPrefix string) (err error) {
-	return rs.Cmd(redis_DEL, utils.CacheInstanceToPrefix[cacheID]+itemIDPrefix).Err
-}
-
-func (rs *RedisStorage) MatchFilterIndexDrv(cacheID, itemIDPrefix,
-	filterType, fldName, fldVal string) (itemIDs utils.StringMap, err error) {
-	fieldValKey := utils.ConcatenatedKey(filterType, fldName, fldVal)
-	fldValBytes, err := rs.Cmd(redis_HGET,
-		utils.CacheInstanceToPrefix[cacheID]+itemIDPrefix, fieldValKey).Bytes()
-	if err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
-		return nil, err
-	} else if err = rs.ms.Unmarshal(fldValBytes, &itemIDs); err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.TimingsPrefix+id)
 }
 
 func (rs *RedisStorage) GetVersions(itm string) (vrs Versions, err error) {
 	if itm != "" {
-		fldVal, err := rs.Cmd(redis_HGET, utils.TBLVersions, itm).Str()
-		if err != nil {
-			if err == redis.ErrRespNil {
-				err = utils.ErrNotFound
-			}
+		var fldVal int64
+		mn := radix.MaybeNil{Rcv: &fldVal}
+		if err = rs.Cmd(&mn, redis_HGET, utils.TBLVersions, itm); err != nil {
 			return nil, err
+		} else if mn.Nil {
+			err = utils.ErrNotFound
+			return
 		}
-		intVal, err := strconv.ParseInt(fldVal, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		return Versions{itm: intVal}, nil
+		return Versions{itm: fldVal}, nil
 	}
-	mp, err := rs.Cmd(redis_HGETALL, utils.TBLVersions).Map()
-	if err != nil {
+	var mp map[string]string
+	if err = rs.Cmd(&mp, redis_HGETALL, utils.TBLVersions); err != nil {
 		return nil, err
 	}
-	vrs, err = utils.MapStringToInt64(mp)
-	if err != nil {
-		return nil, err
-	}
-	if len(vrs) == 0 {
+	if len(mp) == 0 {
 		return nil, utils.ErrNotFound
+	}
+	if vrs, err = utils.MapStringToInt64(mp); err != nil {
+		return nil, err
 	}
 	return
 }
@@ -1133,62 +850,55 @@ func (rs *RedisStorage) SetVersions(vrs Versions, overwrite bool) (err error) {
 			return
 		}
 	}
-	return rs.Cmd(redis_HMSET, utils.TBLVersions, vrs).Err
+	return rs.FlatCmd(nil, redis_HMSET, utils.TBLVersions, vrs)
 }
 
 func (rs *RedisStorage) RemoveVersions(vrs Versions) (err error) {
 	if len(vrs) != 0 {
 		for key := range vrs {
-			err = rs.Cmd(redis_HDEL, utils.TBLVersions, key).Err
-			if err != nil {
-				return err
+			if err = rs.Cmd(nil, redis_HDEL, utils.TBLVersions, key); err != nil {
+				return
 			}
 		}
 		return
 	}
-	return rs.Cmd(redis_DEL, utils.TBLVersions).Err
+	return rs.Cmd(nil, redis_DEL, utils.TBLVersions)
 }
 
 // GetStatQueueProfileDrv retrieves a StatQueueProfile from dataDB
 func (rs *RedisStorage) GetStatQueueProfileDrv(tenant string, id string) (sq *StatQueueProfile, err error) {
-	key := utils.StatQueueProfilePrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil {
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.StatQueueProfilePrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &sq); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &sq)
 	return
 }
 
-// SetStatsQueueDrv stores a StatsQueue into DataDB
+// SetStatQueueProfileDrv stores a StatsQueue into DataDB
 func (rs *RedisStorage) SetStatQueueProfileDrv(sq *StatQueueProfile) (err error) {
-	result, err := rs.ms.Marshal(sq)
-	if err != nil {
+	var result []byte
+	if result, err = rs.ms.Marshal(sq); err != nil {
 		return
 	}
-	return rs.Cmd(redis_SET, utils.StatQueueProfilePrefix+utils.ConcatenatedKey(sq.Tenant, sq.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.StatQueueProfilePrefix+utils.ConcatenatedKey(sq.Tenant, sq.ID), string(result))
 }
 
-// RemStatsQueueDrv removes a StatsQueue from dataDB
+// RemStatQueueProfileDrv removes a StatsQueue from dataDB
 func (rs *RedisStorage) RemStatQueueProfileDrv(tenant, id string) (err error) {
-	key := utils.StatQueueProfilePrefix + utils.ConcatenatedKey(tenant, id)
-	err = rs.Cmd(redis_DEL, key).Err
-	return
+	return rs.Cmd(nil, redis_DEL, utils.StatQueueProfilePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
-// GetStoredStatQueue retrieves the stored metrics for a StatsQueue
+// GetStatQueueDrv retrieves the stored metrics for a StatsQueue
 func (rs *RedisStorage) GetStatQueueDrv(tenant, id string) (sq *StatQueue, err error) {
-	key := utils.StatQueuePrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil {
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.StatQueuePrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
 	var ssq StoredStatQueue
@@ -1199,273 +909,218 @@ func (rs *RedisStorage) GetStatQueueDrv(tenant, id string) (sq *StatQueue, err e
 	return
 }
 
-// SetStoredStatQueue stores the metrics for a StatsQueue
+// SetStatQueueDrv stores the metrics for a StatsQueue
 func (rs *RedisStorage) SetStatQueueDrv(ssq *StoredStatQueue, sq *StatQueue) (err error) {
+	if ssq == nil {
+		if ssq, err = NewStoredStatQueue(sq, rs.ms); err != nil {
+			return
+		}
+	}
 	var result []byte
-	result, err = rs.ms.Marshal(ssq)
-	if err != nil {
+	if result, err = rs.ms.Marshal(ssq); err != nil {
 		return
 	}
-	return rs.Cmd(redis_SET, utils.StatQueuePrefix+ssq.SqID(), result).Err
+	return rs.Cmd(nil, redis_SET, utils.StatQueuePrefix+ssq.SqID(), string(result))
 }
 
-// RemoveStatQueue removes a StatsQueue
+// RemStatQueueDrv removes a StatsQueue
 func (rs *RedisStorage) RemStatQueueDrv(tenant, id string) (err error) {
-	key := utils.StatQueuePrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.StatQueuePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 // GetThresholdProfileDrv retrieves a ThresholdProfile from dataDB
 func (rs *RedisStorage) GetThresholdProfileDrv(tenant, ID string) (tp *ThresholdProfile, err error) {
-	key := utils.ThresholdProfilePrefix + utils.ConcatenatedKey(tenant, ID)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil {
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ThresholdProfilePrefix+utils.ConcatenatedKey(tenant, ID)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &tp); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &tp)
 	return
 }
 
 // SetThresholdProfileDrv stores a ThresholdProfile into DataDB
 func (rs *RedisStorage) SetThresholdProfileDrv(tp *ThresholdProfile) (err error) {
 	var result []byte
-	result, err = rs.ms.Marshal(tp)
-	if err != nil {
+	if result, err = rs.ms.Marshal(tp); err != nil {
 		return
 	}
-	return rs.Cmd(redis_SET, utils.ThresholdProfilePrefix+tp.TenantID(), result).Err
+	return rs.Cmd(nil, redis_SET, utils.ThresholdProfilePrefix+tp.TenantID(), string(result))
 }
 
-// RemoveThresholdProfile removes a ThresholdProfile from dataDB/cache
+// RemThresholdProfileDrv removes a ThresholdProfile from dataDB/cache
 func (rs *RedisStorage) RemThresholdProfileDrv(tenant, id string) (err error) {
-	key := utils.ThresholdProfilePrefix + utils.ConcatenatedKey(tenant, id)
-	err = rs.Cmd(redis_DEL, key).Err
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ThresholdProfilePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetThresholdDrv(tenant, id string) (r *Threshold, err error) {
-	key := utils.ThresholdPrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ThresholdPrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetThresholdDrv(r *Threshold) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.ThresholdPrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.ThresholdPrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
 }
 
 func (rs *RedisStorage) RemoveThresholdDrv(tenant, id string) (err error) {
-	key := utils.ThresholdPrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ThresholdPrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetFilterDrv(tenant, id string) (r *Filter, err error) {
-	key := utils.FilterPrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.FilterPrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetFilterDrv(r *Filter) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.FilterPrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.FilterPrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
 }
 
 func (rs *RedisStorage) RemoveFilterDrv(tenant, id string) (err error) {
-	key := utils.FilterPrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.FilterPrefix+utils.ConcatenatedKey(tenant, id))
 }
 
-func (rs *RedisStorage) GetSupplierProfileDrv(tenant, id string) (r *SupplierProfile, err error) {
-	key := utils.SupplierProfilePrefix + utils.ConcatenatedKey(tenant, id)
+func (rs *RedisStorage) GetRouteProfileDrv(tenant, id string) (r *RouteProfile, err error) {
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.RouteProfilePrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
-func (rs *RedisStorage) SetSupplierProfileDrv(r *SupplierProfile) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
-	}
-	return rs.Cmd(redis_SET, utils.SupplierProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
-}
-
-func (rs *RedisStorage) RemoveSupplierProfileDrv(tenant, id string) (err error) {
-	key := utils.SupplierProfilePrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
+func (rs *RedisStorage) SetRouteProfileDrv(r *RouteProfile) (err error) {
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
 		return
 	}
-	return
+	return rs.Cmd(nil, redis_SET, utils.RouteProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
+}
+
+func (rs *RedisStorage) RemoveRouteProfileDrv(tenant, id string) (err error) {
+	return rs.Cmd(nil, redis_DEL, utils.RouteProfilePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetAttributeProfileDrv(tenant, id string) (r *AttributeProfile, err error) {
-	key := utils.AttributeProfilePrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.AttributeProfilePrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetAttributeProfileDrv(r *AttributeProfile) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.AttributeProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.AttributeProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
 }
 
 func (rs *RedisStorage) RemoveAttributeProfileDrv(tenant, id string) (err error) {
-	key := utils.AttributeProfilePrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.AttributeProfilePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetChargerProfileDrv(tenant, id string) (r *ChargerProfile, err error) {
-	key := utils.ChargerProfilePrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.ChargerProfilePrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetChargerProfileDrv(r *ChargerProfile) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.ChargerProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.ChargerProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
 }
 
 func (rs *RedisStorage) RemoveChargerProfileDrv(tenant, id string) (err error) {
-	key := utils.ChargerProfilePrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.ChargerProfilePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetDispatcherProfileDrv(tenant, id string) (r *DispatcherProfile, err error) {
-	key := utils.DispatcherProfilePrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.DispatcherProfilePrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrDSPProfileNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetDispatcherProfileDrv(r *DispatcherProfile) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.DispatcherProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.DispatcherProfilePrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
 }
 
 func (rs *RedisStorage) RemoveDispatcherProfileDrv(tenant, id string) (err error) {
-	key := utils.DispatcherProfilePrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.DispatcherProfilePrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetDispatcherHostDrv(tenant, id string) (r *DispatcherHost, err error) {
-	key := utils.DispatcherHostPrefix + utils.ConcatenatedKey(tenant, id)
 	var values []byte
-	if values, err = rs.Cmd(redis_GET, key).Bytes(); err != nil {
-		if err == redis.ErrRespNil { // did not find the destination
-			err = utils.ErrNotFound
-		}
+	if err = rs.Cmd(&values, redis_GET, utils.DispatcherHostPrefix+utils.ConcatenatedKey(tenant, id)); err != nil {
+		return
+	} else if len(values) == 0 {
+		err = utils.ErrDSPHostNotFound
 		return
 	}
-	if err = rs.ms.Unmarshal(values, &r); err != nil {
-		return
-	}
+	err = rs.ms.Unmarshal(values, &r)
 	return
 }
 
 func (rs *RedisStorage) SetDispatcherHostDrv(r *DispatcherHost) (err error) {
-	result, err := rs.ms.Marshal(r)
-	if err != nil {
-		return err
+	var result []byte
+	if result, err = rs.ms.Marshal(r); err != nil {
+		return
 	}
-	return rs.Cmd(redis_SET, utils.DispatcherHostPrefix+utils.ConcatenatedKey(r.Tenant, r.ID), result).Err
+	return rs.Cmd(nil, redis_SET, utils.DispatcherHostPrefix+utils.ConcatenatedKey(r.Tenant, r.ID), string(result))
 }
 
 func (rs *RedisStorage) RemoveDispatcherHostDrv(tenant, id string) (err error) {
-	key := utils.DispatcherHostPrefix + utils.ConcatenatedKey(tenant, id)
-	if err = rs.Cmd(redis_DEL, key).Err; err != nil {
-		return
-	}
-	return
+	return rs.Cmd(nil, redis_DEL, utils.DispatcherHostPrefix+utils.ConcatenatedKey(tenant, id))
 }
 
 func (rs *RedisStorage) GetStorageType() string {
@@ -1474,37 +1129,120 @@ func (rs *RedisStorage) GetStorageType() string {
 
 func (rs *RedisStorage) GetItemLoadIDsDrv(itemIDPrefix string) (loadIDs map[string]int64, err error) {
 	if itemIDPrefix != "" {
-		fldVal, err := rs.Cmd(redis_HGET, utils.LoadIDs, itemIDPrefix).Int64()
-		if err != nil {
-			if err == redis.ErrRespNil {
-				err = utils.ErrNotFound
-			}
-			return nil, err
+		var fldVal int64
+		mn := radix.MaybeNil{Rcv: &fldVal}
+		if err = rs.Cmd(&mn, redis_HGET, utils.LoadIDs, itemIDPrefix); err != nil {
+			return
+		} else if mn.Nil {
+			err = utils.ErrNotFound
+			return
 		}
 		return map[string]int64{itemIDPrefix: fldVal}, nil
 	}
-	mpLoadIDs, err := rs.Cmd(redis_HGETALL, utils.LoadIDs).Map()
-	if err != nil {
-		return nil, err
+	mpLoadIDs := make(map[string]string)
+	if err = rs.Cmd(&mpLoadIDs, redis_HGETALL, utils.LoadIDs); err != nil {
+		return
+	}
+	if len(mpLoadIDs) == 0 {
+		return nil, utils.ErrNotFound
 	}
 	loadIDs = make(map[string]int64)
 	for key, val := range mpLoadIDs {
-		intVal, err := strconv.ParseInt(val, 10, 64)
-		if err != nil {
+		if loadIDs[key], err = strconv.ParseInt(val, 10, 64); err != nil {
 			return nil, err
 		}
-		loadIDs[key] = intVal
-	}
-	if len(loadIDs) == 0 {
-		return nil, utils.ErrNotFound
 	}
 	return
 }
 
 func (rs *RedisStorage) SetLoadIDsDrv(loadIDs map[string]int64) error {
-	return rs.Cmd(redis_HMSET, utils.LoadIDs, loadIDs).Err
+	return rs.FlatCmd(nil, redis_HMSET, utils.LoadIDs, loadIDs)
 }
 
 func (rs *RedisStorage) RemoveLoadIDsDrv() (err error) {
-	return rs.Cmd(redis_DEL, utils.LoadIDs).Err
+	return rs.Cmd(nil, redis_DEL, utils.LoadIDs)
+}
+
+// GetIndexesDrv retrieves Indexes from dataDB
+func (rs *RedisStorage) GetIndexesDrv(idxItmType, tntCtx, idxKey string) (indexes map[string]utils.StringSet, err error) {
+	mp := make(map[string]string)
+	dbKey := utils.CacheInstanceToPrefix[idxItmType] + tntCtx
+	if len(idxKey) == 0 {
+		if err = rs.Cmd(&mp, redis_HGETALL, dbKey); err != nil {
+			return
+		} else if len(mp) == 0 {
+			return nil, utils.ErrNotFound
+		}
+	} else {
+		var itmMpStrLst []string
+		if err = rs.Cmd(&itmMpStrLst, redis_HMGET, dbKey, idxKey); err != nil {
+			return
+		} else if itmMpStrLst[0] == utils.EmptyString {
+			return nil, utils.ErrNotFound
+		}
+		mp[idxKey] = itmMpStrLst[0]
+	}
+	indexes = make(map[string]utils.StringSet)
+	for k, v := range mp {
+		var sm utils.StringSet
+		if err = rs.ms.Unmarshal([]byte(v), &sm); err != nil {
+			return
+		}
+		indexes[k] = sm
+	}
+	return
+}
+
+// SetIndexesDrv stores Indexes into DataDB
+func (rs *RedisStorage) SetIndexesDrv(idxItmType, tntCtx string,
+	indexes map[string]utils.StringSet, commit bool, transactionID string) (err error) {
+	originKey := utils.CacheInstanceToPrefix[idxItmType] + tntCtx
+	dbKey := originKey
+	if transactionID != utils.EmptyString {
+		dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
+	}
+	if commit && transactionID != utils.EmptyString {
+		return rs.Cmd(nil, redis_RENAME, dbKey, originKey)
+	}
+	mp := make(map[string]string)
+	deleteArgs := []string{dbKey} // the dbkey is necesary for the HDEL command
+	for key, strMp := range indexes {
+		if len(strMp) == 0 { // remove with no more elements inside
+			deleteArgs = append(deleteArgs, key)
+			if len(deleteArgs) == RedisLimit+1 { // minus dbkey
+				if err = rs.Cmd(nil, redis_HDEL, deleteArgs...); err != nil {
+					return
+				}
+				deleteArgs = []string{dbKey} // the dbkey is necesary for the HDEL command
+			}
+			continue
+		}
+		var encodedMp []byte
+		if encodedMp, err = rs.ms.Marshal(strMp); err != nil {
+			return
+		}
+		mp[key] = string(encodedMp)
+		if len(mp) == RedisLimit {
+			if err = rs.FlatCmd(nil, redis_HMSET, dbKey, mp); err != nil {
+				return
+			}
+			mp = make(map[string]string)
+		}
+	}
+	if len(deleteArgs) != 1 {
+		if err = rs.Cmd(nil, redis_HDEL, deleteArgs...); err != nil {
+			return
+		}
+	}
+	if len(mp) != 0 {
+		return rs.FlatCmd(nil, redis_HMSET, dbKey, mp)
+	}
+	return
+}
+
+func (rs *RedisStorage) RemoveIndexesDrv(idxItmType, tntCtx, idxKey string) (err error) {
+	if idxKey == utils.EmptyString {
+		return rs.Cmd(nil, redis_DEL, utils.CacheInstanceToPrefix[idxItmType]+tntCtx)
+	}
+	return rs.Cmd(nil, redis_HDEL, utils.CacheInstanceToPrefix[idxItmType]+tntCtx, idxKey)
 }

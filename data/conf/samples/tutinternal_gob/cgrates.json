@@ -81,18 +81,17 @@
 },
 
 
-"suppliers": {
+"routes": {
 	"enabled": true,
-	"prefix_indexed_fields":["Destination"],
+	"prefix_indexed_fields":["*req.Destination"],
 	"stats_conns": ["conn1"],
 	"resources_conns": ["conn1"],
-	"rals_conns": ["conn1"],
 },
 
 
 "sessions": {
 	"enabled": true,
-	"suppliers_conns": ["conn1"],
+	"routes_conns": ["conn1"],
 	"resources_conns": ["conn1"],
 	"attributes_conns": ["conn1"],
 	"rals_conns": ["conn1"],
@@ -106,5 +105,9 @@
 	"scheduler_conns": ["conn1"],
 },
 
+
+"filters": {								
+	"apiers_conns": ["*internal"],
+},
 
 }

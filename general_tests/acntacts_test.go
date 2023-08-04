@@ -55,10 +55,10 @@ ENABLE_ACNT,*enable_account,,,,,,,,,,,,,false,false,10`
 	suppliers := ``
 	attrProfiles := ``
 	chargerProfiles := ``
-	csvr, err := engine.NewTpReader(dbAcntActs.DataDB(), engine.NewStringCSVStorage(utils.CSV_SEP, destinations, timings,
+	csvr, err := engine.NewTpReader(dbAcntActs.DataDB(), engine.NewStringCSVStorage(utils.CSVSep, destinations, timings,
 		rates, destinationRates, ratingPlans, ratingProfiles, sharedGroups,
 		actions, actionPlans, actionTriggers, accountActions,
-		resLimits, stats, thresholds, filters, suppliers, attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil)
+		resLimits, stats, thresholds, filters, suppliers, attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -66,10 +66,7 @@ ENABLE_ACNT,*enable_account,,,,,,,,,,,,,false,false,10`
 		t.Fatal(err)
 	}
 	csvr.WriteToDatabase(false, false)
-
-	engine.Cache.Clear(nil)
-	dbAcntActs.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	engine.LoadAllDataDBToCache(dbAcntActs)
 
 	expectAcnt := &engine.Account{ID: "cgrates.org:1"}
 	if acnt, err := dbAcntActs.GetAccount("cgrates.org:1"); err != nil {
@@ -87,7 +84,7 @@ func TestAcntActsDisableAcnt(t *testing.T) {
 		ActionsID: "DISABLE_ACNT",
 	}
 	at.SetAccountIDs(utils.StringMap{acnt1Tag: true})
-	if err := at.Execute(nil, nil); err != nil {
+	if err := at.Execute(nil); err != nil {
 		t.Error(err)
 	}
 	expectAcnt := &engine.Account{ID: "cgrates.org:1", Disabled: true}
@@ -104,7 +101,7 @@ func TestAcntActsEnableAcnt(t *testing.T) {
 		ActionsID: "ENABLE_ACNT",
 	}
 	at.SetAccountIDs(utils.StringMap{acnt1Tag: true})
-	if err := at.Execute(nil, nil); err != nil {
+	if err := at.Execute(nil); err != nil {
 		t.Error(err)
 	}
 	expectAcnt := &engine.Account{ID: "cgrates.org:1", Disabled: false}

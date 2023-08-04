@@ -20,6 +20,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/rpc/jsonrpc"
@@ -182,7 +183,7 @@ BLOCK,*topup,,,bblocker,*monetary,,NAT,,,*unlimited,,1,20,true,false,20
 BLOCK,*topup,,,bfree,*monetary,,,,,*unlimited,,20,10,false,false,10
 BLOCK_EMPTY,*topup,,,bblocker,*monetary,,NAT,,,*unlimited,,0,20,true,false,20
 BLOCK_EMPTY,*topup,,,bfree,*monetary,,,,,*unlimited,,20,10,false,false,10
-FILTER,*topup,,"{""*and"":[{""Value"":{""*lt"":0}},{""Id"":{""*eq"":""*default""}}]}",bfree,*monetary,,,,,*unlimited,,20,10,false,false,10
+FILTER,*topup,,*string:~*req.BalanceMap.*monetary[0].ID:*default;*lt:~*req.BalanceMap.*monetary[0].Value:0,bfree,*monetary,,,,,*unlimited,,20,10,false,false,10
 EXP,*topup,,,,*voice,,,,,*monthly,*any,300s,10,false,false,10
 NOEXP,*topup,,,,*voice,,,,,*unlimited,*any,50s,10,false,false,10
 VF,*debit,,,,*monetary,,,,,*unlimited,*any,"{""Method"":""*incremental"",""Params"":{""Units"":10, ""Interval"":""month"", ""Increment"":""day""}}",10,false,false,10
@@ -235,10 +236,10 @@ cgrates.org,ResGroup22,*string:~*req.Account:dan,2014-07-29T15:00:00Z,3600s,2,pr
 `
 	StatsCSVContent = `
 #Tenant[0],Id[1],FilterIDs[2],ActivationInterval[3],QueueLength[4],TTL[5],MinItems[6],Metrics[7],MetricFilterIDs[8],Stored[9],Blocker[10],Weight[11],ThresholdIDs[12]
-cgrates.org,TestStats,*string:~*req.Account:1001,2014-07-29T15:00:00Z,100,1s,2,*sum:~Value;*average:~Value,,true,true,20,Th1;Th2
-cgrates.org,TestStats,,,,,2,*sum:~Usage,,true,true,20,
-cgrates.org,TestStats2,FLTR_1,2014-07-29T15:00:00Z,100,1s,2,*sum:~Value;*sum:~Usage;*average:~Value;*average:~Usage,,true,true,20,Th
-cgrates.org,TestStats2,,,,,2,*sum:~Cost;*average:~Cost,,true,true,20,
+cgrates.org,TestStats,*string:~*req.Account:1001,2014-07-29T15:00:00Z,100,1s,2,*sum#~*req.Value;*average#~*req.Value,,true,true,20,Th1;Th2
+cgrates.org,TestStats,,,,,2,*sum#~*req.Usage,,true,true,20,
+cgrates.org,TestStats2,FLTR_1,2014-07-29T15:00:00Z,100,1s,2,*sum#~*req.Value;*sum#~*req.Usage;*average#~*req.Value;*average#~*req.Usage,,true,true,20,Th
+cgrates.org,TestStats2,,,,,2,*sum#~*req.Cost;*average#~*req.Cost,,true,true,20,
 `
 
 	ThresholdsCSVContent = `
@@ -250,17 +251,18 @@ cgrates.org,Threshold1,*string:~*req.Account:1001;*string:~*req.RunID:*default,2
 #Tenant[0],ID[1],Type[2],Element[3],Values[4],ActivationInterval[5]
 cgrates.org,FLTR_1,*string,~*req.Account,1001;1002,2014-07-29T15:00:00Z
 cgrates.org,FLTR_1,*prefix,~*req.Destination,10;20,2014-07-29T15:00:00Z
-cgrates.org,FLTR_1,*rsr,,~*req.Subject(~^1.*1$);~*req.Destination(1002),
+cgrates.org,FLTR_1,*rsr,~*req.Subject,~^1.*1$,
+cgrates.org,FLTR_1,*rsr,~*req.Destination,1002,
 cgrates.org,FLTR_ACNT_dan,*string,~*req.Account,dan,2014-07-29T15:00:00Z
 cgrates.org,FLTR_DST_DE,*destinations,~*req.Destination,DST_DE,2014-07-29T15:00:00Z
 cgrates.org,FLTR_DST_NL,*destinations,~*req.Destination,DST_NL,2014-07-29T15:00:00Z
 `
-	SuppliersCSVContent = `
-#Tenant[0],ID[1],FilterIDs[2],ActivationInterval[3],Sorting[4],SortingParameters[5],SupplierID[6],SupplierFilterIDs[7],SupplierAccountIDs[8],SupplierRatingPlanIDs[9],SupplierResourceIDs[10],SupplierStatIDs[11],SupplierWeight[12],SupplierBlocker[13],SupplierParameters[14],Weight[15]
-cgrates.org,SPP_1,*string:~*req.Account:dan,2014-07-29T15:00:00Z,*least_cost,,supplier1,FLTR_ACNT_dan,Account1;Account1_1,RPL_1,ResGroup1,Stat1,10,true,param1,20
-cgrates.org,SPP_1,,,,,supplier1,,,RPL_2,ResGroup2,,10,,,
-cgrates.org,SPP_1,,,,,supplier1,FLTR_DST_DE,Account2,RPL_3,ResGroup3,Stat2,10,,,
-cgrates.org,SPP_1,,,,,supplier1,,,,ResGroup4,Stat3,10,,,
+	RoutesCSVContent = `
+#Tenant[0],ID[1],FilterIDs[2],ActivationInterval[3],Sorting[4],SortingParameters[5],RouteID[6],RouteFilterIDs[7],RouteAccountIDs[8],RouteRatingPlanIDs[9],RouteResourceIDs[10],RouteStatIDs[11],RouteWeight[12],RouteBlocker[13],RouteParameters[14],Weight[15]
+cgrates.org,RoutePrf1,*string:~*req.Account:dan,2014-07-29T15:00:00Z,*lc,,route1,FLTR_ACNT_dan,Account1;Account1_1,RPL_1,ResGroup1,Stat1,10,true,param1,20
+cgrates.org,RoutePrf1,,,,,route1,,,RPL_2,ResGroup2,,10,,,
+cgrates.org,RoutePrf1,,,,,route1,FLTR_DST_DE,Account2,RPL_3,ResGroup3,Stat2,10,,,
+cgrates.org,RoutePrf1,,,,,route1,,,,ResGroup4,Stat3,10,,,
 `
 	AttributesCSVContent = `
 #Tenant,ID,Contexts,FilterIDs,ActivationInterval,AttributeFilterIDs,Path,Type,Value,Blocker,Weight
@@ -277,18 +279,17 @@ cgrates.org,D1,*any,*string:~*req.Account:1001,2014-07-29T15:00:00Z,*first,,C1,*
 cgrates.org,D1,,,,*first,,C2,*lt:~*req.Usage:10,10,false,192.168.56.204,
 `
 	DispatcherHostCSVContent = `
-#Tenant[0],ID[1],Address[2],Transport[3],TLS[4]
-cgrates.org,ALL1,127.0.0.1:2012,*json,true
-cgrates.org,ALL1,127.0.0.1:3012,*json,false
+#Tenant[0],ID[1],Address[2],Transport[3],ConnectAttempts[4],Reconnects[5],MaxReconnectInterval[6],ConnectTimeout[7],ReplyTimeout[8],Tls[9],ClientKey[10],ClientCertificate[11],CaCertificate[12]
+cgrates.org,ALL,127.0.0.1:6012,*json,1,3,5m,1m,2m,false,,,
 `
 )
 
 func InitDataDb(cfg *config.CGRConfig) error {
-	d, err := NewDataDBConn(cfg.DataDbCfg().DataDbType,
-		cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort,
-		cfg.DataDbCfg().DataDbName, cfg.DataDbCfg().DataDbUser,
-		cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
-		cfg.DataDbCfg().DataDbSentinelName, cfg.DataDbCfg().Items)
+	d, err := NewDataDBConn(cfg.DataDbCfg().Type,
+		cfg.DataDbCfg().Host, cfg.DataDbCfg().Port,
+		cfg.DataDbCfg().Name, cfg.DataDbCfg().User,
+		cfg.DataDbCfg().Password, cfg.GeneralCfg().DBDataEncoding,
+		cfg.DataDbCfg().Opts, cfg.DataDbCfg().Items)
 	if err != nil {
 		return err
 	}
@@ -308,16 +309,15 @@ func InitStorDb(cfg *config.CGRConfig) error {
 	storDb, err := NewStorDBConn(cfg.StorDbCfg().Type,
 		cfg.StorDbCfg().Host, cfg.StorDbCfg().Port,
 		cfg.StorDbCfg().Name, cfg.StorDbCfg().User,
-		cfg.StorDbCfg().Password, cfg.GeneralCfg().DBDataEncoding, cfg.StorDbCfg().SSLMode,
-		cfg.StorDbCfg().MaxOpenConns, cfg.StorDbCfg().MaxIdleConns,
-		cfg.StorDbCfg().ConnMaxLifetime, cfg.StorDbCfg().StringIndexedFields,
-		cfg.StorDbCfg().PrefixIndexedFields, cfg.StorDbCfg().Items)
+		cfg.StorDbCfg().Password, cfg.GeneralCfg().DBDataEncoding,
+		cfg.StorDbCfg().StringIndexedFields, cfg.StorDbCfg().PrefixIndexedFields,
+		cfg.StorDbCfg().Opts, cfg.StorDbCfg().Items)
 	if err != nil {
 		return err
 	}
-	db_Path := strings.Trim(cfg.StorDbCfg().Type, "*")
+	dbPath := strings.Trim(cfg.StorDbCfg().Type, "*")
 	if err := storDb.Flush(path.Join(cfg.DataFolderPath, "storage",
-		db_Path)); err != nil {
+		dbPath)); err != nil {
 		return err
 	}
 	if utils.IsSliceMember([]string{utils.MetaMongo, utils.MetaMySQL, utils.MetaPostgres},
@@ -343,10 +343,10 @@ func StartEngine(cfgPath string, waitEngine int) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	fib := utils.Fib()
+	fib := utils.FibDuration(time.Millisecond, 0)
 	var connected bool
 	for i := 0; i < 200; i++ {
-		time.Sleep(time.Duration(fib()) * time.Millisecond)
+		time.Sleep(fib())
 		if _, err := jsonrpc.Dial(utils.TCP, cfg.ListenCfg().RPCJSONListen); err != nil {
 			utils.Logger.Warning(fmt.Sprintf("Error <%s> when opening test connection to: <%s>",
 				err.Error(), cfg.ListenCfg().RPCJSONListen))
@@ -358,16 +358,37 @@ func StartEngine(cfgPath string, waitEngine int) (*exec.Cmd, error) {
 	if !connected {
 		return nil, fmt.Errorf("engine did not open port <%s>", cfg.ListenCfg().RPCJSONListen)
 	}
-	time.Sleep(time.Duration(waitEngine) * time.Millisecond) // wait for rater to register all subsistems
+	time.Sleep(time.Duration(waitEngine) * time.Millisecond) // wait for rater to register all subsystems
 	return engine, nil
 }
 
-func KillEngine(waitEngine int) error {
-	if err := exec.Command("pkill", "cgr-engine").Run(); err != nil {
-		return err
+// StartEngineWithContext return reference towards the command started so we can stop it if necessary
+func StartEngineWithContext(ctx context.Context, cfgPath string, waitEngine int) (engine *exec.Cmd, err error) {
+	engine = exec.CommandContext(ctx, "cgr-engine", "-config_path", cfgPath)
+	if err = engine.Start(); err != nil {
+		return nil, err
 	}
-	time.Sleep(time.Duration(waitEngine) * time.Millisecond)
-	return nil
+	var cfg *config.CGRConfig
+	if cfg, err = config.NewCGRConfigFromPath(cfgPath); err != nil {
+		return
+	}
+	fib := utils.FibDuration(time.Millisecond, 0)
+	for i := 0; i < 200; i++ {
+		time.Sleep(fib())
+		if _, err = jsonrpc.Dial(utils.TCP, cfg.ListenCfg().RPCJSONListen); err != nil {
+			continue
+		}
+		time.Sleep(time.Duration(waitEngine) * time.Millisecond) // wait for rater to register all subsystems
+		return
+	}
+	utils.Logger.Warning(fmt.Sprintf("Error <%s> when opening test connection to: <%s>",
+		err.Error(), cfg.ListenCfg().RPCJSONListen))
+	err = fmt.Errorf("engine did not open port <%s>", cfg.ListenCfg().RPCJSONListen)
+	return
+}
+
+func KillEngine(waitEngine int) error {
+	return KillProcName("cgr-engine", waitEngine)
 }
 
 func StopStartEngine(cfgPath string, waitEngine int) (*exec.Cmd, error) {
@@ -377,8 +398,12 @@ func StopStartEngine(cfgPath string, waitEngine int) (*exec.Cmd, error) {
 
 func LoadTariffPlanFromFolder(tpPath, timezone string, dm *DataManager, disable_reverse bool,
 	cacheConns, schedConns []string) error {
-	loader, err := NewTpReader(dm.dataDB, NewFileCSVStorage(utils.CSV_SEP, tpPath, false), "",
-		timezone, cacheConns, schedConns)
+	csvStorage, err := NewFileCSVStorage(utils.CSVSep, tpPath)
+	if err != nil {
+		return utils.NewErrServerError(err)
+	}
+	loader, err := NewTpReader(dm.dataDB, csvStorage, "",
+		timezone, cacheConns, schedConns, false)
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -435,18 +460,18 @@ func PjsuaCallUri(acnt *PjsuaAccount, dstUri, outboundUri string, callDur time.D
 	buf := new(bytes.Buffer)
 	io.Copy(os.Stdout, buf)
 	go func() {
-		time.Sleep(callDur + (time.Duration(2) * time.Second))
+		time.Sleep(callDur + 2*time.Second)
 		fPty.Write([]byte("q\n")) // Destroy the listener
 	}()
 	return nil
 }
 
-func KillProcName(procName string, waitMs int) error {
-	if err := exec.Command("pkill", procName).Run(); err != nil {
-		return err
+func KillProcName(procName string, waitMs int) (err error) {
+	if err = exec.Command("pkill", procName).Run(); err != nil {
+		return
 	}
 	time.Sleep(time.Duration(waitMs) * time.Millisecond)
-	return nil
+	return
 }
 
 func ForceKillProcName(procName string, waitMs int) error {
@@ -467,165 +492,97 @@ func CallScript(scriptPath string, subcommand string, waitMs int) error {
 
 func GetDefaultEmptyCacheStats() map[string]*ltcache.CacheStats {
 	return map[string]*ltcache.CacheStats{
-		utils.MetaDefault: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheAccountActionPlans: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheActionPlans: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheActionTriggers: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheActions: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheAttributeFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheAttributeProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheChargerFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheChargerProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDispatcherFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheReverseFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDispatcherProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDispatcherHosts: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDispatcherRoutes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDestinations: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheEventResources: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheFilters: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRatingPlans: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRatingProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheResourceFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheResourceProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheResources: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheReverseDestinations: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRPCResponses: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheSharedGroups: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheStatFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheStatQueueProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheStatQueues: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheSupplierFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheSupplierProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheThresholdFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheThresholdProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheThresholds: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheTimings: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDiameterMessages: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheClosedSessions: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheLoadIDs: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRPCConnections: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheCDRIDs: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRatingProfilesTmp: {
-			Items:  0,
-			Groups: 0,
-		},
+		utils.MetaDefault:                  {},
+		utils.CacheAccountActionPlans:      {},
+		utils.CacheActionPlans:             {},
+		utils.CacheActionTriggers:          {},
+		utils.CacheActions:                 {},
+		utils.CacheAttributeFilterIndexes:  {},
+		utils.CacheAttributeProfiles:       {},
+		utils.CacheChargerFilterIndexes:    {},
+		utils.CacheChargerProfiles:         {},
+		utils.CacheDispatcherFilterIndexes: {},
+		utils.CacheDispatcherProfiles:      {},
+		utils.CacheDispatcherHosts:         {},
+		utils.CacheDispatcherRoutes:        {},
+		utils.CacheDispatcherLoads:         {},
+		utils.CacheDispatchers:             {},
+		utils.CacheDestinations:            {},
+		utils.CacheEventResources:          {},
+		utils.CacheFilters:                 {},
+		utils.CacheRatingPlans:             {},
+		utils.CacheRatingProfiles:          {},
+		utils.CacheResourceFilterIndexes:   {},
+		utils.CacheResourceProfiles:        {},
+		utils.CacheResources:               {},
+		utils.CacheReverseDestinations:     {},
+		utils.CacheRPCResponses:            {},
+		utils.CacheSharedGroups:            {},
+		utils.CacheStatFilterIndexes:       {},
+		utils.CacheStatQueueProfiles:       {},
+		utils.CacheStatQueues:              {},
+		utils.CacheSTIR:                    {},
+		utils.CacheRouteFilterIndexes:      {},
+		utils.CacheRouteProfiles:           {},
+		utils.CacheThresholdFilterIndexes:  {},
+		utils.CacheThresholdProfiles:       {},
+		utils.CacheThresholds:              {},
+		utils.CacheTimings:                 {},
+		utils.CacheDiameterMessages:        {},
+		utils.CacheClosedSessions:          {},
+		utils.CacheLoadIDs:                 {},
+		utils.CacheRPCConnections:          {},
+		utils.CacheCDRIDs:                  {},
+		utils.CacheRatingProfilesTmp:       {},
+		utils.CacheUCH:                     {},
+		utils.CacheEventCharges:            {},
+		utils.CacheReverseFilterIndexes:    {},
+		utils.MetaAPIBan:                   {},
+		utils.MetaSentryPeer:               {},
+		utils.CacheCapsEvents:              {},
+		utils.CacheReplicationHosts:        {},
 	}
+}
+
+func LoadAllDataDBToCache(dm *DataManager) (err error) {
+	if dm == nil {
+		return utils.ErrNoDatabaseConn
+	}
+	for key, ids := range map[string][]string{
+		utils.DestinationPrefix:        {utils.MetaAny},
+		utils.ReverseDestinationPrefix: {utils.MetaAny},
+		utils.RatingPlanPrefix:         {utils.MetaAny},
+		utils.RatingProfilePrefix:      {utils.MetaAny},
+		utils.ActionPrefix:             {utils.MetaAny},
+		utils.ActionPlanPrefix:         {utils.MetaAny},
+		utils.AccountActionPlansPrefix: {utils.MetaAny},
+		utils.ActionTriggerPrefix:      {utils.MetaAny},
+		utils.SharedGroupPrefix:        {utils.MetaAny},
+		utils.ResourceProfilesPrefix:   {utils.MetaAny},
+		utils.ResourcesPrefix:          {utils.MetaAny},
+		utils.StatQueuePrefix:          {utils.MetaAny},
+		utils.StatQueueProfilePrefix:   {utils.MetaAny},
+		utils.ThresholdPrefix:          {utils.MetaAny},
+		utils.ThresholdProfilePrefix:   {utils.MetaAny},
+		utils.FilterPrefix:             {utils.MetaAny},
+		utils.RouteProfilePrefix:       {utils.MetaAny},
+		utils.AttributeProfilePrefix:   {utils.MetaAny},
+		utils.ChargerProfilePrefix:     {utils.MetaAny},
+		utils.DispatcherProfilePrefix:  {utils.MetaAny},
+		utils.DispatcherHostPrefix:     {utils.MetaAny},
+		utils.TimingsPrefix:            {utils.MetaAny},
+		utils.AttributeFilterIndexes:   {utils.MetaAny},
+		utils.ResourceFilterIndexes:    {utils.MetaAny},
+		utils.StatFilterIndexes:        {utils.MetaAny},
+		utils.ThresholdFilterIndexes:   {utils.MetaAny},
+		utils.RouteFilterIndexes:       {utils.MetaAny},
+		utils.ChargerFilterIndexes:     {utils.MetaAny},
+		utils.DispatcherFilterIndexes:  {utils.MetaAny},
+		utils.FilterIndexPrfx:          {utils.MetaAny},
+	} {
+		if err = dm.CacheDataFromDB(key, ids, false); err != nil {
+			return
+		}
+	}
+	return
 }

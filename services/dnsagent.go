@@ -31,12 +31,14 @@ import (
 
 // NewDNSAgent returns the DNS Agent
 func NewDNSAgent(cfg *config.CGRConfig, filterSChan chan *engine.FilterS,
-	exitChan chan bool, connMgr *engine.ConnManager) servmanager.Service {
+	shdChan *utils.SyncedChan, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &DNSAgent{
 		cfg:         cfg,
 		filterSChan: filterSChan,
-		exitChan:    exitChan,
+		shdChan:     shdChan,
 		connMgr:     connMgr,
+		srvDep:      srvDep,
 	}
 }
 
@@ -45,15 +47,16 @@ type DNSAgent struct {
 	sync.RWMutex
 	cfg         *config.CGRConfig
 	filterSChan chan *engine.FilterS
-	exitChan    chan bool
+	shdChan     *utils.SyncedChan
+
+	stopChan chan struct{}
 
 	dns     *agents.DNSAgent
 	connMgr *engine.ConnManager
-
-	oldListen string
+	srvDep  map[string]*sync.WaitGroup
 }
 
-// Start should handle the sercive start
+// Start should handle the service start
 func (dns *DNSAgent) Start() (err error) {
 	if dns.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
@@ -64,51 +67,59 @@ func (dns *DNSAgent) Start() (err error) {
 
 	dns.Lock()
 	defer dns.Unlock()
-	dns.oldListen = dns.cfg.DNSAgentCfg().Listen
 	dns.dns, err = agents.NewDNSAgent(dns.cfg, filterS, dns.connMgr)
 	if err != nil {
 		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.DNSAgent, err.Error()))
+		dns.dns = nil
 		return
 	}
-	go func() {
-		if err = dns.dns.ListenAndServe(); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.DNSAgent, err.Error()))
-			dns.exitChan <- true // stop the engine here
-		}
-	}()
+	dns.stopChan = make(chan struct{})
+	go dns.listenAndServe(dns.stopChan)
 	return
 }
 
 // Reload handles the change of config
 func (dns *DNSAgent) Reload() (err error) {
-	if dns.oldListen == dns.cfg.DNSAgentCfg().Listen {
-		return
-	}
-	if err = dns.Shutdown(); err != nil {
-		return
-	}
+	filterS := <-dns.filterSChan
+	dns.filterSChan <- filterS
+
 	dns.Lock()
-	dns.oldListen = dns.cfg.DNSAgentCfg().Listen
 	defer dns.Unlock()
-	if err = dns.dns.Reload(); err != nil {
+
+	dns.Shutdown()
+
+	dns.dns, err = agents.NewDNSAgent(dns.cfg, filterS, dns.connMgr)
+	if err != nil {
+		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.DNSAgent, err.Error()))
+		dns.dns = nil
 		return
 	}
-	go func() {
-		if err := dns.dns.ListenAndServe(); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.DNSAgent, err.Error()))
-			dns.exitChan <- true // stop the engine here
-		}
-	}()
+
+	dns.dns.Lock()
+	defer dns.dns.Unlock()
+	dns.stopChan = make(chan struct{})
+	go dns.listenAndServe(dns.stopChan)
+	return
+}
+
+func (dns *DNSAgent) listenAndServe(stopChan chan struct{}) (err error) {
+	dns.dns.RLock()
+	defer dns.dns.RUnlock()
+	if err = dns.dns.ListenAndServe(stopChan); err != nil {
+		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.DNSAgent, err.Error()))
+		dns.shdChan.CloseOnce() // stop the engine here
+	}
 	return
 }
 
 // Shutdown stops the service
 func (dns *DNSAgent) Shutdown() (err error) {
-	dns.Lock()
-	defer dns.Unlock()
-	if err = dns.dns.Shutdown(); err != nil {
+	if dns.dns == nil {
 		return
 	}
+	close(dns.stopChan)
+	dns.dns.Lock()
+	defer dns.dns.Unlock()
 	dns.dns = nil
 	return
 }
@@ -117,7 +128,7 @@ func (dns *DNSAgent) Shutdown() (err error) {
 func (dns *DNSAgent) IsRunning() bool {
 	dns.RLock()
 	defer dns.RUnlock()
-	return dns != nil && dns.dns != nil
+	return dns.dns != nil
 }
 
 // ServiceName returns the service name

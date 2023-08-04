@@ -28,17 +28,23 @@
 	"attributes_conns": ["*internal"],
 },
 
-"cdre":{
-	"aws_test_file": {
-		"export_format": "*amqp_json_map",
-		"export_path": "amqps://guest:guest@localhost:256733/",
-		"attempts": 1,									// export attempts
-		"synchronous": true,							// block processing until export has a result
-		"fields": [
-			{"path": "*exp.CGRID", "type": "*composed", "value": "~*req.CGRID"},
-		],
-	},
+"ees": {
+	"enabled": true,
+	"attributes_conns": ["*internal"],
+	"exporters": [
+		{
+			"id": "amqp_test_file",
+			"type": "*amqp_json_map",
+			"export_path": "amqps://guest:guest@localhost:256733/",
+			"attempts": 1,
+			"synchronous": true,
+			"fields":[
+				{"tag": "CGRID", "path": "*exp.CGRID", "type": "*variable", "value": "~*req.CGRID"},
+			],
+		}
+	]
 },
+
 
 "stats": {									
 	"enabled": true,
@@ -67,13 +73,20 @@
 	"chargers_conns": ["*internal"],
 	"stats_conns": ["*internal"],
 	"thresholds_conns": ["*internal"],
-	"online_cdr_exports": ["aws_test_file"],
+	"online_cdr_exports": ["amqp_test_file"],
+	"ees_conns": ["*localhost"]
 },
 
 
 "apiers": {
 	"enabled": true,
 	"scheduler_conns": ["*internal"],
+},
+
+"caches":{
+	"partitions": {
+		"*rpc_responses": {"limit": -1, "ttl": "2s", "static_ttl": false}
+	},
 },
 
 }

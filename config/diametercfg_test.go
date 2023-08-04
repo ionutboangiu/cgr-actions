@@ -22,97 +22,245 @@ import (
 	"testing"
 
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 func TestDiameterAgentCfgloadFromJsonCfg(t *testing.T) {
-	var dacfg, expected DiameterAgentCfg
-	if err := dacfg.loadFromJsonCfg(nil, utils.INFIELD_SEP); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(dacfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, dacfg)
+	jsonCFG := &DiameterAgentJsonCfg{
+		Enabled:              utils.BoolPointer(true),
+		Listen_net:           utils.StringPointer("tcp"),
+		Listen:               utils.StringPointer("127.0.0.1:3868"),
+		Dictionaries_path:    utils.StringPointer("/usr/share/cgrates/diameter/dict/"),
+		Sessions_conns:       &[]string{utils.MetaInternal, "*conn1"},
+		Origin_host:          utils.StringPointer("CGR-DA"),
+		Origin_realm:         utils.StringPointer("cgrates.org"),
+		Vendor_id:            utils.IntPointer(0),
+		Product_name:         utils.StringPointer("randomName"),
+		Concurrent_requests:  utils.IntPointer(10),
+		Synced_conn_requests: utils.BoolPointer(true),
+		Asr_template:         utils.StringPointer("randomTemplate"),
+		Rar_template:         utils.StringPointer("randomTemplate"),
+		Forced_disconnect:    utils.StringPointer("forced"),
+		Request_processors: &[]*ReqProcessorJsnCfg{
+			{
+				ID:       utils.StringPointer(utils.CGRateSLwr),
+				Timezone: utils.StringPointer("Local"),
+			},
+		},
 	}
-	if err := dacfg.loadFromJsonCfg(new(DiameterAgentJsonCfg), utils.INFIELD_SEP); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(dacfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, dacfg)
-	}
-	cfgJSONStr := `{
-"diameter_agent": {
-	"enabled": false,											// enables the diameter agent: <true|false>
-	"listen": "127.0.0.1:3868",									// address where to listen for diameter requests <x.y.z.y:1234>
-	"dictionaries_path": "/usr/share/cgrates/diameter/dict/",	// path towards directory holding additional dictionaries to load
-	"sessions_conns": ["*internal"],
-	"origin_host": "CGR-DA",									// diameter Origin-Host AVP used in replies
-	"origin_realm": "cgrates.org",								// diameter Origin-Realm AVP used in replies
-	"vendor_id": 0,												// diameter Vendor-Id AVP used in replies
-	"product_name": "CGRateS",									// diameter Product-Name AVP used in replies
-	"synced_conn_requests": true,
-	"templates":{},
-	"request_processors": [],
-},
-}`
-	expected = DiameterAgentCfg{
+	expected := &DiameterAgentCfg{
+		Enabled:          true,
+		ListenNet:        "tcp",
 		Listen:           "127.0.0.1:3868",
 		DictionariesPath: "/usr/share/cgrates/diameter/dict/",
-		SessionSConns:    []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)},
+		SessionSConns:    []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS), "*conn1"},
 		OriginHost:       "CGR-DA",
 		OriginRealm:      "cgrates.org",
-		VendorId:         0,
-		ProductName:      "CGRateS",
+		VendorID:         0,
+		ProductName:      "randomName",
+		ConcurrentReqs:   10,
 		SyncedConnReqs:   true,
-		Templates:        make(map[string][]*FCTemplate),
+		ASRTemplate:      "randomTemplate",
+		RARTemplate:      "randomTemplate",
+		ForcedDisconnect: "forced",
+		RequestProcessors: []*RequestProcessor{
+			{
+				ID:       "cgrates",
+				Timezone: "Local",
+			},
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	jsnCfg := NewDefaultCGRConfig()
+	if err = jsnCfg.diameterAgentCfg.loadFromJSONCfg(jsonCFG, jsnCfg.generalCfg.RSRSep); err != nil {
 		t.Error(err)
-	} else if jsnDaCfg, err := jsnCfg.DiameterAgentJsonCfg(); err != nil {
+	} else if !reflect.DeepEqual(expected, jsnCfg.diameterAgentCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(jsnCfg.diameterAgentCfg))
+	}
+}
+
+func TestRequestProcessorloadFromJsonCfg1(t *testing.T) {
+	cfgJSON := &DiameterAgentJsonCfg{
+		Request_processors: &[]*ReqProcessorJsnCfg{
+			{
+				Tenant: utils.StringPointer("a{*"),
+			},
+		},
+	}
+	expected := "invalid converter terminator in rule: <a{*>"
+	jsonCfg := NewDefaultCGRConfig()
+	if err := jsonCfg.diameterAgentCfg.loadFromJSONCfg(cfgJSON, jsonCfg.generalCfg.RSRSep); err == nil || err.Error() != expected {
+		t.Errorf("Expected %+v, received %+v", expected, err)
+	}
+}
+
+func TestRequestProcessorloadFromJsonCfg2(t *testing.T) {
+	cfgJSONStr := `{ 
+      "diameter_agent": {
+        "request_processors": [
+	        {
+		       "id": "random",
+            },
+         ]
+       }
+}`
+	cfgJSON := &DiameterAgentJsonCfg{
+		Request_processors: &[]*ReqProcessorJsnCfg{
+			{
+				ID: utils.StringPointer("random"),
+			},
+		},
+	}
+	if jsonCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if err = dacfg.loadFromJsonCfg(jsnDaCfg, utils.INFIELD_SEP); err != nil {
+	} else if err = jsonCfg.diameterAgentCfg.loadFromJSONCfg(cfgJSON, jsonCfg.generalCfg.RSRSep); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(expected, dacfg) {
-		t.Errorf("Expected: %+v , recived: %+v", utils.ToJSON(expected), utils.ToJSON(dacfg))
 	}
 }
 
 func TestDiameterAgentCfgAsMapInterface(t *testing.T) {
-	var dacfg DiameterAgentCfg
 	cfgJSONStr := `{
 	"diameter_agent": {
 		"enabled": false,											
 		"listen": "127.0.0.1:3868",									
 		"dictionaries_path": "/usr/share/cgrates/diameter/dict/",	
-		"sessions_conns": ["*internal"],
+		"sessions_conns": ["*birpc_internal","*internal", "*conn1"],
 		"origin_host": "CGR-DA",									
 		"origin_realm": "cgrates.org",								
 		"vendor_id": 0,												
 		"product_name": "CGRateS",									
 		"synced_conn_requests": true,
-		"templates":{},
-		"request_processors": [],
+		"request_processors": [
+                        {
+                         "id": "cgrates", 
+                         "tenant": "1",
+                         "filters": [],
+                          "flags": ["1"],
+                         "request_fields": [
+                            {"path": "randomPath"},
+                           ],
+                         "reply_fields": [
+                              {"path": "randomPath"},
+                          ],
+                        }
+        ]
 	},
 }`
-	eMap := map[string]interface{}{
-		"asr_template":         "",
-		"concurrent_requests":  0,
-		"dictionaries_path":    "/usr/share/cgrates/diameter/dict/",
-		"enabled":              false,
-		"listen":               "127.0.0.1:3868",
-		"listen_net":           "",
-		"origin_host":          "CGR-DA",
-		"origin_realm":         "cgrates.org",
-		"product_name":         "CGRateS",
-		"sessions_conns":       []string{"*internal"},
-		"synced_conn_requests": true,
-		"vendor_id":            0,
-		"templates":            map[string][]map[string]interface{}{},
-		"request_processors":   []map[string]interface{}{},
+	eMap := map[string]any{
+		utils.ASRTemplateCfg:        "",
+		utils.ConcurrentRequestsCfg: -1,
+		utils.DictionariesPathCfg:   "/usr/share/cgrates/diameter/dict/",
+		utils.EnabledCfg:            false,
+		utils.ForcedDisconnectCfg:   "*none",
+		utils.ListenCfg:             "127.0.0.1:3868",
+		utils.ListenNetCfg:          "tcp",
+		utils.OriginHostCfg:         "CGR-DA",
+		utils.OriginRealmCfg:        "cgrates.org",
+		utils.ProductNameCfg:        "CGRateS",
+		utils.RARTemplateCfg:        "",
+		utils.SessionSConnsCfg:      []string{rpcclient.BiRPCInternal, utils.MetaInternal, "*conn1"},
+		utils.SyncedConnReqsCfg:     true,
+		utils.VendorIDCfg:           0,
+		utils.RequestProcessorsCfg: []map[string]any{
+			{
+				utils.IDCfg:       utils.CGRateSLwr,
+				utils.TenantCfg:   "1",
+				utils.FiltersCfg:  []string{},
+				utils.FlagsCfg:    []string{"1"},
+				utils.TimezoneCfg: utils.EmptyString,
+				utils.RequestFieldsCfg: []map[string]any{
+					{
+						utils.PathCfg: "randomPath",
+						utils.TagCfg:  "randomPath",
+					},
+				},
+				utils.ReplyFieldsCfg: []map[string]any{
+					{
+						utils.PathCfg: "randomPath",
+						utils.TagCfg:  "randomPath",
+					},
+				},
+			},
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnDaCfg, err := jsnCfg.DiameterAgentJsonCfg(); err != nil {
+	} else {
+		for _, v := range cgrCfg.diameterAgentCfg.RequestProcessors[0].ReplyFields {
+			v.ComputePath()
+		}
+		for _, v := range cgrCfg.diameterAgentCfg.RequestProcessors[0].RequestFields {
+			v.ComputePath()
+		}
+		rcv := cgrCfg.diameterAgentCfg.AsMapInterface(utils.InfieldSep)
+		if !reflect.DeepEqual(rcv, eMap) {
+			t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+		}
+	}
+}
+
+func TestDiameterAgentCfgAsMapInterface1(t *testing.T) {
+	cfgJSONStr := `{
+	"diameter_agent": {
+		"enabled": true,
+		"dictionaries_path": "/usr/share/cgrates/diameter",			
+		"synced_conn_requests": false,
+	},
+}`
+	eMap := map[string]any{
+		utils.ASRTemplateCfg:        "",
+		utils.ConcurrentRequestsCfg: -1,
+		utils.DictionariesPathCfg:   "/usr/share/cgrates/diameter",
+		utils.EnabledCfg:            true,
+		utils.ForcedDisconnectCfg:   "*none",
+		utils.ListenCfg:             "127.0.0.1:3868",
+		utils.ListenNetCfg:          "tcp",
+		utils.OriginHostCfg:         "CGR-DA",
+		utils.OriginRealmCfg:        "cgrates.org",
+		utils.ProductNameCfg:        "CGRateS",
+		utils.RARTemplateCfg:        "",
+		utils.SessionSConnsCfg:      []string{rpcclient.BiRPCInternal},
+		utils.SyncedConnReqsCfg:     false,
+		utils.VendorIDCfg:           0,
+		utils.RequestProcessorsCfg:  []map[string]any{},
+	}
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if err = dacfg.loadFromJsonCfg(jsnDaCfg, utils.INFIELD_SEP); err != nil {
-		t.Error(err)
-	} else if rcv := dacfg.AsMapInterface(utils.EmptyString); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("Expected: %+v,\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.diameterAgentCfg.AsMapInterface(cgrCfg.generalCfg.RSRSep); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expected %+v \n, received %+v", eMap, rcv)
+	}
+}
+
+func TestDiameterAgentCfgClone(t *testing.T) {
+	ban := &DiameterAgentCfg{
+		Enabled:          true,
+		ListenNet:        "tcp",
+		Listen:           "127.0.0.1:3868",
+		DictionariesPath: "/usr/share/cgrates/diameter/dict/",
+		SessionSConns:    []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS), "*conn1"},
+		OriginHost:       "CGR-DA",
+		OriginRealm:      "cgrates.org",
+		VendorID:         0,
+		ProductName:      "randomName",
+		ConcurrentReqs:   10,
+		SyncedConnReqs:   true,
+		ASRTemplate:      "randomTemplate",
+		RARTemplate:      "randomTemplate",
+		ForcedDisconnect: "forced",
+		RequestProcessors: []*RequestProcessor{
+			{
+				ID:       "cgrates",
+				Timezone: "Local",
+			},
+		},
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if rcv.SessionSConns[1] = ""; ban.SessionSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.RequestProcessors[0].ID = ""; ban.RequestProcessors[0].ID != "cgrates" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

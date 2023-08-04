@@ -72,20 +72,18 @@ func testTpTresITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpTresCfgIn.StorDbCfg().Type,
 		tpTresCfgIn.StorDbCfg().Host, tpTresCfgIn.StorDbCfg().Port,
 		tpTresCfgIn.StorDbCfg().Name, tpTresCfgIn.StorDbCfg().User,
-		tpTresCfgIn.StorDbCfg().Password, tpTresCfgIn.GeneralCfg().DBDataEncoding, tpTresCfgIn.StorDbCfg().SSLMode,
-		tpTresCfgIn.StorDbCfg().MaxOpenConns, tpTresCfgIn.StorDbCfg().MaxIdleConns,
-		tpTresCfgIn.StorDbCfg().ConnMaxLifetime, tpTresCfgIn.StorDbCfg().StringIndexedFields,
-		tpTresCfgIn.StorDbCfg().PrefixIndexedFields, tpTresCfgIn.StorDbCfg().Items)
+		tpTresCfgIn.StorDbCfg().Password, tpTresCfgIn.GeneralCfg().DBDataEncoding,
+		tpTresCfgIn.StorDbCfg().StringIndexedFields, tpTresCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpTresCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpTresCfgOut.StorDbCfg().Type,
 		tpTresCfgOut.StorDbCfg().Host, tpTresCfgOut.StorDbCfg().Port,
 		tpTresCfgOut.StorDbCfg().Name, tpTresCfgOut.StorDbCfg().User,
-		tpTresCfgOut.StorDbCfg().Password, tpTresCfgOut.GeneralCfg().DBDataEncoding, tpTresCfgIn.StorDbCfg().SSLMode,
-		tpTresCfgIn.StorDbCfg().MaxOpenConns, tpTresCfgIn.StorDbCfg().MaxIdleConns,
-		tpTresCfgIn.StorDbCfg().ConnMaxLifetime, tpTresCfgIn.StorDbCfg().StringIndexedFields,
-		tpTresCfgIn.StorDbCfg().PrefixIndexedFields, tpTresCfgOut.StorDbCfg().Items)
+		tpTresCfgOut.StorDbCfg().Password, tpTresCfgOut.GeneralCfg().DBDataEncoding,
+		tpTresCfgIn.StorDbCfg().StringIndexedFields, tpTresCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpTresCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -130,7 +128,7 @@ func testTpTresITPopulate(t *testing.T) {
 		t.Error("Error when setting TpThresholds ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpTresMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpTresMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpThresholds ", err.Error())
 	}

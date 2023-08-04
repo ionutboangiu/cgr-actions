@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/ees"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -79,6 +80,12 @@ func testCDRsPostFailoverInitConfig(t *testing.T) {
 	if cdrsPostFailCfg, err = config.NewCGRConfigFromPath(cdrsPostFailCfgPath); err != nil {
 		t.Fatal("Got config error: ", err.Error())
 	}
+	if err = os.RemoveAll(cdrsPostFailCfg.GeneralCfg().FailedPostsDir); err != nil {
+		t.Error(err)
+	}
+	if err = os.MkdirAll(cdrsPostFailCfg.GeneralCfg().FailedPostsDir, 0755); err != nil {
+		t.Error(err)
+	}
 }
 
 func testCDRsPostFailoverInitDataDb(t *testing.T) {
@@ -95,15 +102,6 @@ func testCDRsPostFailoverInitCdrDb(t *testing.T) {
 }
 
 func testCDRsPostFailoverStartEngine(t *testing.T) {
-	// before starting the engine, create the directories needed for failed posts or
-	// clear their contents if they exist already
-	if err := os.RemoveAll(cdrsPostFailCfg.GeneralCfg().FailedPostsDir); err != nil {
-		t.Fatal("Error removing folder: ", cdrsPostFailCfg.GeneralCfg().FailedPostsDir, err)
-	}
-	if err := os.MkdirAll(cdrsPostFailCfg.GeneralCfg().FailedPostsDir, 0755); err != nil {
-		t.Error(err)
-	}
-
 	if _, err := engine.StopStartEngine(cdrsPostFailCfgPath, *waitRater); err != nil {
 		t.Fatal(err)
 	}
@@ -142,24 +140,24 @@ func testCDRsPostFailoverLoadTariffPlanFromFolder(t *testing.T) {
 
 func testCDRsPostFailoverProcessCDR(t *testing.T) {
 	args := &engine.ArgV1ProcessEvent{
-		Flags: []string{utils.MetaExport, "*attributes:false", "*rals:false", "*chargers:*false",
+		Flags: []string{utils.MetaExport, "*attributes:false", "*rals:false", "*chargers:false",
 			"*store:false", "*thresholds:false", "*stats:false"}, // only export the CDR
 		CGREvent: utils.CGREvent{
 			ID:     "1",
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.OriginID:    "testCDRsPostFailoverProcessCDR",
-				utils.OriginHost:  "192.168.1.1",
-				utils.Source:      "testCDRsPostFailoverProcessCDR",
-				utils.RequestType: utils.META_RATED,
-				utils.Category:    "call",
-				utils.Account:     "testCDRsPostFailoverProcessCDR",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(1) * time.Minute,
-				"field_extr1":     "val_extr1",
-				"fieldextr2":      "valextr2",
+			Event: map[string]any{
+				utils.OriginID:     "testCDRsPostFailoverProcessCDR",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testCDRsPostFailoverProcessCDR",
+				utils.RequestType:  utils.MetaRated,
+				utils.Category:     "call",
+				utils.AccountField: "testCDRsPostFailoverProcessCDR",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
+				"field_extr1":      "val_extr1",
+				"fieldextr2":       "valextr2",
 			},
 		},
 	}
@@ -187,7 +185,7 @@ func testCDRsPostFailoverProcessCDR(t *testing.T) {
 }
 
 func testCDRsPostFailoverToFile(t *testing.T) {
-	time.Sleep(time.Duration(2 * time.Second))
+	time.Sleep(2 * time.Second)
 	filesInDir, _ := os.ReadDir(cdrsPostFailCfg.GeneralCfg().FailedPostsDir)
 	if len(filesInDir) == 0 {
 		t.Fatalf("No files in directory: %s", cdrsPostFailCfg.GeneralCfg().FailedPostsDir)
@@ -196,7 +194,7 @@ func testCDRsPostFailoverToFile(t *testing.T) {
 		fileName := file.Name()
 		filePath := path.Join(cdrsPostFailCfg.GeneralCfg().FailedPostsDir, fileName)
 
-		ev, err := engine.NewExportEventsFromFile(filePath)
+		ev, err := ees.NewExportEventsFromFile(filePath)
 		if err != nil {
 			t.Errorf("<%s> for file <%s>", err, fileName)
 			continue
@@ -214,6 +212,9 @@ func testCDRsPostFailoverToFile(t *testing.T) {
 }
 
 func testCDRsPostFailoverKillEngine(t *testing.T) {
+	if err = os.RemoveAll(cdrsPostFailCfg.GeneralCfg().FailedPostsDir); err != nil {
+		t.Error(err)
+	}
 	if err := engine.KillEngine(*waitRater); err != nil {
 		t.Error(err)
 	}

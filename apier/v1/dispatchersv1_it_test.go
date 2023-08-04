@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -48,6 +47,7 @@ var (
 		testDspITRPCConn,
 		testDspITLoadData,
 		testDspDspv1GetProfileForEvent,
+		testDspDspv1GetProfileForEventWithMethod,
 		testDspITStopCgrEngine,
 	}
 )
@@ -126,30 +126,31 @@ func testDspITLoadData(t *testing.T) {
 	}()
 	select {
 	case <-wchan:
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Second):
 		t.Errorf("cgr-loader failed: ")
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspDspv1GetProfileForEvent(t *testing.T) {
-	arg := dispatchers.DispatcherEvent{
-		CGREvent: utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testDspv1",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "Event1",
-			},
+	arg := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testDspv1",
+		Event: map[string]any{
+			utils.EventName: "Event1",
 		},
-		Subsystem: utils.META_ANY,
+		APIOpts: map[string]any{
+			utils.MetaSubsys:                   utils.MetaAny,
+			utils.OptsDispatchersProfilesCount: 1,
+		},
 	}
-	var reply engine.DispatcherProfile
+	var reply engine.DispatcherProfiles
 	expected := engine.DispatcherProfile{
 		Tenant:         "cgrates.org",
 		ID:             "EVENT1",
-		Subsystems:     []string{utils.META_ANY},
+		Subsystems:     []string{utils.MetaAny},
 		FilterIDs:      []string{"*string:~*req.EventName:Event1"},
-		StrategyParams: make(map[string]interface{}),
+		StrategyParams: make(map[string]any),
 		Strategy:       utils.MetaWeight,
 		Weight:         30,
 		Hosts: engine.DispatcherHostProfiles{
@@ -157,13 +158,13 @@ func testDspDspv1GetProfileForEvent(t *testing.T) {
 				ID:        "ALL2",
 				FilterIDs: []string{},
 				Weight:    20,
-				Params:    make(map[string]interface{}),
+				Params:    make(map[string]any),
 			},
 			&engine.DispatcherHostProfile{
 				ID:        "ALL",
 				FilterIDs: []string{},
 				Weight:    10,
-				Params:    make(map[string]interface{}),
+				Params:    make(map[string]any),
 			},
 		},
 	}
@@ -172,12 +173,80 @@ func testDspDspv1GetProfileForEvent(t *testing.T) {
 		expected.Hosts[1].FilterIDs = nil
 	}
 	expected.Hosts.Sort()
-	if err := dspRPC.Call(utils.DispatcherSv1GetProfileForEvent, &arg, &reply); err != nil {
+	if err := dspRPC.Call(utils.DispatcherSv1GetProfilesForEvent, &arg, &reply); err != nil {
 		t.Fatal(err)
+	} else if len(reply) != 1 {
+		t.Fatalf("Unexpected number of profiles:%v", len(reply))
 	}
-	reply.Hosts.Sort()
-	if !reflect.DeepEqual(expected, reply) {
-		t.Errorf("expected: %s ,\n received: %s", utils.ToJSON(expected), utils.ToJSON(reply))
+	reply[0].Hosts.Sort()
+	if !reflect.DeepEqual(expected, *reply[0]) {
+		t.Errorf("expected: %s ,\n received: %s", utils.ToJSON(expected), utils.ToJSON(reply[0]))
+	}
+
+	arg2 := &utils.CGREvent{
+		ID: "testDspvWithoutTenant",
+		Event: map[string]any{
+			utils.EventName: "Event1",
+		},
+		APIOpts: map[string]any{
+			utils.MetaSubsys:                   utils.MetaAny,
+			utils.OptsDispatchersProfilesCount: 1,
+		},
+	}
+	expected.Hosts.Sort()
+	if err := dspRPC.Call(utils.DispatcherSv1GetProfilesForEvent, &arg2, &reply); err != nil {
+		t.Fatal(err)
+	} else if len(reply) != 1 {
+		t.Fatalf("Unexpected number of profiles:%v", len(reply))
+	}
+	reply[0].Hosts.Sort()
+	if !reflect.DeepEqual(expected, *reply[0]) {
+		t.Errorf("expected: %s ,\n received: %s", utils.ToJSON(expected), utils.ToJSON(reply[0]))
+	}
+}
+
+func testDspDspv1GetProfileForEventWithMethod(t *testing.T) {
+	arg := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testDspv2",
+		Event:  map[string]any{},
+		APIOpts: map[string]any{
+			utils.MetaSubsys:                   utils.MetaAny,
+			"*method":                          utils.DispatcherSv1GetProfilesForEvent,
+			utils.OptsDispatchersProfilesCount: 1,
+		},
+	}
+	var reply engine.DispatcherProfiles
+	expected := engine.DispatcherProfile{
+		Tenant:         "cgrates.org",
+		ID:             "EVENT6",
+		Subsystems:     []string{utils.MetaAny},
+		FilterIDs:      []string{"*string:~*opts.*method:DispatcherSv1.GetProfilesForEvent"},
+		StrategyParams: make(map[string]any),
+		Strategy:       utils.MetaWeight,
+		Weight:         20,
+		Hosts: engine.DispatcherHostProfiles{
+			&engine.DispatcherHostProfile{
+				ID:        "SELF",
+				FilterIDs: []string{},
+				Weight:    20,
+				Params:    make(map[string]any),
+			},
+		},
+	}
+	if *encoding == utils.MetaGOB { // in gob emtpty slice is encoded as nil
+		expected.Hosts[0].FilterIDs = nil
+	}
+	expected.Hosts.Sort()
+	if err := dspRPC.Call(utils.DispatcherSv1GetProfilesForEvent, &arg, &reply); err != nil {
+		t.Fatal(err)
+	} else if len(reply) != 1 {
+		t.Error(utils.ToJSON(reply))
+		t.Fatalf("Unexpected number of profiles:%v", len(reply))
+	}
+	reply[0].Hosts.Sort()
+	if !reflect.DeepEqual(expected, *reply[0]) {
+		t.Errorf("expected: %s ,\n received: %s", utils.ToJSON(expected), utils.ToJSON(reply[0]))
 	}
 }
 

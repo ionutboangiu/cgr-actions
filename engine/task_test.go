@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"net"
 	"reflect"
 	"testing"
 
@@ -125,13 +124,17 @@ func TestTaskFieldAsString(t *testing.T) {
 	if !reflect.DeepEqual(eOut, rcv) {
 		t.Errorf("Expecting: %q, received: %q", eOut, rcv)
 	}
+	if _, err = task.FieldAsString([]string{"default"}); err == nil {
+		t.Error(err)
+	}
 }
 
-func TestTaskRemoteHost(t *testing.T) {
-	task := new(Task)
-	var eOut net.Addr
-	rcv := task.RemoteHost()
-	if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expecting: %q, received: %q", eOut, rcv)
+func TestTaskExecute(t *testing.T) {
+
+	task := &Task{
+		AccountID: "accID",
+	}
+	if err := task.Execute(&FilterS{}); err == nil {
+		t.Error(err)
 	}
 }

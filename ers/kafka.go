@@ -23,36 +23,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/cgrates/cgrates/agents"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/ees"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 
 	kafka "github.com/segmentio/kafka-go"
 )
 
-const (
-	defaultTopic   = "cgrates"
-	defaultGroupID = "cgrates"
-	defaultMaxWait = time.Millisecond
-)
-
 // NewKafkaER return a new kafka event reader
 func NewKafkaER(cfg *config.CGRConfig, cfgIdx int,
-	rdrEvents chan *erEvent, rdrErr chan error,
+	rdrEvents, partialEvents chan *erEvent, rdrErr chan error,
 	fltrS *engine.FilterS, rdrExit chan struct{}) (er EventReader, err error) {
 
 	rdr := &KafkaER{
-		cgrCfg:    cfg,
-		cfgIdx:    cfgIdx,
-		fltrS:     fltrS,
-		rdrEvents: rdrEvents,
-		rdrExit:   rdrExit,
-		rdrErr:    rdrErr,
+		cgrCfg:        cfg,
+		cfgIdx:        cfgIdx,
+		fltrS:         fltrS,
+		rdrEvents:     rdrEvents,
+		partialEvents: partialEvents,
+		rdrExit:       rdrExit,
+		rdrErr:        rdrErr,
 	}
 	if concReq := rdr.Config().ConcurrentReqs; concReq != -1 {
 		rdr.cap = make(chan struct{}, concReq)
@@ -60,9 +54,12 @@ func NewKafkaER(cfg *config.CGRConfig, cfgIdx int,
 			rdr.cap <- struct{}{}
 		}
 	}
+	rdr.dialURL = rdr.Config().SourcePath
+	rdr.createPoster()
 	er = rdr
-	err = rdr.setURL(rdr.Config().SourcePath)
+	err = rdr.setOpts(rdr.Config().Opts)
 	return
+
 }
 
 // KafkaER implements EventReader interface for kafka message
@@ -77,10 +74,13 @@ type KafkaER struct {
 	groupID string
 	maxWait time.Duration
 
-	rdrEvents chan *erEvent // channel to dispatch the events created to
-	rdrExit   chan struct{}
-	rdrErr    chan error
-	cap       chan struct{}
+	rdrEvents     chan *erEvent // channel to dispatch the events created to
+	partialEvents chan *erEvent // channel to dispatch the partial events created to
+	rdrExit       chan struct{}
+	rdrErr        chan error
+	cap           chan struct{}
+
+	poster *ees.KafkaEE
 }
 
 // Config returns the curent configuration
@@ -102,14 +102,14 @@ func (rdr *KafkaER) Serve() (err error) {
 	}
 
 	go func(r *kafka.Reader) { // use a secondary gorutine because the ReadMessage is blocking function
-		select {
-		case <-rdr.rdrExit:
-			utils.Logger.Info(
-				fmt.Sprintf("<%s> stop monitoring kafka path <%s>",
-					utils.ERs, rdr.dialURL))
-			r.Close() // already locked in library
-			return
+		<-rdr.rdrExit
+		utils.Logger.Info(
+			fmt.Sprintf("<%s> stop monitoring kafka path <%s>",
+				utils.ERs, rdr.dialURL))
+		if rdr.poster != nil {
+			rdr.poster.Close()
 		}
+		r.Close() // already locked in library
 	}(r)
 	go rdr.readLoop(r) // read until the connection is closed
 	return
@@ -137,9 +137,8 @@ func (rdr *KafkaER) readLoop(r *kafka.Reader) {
 					fmt.Sprintf("<%s> processing message %s error: %s",
 						utils.ERs, string(msg.Key), err.Error()))
 			}
-			if rdr.Config().ProcessedPath != utils.EmptyString { // post it
-				if err := engine.PostersCache.PostKafka(rdr.Config().ProcessedPath,
-					rdr.cgrCfg.GeneralCfg().PosterAttempts, msg.Value, string(msg.Key)); err != nil {
+			if rdr.poster != nil { // post it
+				if err := ees.ExportWithAttempts(rdr.poster, msg.Value, string(msg.Key)); err != nil {
 					utils.Logger.Warning(
 						fmt.Sprintf("<%s> writing message %s error: %s",
 							utils.ERs, string(msg.Key), err.Error()))
@@ -153,18 +152,18 @@ func (rdr *KafkaER) readLoop(r *kafka.Reader) {
 }
 
 func (rdr *KafkaER) processMessage(msg []byte) (err error) {
-	var decodedMessage map[string]interface{}
+	var decodedMessage map[string]any
 	if err = json.Unmarshal(msg, &decodedMessage); err != nil {
 		return
 	}
 
 	agReq := agents.NewAgentRequest(
 		utils.MapStorage(decodedMessage), nil,
-		nil, nil, rdr.Config().Tenant,
+		nil, nil, nil, rdr.Config().Tenant,
 		rdr.cgrCfg.GeneralCfg().DefaultTenant,
 		utils.FirstNonEmpty(rdr.Config().Timezone,
 			rdr.cgrCfg.GeneralCfg().DefaultTimezone),
-		rdr.fltrS, nil, nil) // create an AgentRequest
+		rdr.fltrS, nil) // create an AgentRequest
 	var pass bool
 	if pass, err = rdr.fltrS.Pass(agReq.Tenant, rdr.Config().Filters,
 		agReq); err != nil || !pass {
@@ -173,38 +172,42 @@ func (rdr *KafkaER) processMessage(msg []byte) (err error) {
 	if err = agReq.SetFields(rdr.Config().Fields); err != nil {
 		return
 	}
-	rdr.rdrEvents <- &erEvent{
-		cgrEvent: config.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep),
+	cgrEv := utils.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep, agReq.Opts)
+	rdrEv := rdr.rdrEvents
+	if _, isPartial := cgrEv.APIOpts[utils.PartialOpt]; isPartial {
+		rdrEv = rdr.partialEvents
+	}
+	rdrEv <- &erEvent{
+		cgrEvent: cgrEv,
 		rdrCfg:   rdr.Config(),
 	}
 	return
 }
 
-func (rdr *KafkaER) setURL(dialURL string) (err error) {
-	rdr.topic = defaultTopic
-	rdr.groupID = defaultGroupID
-	rdr.maxWait = defaultMaxWait
-
-	i := strings.IndexByte(dialURL, '?')
-	if i < 0 {
-		rdr.dialURL = dialURL
-		return
-	}
-	rdr.dialURL = dialURL[:i]
-	rawQuery := dialURL[i+1:]
-	var qry url.Values
-	if qry, err = url.ParseQuery(rawQuery); err != nil {
-		return
-	}
-
-	if vals, has := qry[utils.KafkaTopic]; has && len(vals) != 0 {
-		rdr.topic = vals[0]
-	}
-	if vals, has := qry[utils.KafkaGroupID]; has && len(vals) != 0 {
-		rdr.groupID = vals[0]
-	}
-	if vals, has := qry[utils.KafkaMaxWait]; has && len(vals) != 0 {
-		rdr.maxWait, err = time.ParseDuration(vals[0])
+func (rdr *KafkaER) setOpts(opts *config.EventReaderOpts) (err error) {
+	rdr.topic = utils.KafkaDefaultTopic
+	rdr.groupID = utils.KafkaDefaultGroupID
+	rdr.maxWait = utils.KafkaDefaultMaxWait
+	if kfkOpts := opts.KafkaOpts; kfkOpts != nil {
+		if kfkOpts.KafkaTopic != nil {
+			rdr.topic = *kfkOpts.KafkaTopic
+		}
+		if kfkOpts.KafkaGroupID != nil {
+			rdr.groupID = *kfkOpts.KafkaGroupID
+		}
+		if kfkOpts.KafkaMaxWait != nil {
+			rdr.maxWait = *kfkOpts.KafkaMaxWait
+		}
 	}
 	return
+}
+
+func (rdr *KafkaER) createPoster() {
+	processedOpt := getProcessOptions(rdr.Config().Opts)
+	if processedOpt == nil && len(rdr.Config().ProcessedPath) == 0 {
+		return
+	}
+	eeCfg := config.NewEventExporterCfg(rdr.Config().ID, "", utils.FirstNonEmpty(rdr.Config().ProcessedPath, rdr.Config().SourcePath),
+		rdr.cgrCfg.GeneralCfg().FailedPostsDir, rdr.cgrCfg.GeneralCfg().PosterAttempts, processedOpt)
+	rdr.poster = ees.NewKafkaEE(eeCfg, nil)
 }

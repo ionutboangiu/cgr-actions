@@ -50,11 +50,11 @@ var sTestssCostIT = []func(t *testing.T){
 func TestSessionCostITMongo(t *testing.T) {
 	var err error
 	sCostPathIn = path.Join(*dataDir, "conf", "samples", "tutmongo")
-	sCostPathOut = path.Join(*dataDir, "conf", "samples", "tutmongojson")
 	sCostCfgIn, err = config.NewCGRConfigFromPath(sCostPathIn)
 	if err != nil {
 		t.Error(err)
 	}
+	sCostPathOut = path.Join(*dataDir, "conf", "samples", "tutmongojson")
 	sCostCfgOut, err = config.NewCGRConfigFromPath(sCostPathOut)
 	if err != nil {
 		t.Error(err)
@@ -72,7 +72,8 @@ func TestSessionCostITMySql(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	sCostCfgOut, err = config.NewCGRConfigFromPath(sCostPathIn)
+	sCostPathOut = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	sCostCfgOut, err = config.NewCGRConfigFromPath(sCostPathOut)
 	if err != nil {
 		t.Error(err)
 	}
@@ -86,26 +87,28 @@ func testSessionCostITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(sCostCfgIn.StorDbCfg().Type,
 		sCostCfgIn.StorDbCfg().Host, sCostCfgIn.StorDbCfg().Port,
 		sCostCfgIn.StorDbCfg().Name, sCostCfgIn.StorDbCfg().User,
-		sCostCfgIn.StorDbCfg().Password, sCostCfgIn.GeneralCfg().DBDataEncoding, sCostCfgIn.StorDbCfg().SSLMode,
-		sCostCfgIn.StorDbCfg().MaxOpenConns, sCostCfgIn.StorDbCfg().MaxIdleConns,
-		sCostCfgIn.StorDbCfg().ConnMaxLifetime, sCostCfgIn.StorDbCfg().StringIndexedFields,
-		sCostCfgIn.StorDbCfg().PrefixIndexedFields, sCostCfgIn.StorDbCfg().Items)
+		sCostCfgIn.StorDbCfg().Password, sCostCfgIn.GeneralCfg().DBDataEncoding,
+		sCostCfgIn.StorDbCfg().StringIndexedFields, sCostCfgIn.StorDbCfg().PrefixIndexedFields,
+		sCostCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		t.Error(err)
 	}
 	storDBOut, err := NewMigratorStorDB(sCostCfgOut.StorDbCfg().Type,
 		sCostCfgOut.StorDbCfg().Host, sCostCfgOut.StorDbCfg().Port,
 		sCostCfgOut.StorDbCfg().Name, sCostCfgOut.StorDbCfg().User,
-		sCostCfgOut.StorDbCfg().Password, sCostCfgOut.GeneralCfg().DBDataEncoding, sCostCfgIn.StorDbCfg().SSLMode,
-		sCostCfgIn.StorDbCfg().MaxOpenConns, sCostCfgIn.StorDbCfg().MaxIdleConns,
-		sCostCfgIn.StorDbCfg().ConnMaxLifetime, sCostCfgIn.StorDbCfg().StringIndexedFields,
-		sCostCfgIn.StorDbCfg().PrefixIndexedFields, sCostCfgOut.StorDbCfg().Items)
+		sCostCfgOut.StorDbCfg().Password, sCostCfgOut.GeneralCfg().DBDataEncoding,
+		sCostCfgIn.StorDbCfg().StringIndexedFields, sCostCfgIn.StorDbCfg().PrefixIndexedFields,
+		sCostCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		t.Error(err)
 	}
-	sCostMigrator, err = NewMigrator(nil, nil,
-		storDBIn, storDBOut,
-		false, false, false, false)
+	if actTrgPathIn == actTrgPathOut {
+		sCostMigrator, err = NewMigrator(nil, nil, storDBIn, storDBOut,
+			false, false, true, false)
+	} else {
+		sCostMigrator, err = NewMigrator(nil, nil, storDBIn, storDBOut,
+			false, false, false, false)
+	}
 	if err != nil {
 		t.Error(err)
 	}
@@ -119,11 +122,11 @@ func testSessionCostITRename(t *testing.T) {
 	currentVersion := engine.Versions{
 		utils.SessionSCosts: 1,
 	}
-	err = sCostMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err = sCostMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for SessionsCosts ", err.Error())
 	}
-	if vrs, err := sCostMigrator.storDBOut.StorDB().GetVersions(""); err != nil {
+	if vrs, err := sCostMigrator.storDBIn.StorDB().GetVersions(""); err != nil {
 		t.Error(err)
 	} else if vrs[utils.SessionSCosts] != 1 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.SessionSCosts])
@@ -136,6 +139,8 @@ func testSessionCostITRename(t *testing.T) {
 		t.Error(err)
 	} else if vrs[utils.SessionSCosts] != 2 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.SessionSCosts])
+	} else if sCostMigrator.stats[utils.SessionSCosts] != 0 {
+		t.Errorf("Expected 0, received: %v", sCostMigrator.stats[utils.SessionSCosts])
 	}
 
 }
@@ -159,7 +164,7 @@ func testSessionCostITMigrate(t *testing.T) {
 				RateInterval: &engine.RateInterval{
 					Rating: &engine.RIRate{
 						Rates: engine.RateGroups{
-							&engine.Rate{
+							&engine.RGRate{
 								GroupIntervalStart: 0,
 								Value:              100,
 								RateIncrement:      10 * time.Second,
@@ -170,14 +175,14 @@ func testSessionCostITMigrate(t *testing.T) {
 				},
 			},
 		},
-		ToR: utils.VOICE,
+		ToR: utils.MetaVoice,
 	}
 	v2Cost := &v2SessionsCost{
 		CGRID:       utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 20, 0, time.UTC).String()),
 		OriginID:    "dsafdsaf",
 		OriginHost:  "192.168.1.1",
 		RunID:       utils.MetaDefault,
-		Usage:       time.Duration(10),
+		Usage:       10,
 		CostSource:  utils.MetaSessionS,
 		CostDetails: cc,
 	}
@@ -188,11 +193,11 @@ func testSessionCostITMigrate(t *testing.T) {
 	currentVersion := engine.Versions{
 		utils.SessionSCosts: 2,
 	}
-	err = sCostMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err = sCostMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for SessionsCosts ", err.Error())
 	}
-	if vrs, err := sCostMigrator.storDBOut.StorDB().GetVersions(""); err != nil {
+	if vrs, err := sCostMigrator.storDBIn.StorDB().GetVersions(""); err != nil {
 		t.Error(err)
 	} else if vrs[utils.SessionSCosts] != 2 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.SessionSCosts])

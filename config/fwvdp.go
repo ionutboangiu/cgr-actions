@@ -20,20 +20,22 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
-// NewfwvProvider constructs a utils.DataProvider
+// NewFWVProvider constructs a utils.DataProvider
 func NewFWVProvider(record string) (dP utils.DataProvider) {
-	dP = &FWVProvider{req: record, cache: utils.MapStorage{}}
+	dP = &FWVProvider{
+		req:   record,
+		cache: utils.MapStorage{},
+	}
 	return
 }
 
-// fwvProvider implements engine.utils.DataProvider so we can pass it to filters
+// FWVProvider implements engine.utils.DataProvider so we can pass it to filters
 type FWVProvider struct {
 	req   string
 	cache utils.MapStorage
@@ -42,11 +44,11 @@ type FWVProvider struct {
 // String is part of engine.utils.DataProvider interface
 // when called, it will display the already parsed values out of cache
 func (fP *FWVProvider) String() string {
-	return utils.ToJSON(fP)
+	return utils.ToJSON(fP.req)
 }
 
 // FieldAsInterface is part of engine.utils.DataProvider interface
-func (fP *FWVProvider) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+func (fP *FWVProvider) FieldAsInterface(fldPath []string) (data any, err error) {
 	if len(fldPath) == 0 {
 		return
 	}
@@ -81,15 +83,10 @@ func (fP *FWVProvider) FieldAsInterface(fldPath []string) (data interface{}, err
 
 // FieldAsString is part of engine.utils.DataProvider interface
 func (fP *FWVProvider) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
+	var valIface any
 	valIface, err = fP.FieldAsInterface(fldPath)
 	if err != nil {
 		return
 	}
 	return utils.IfaceAsString(valIface), nil
-}
-
-// RemoteHost is part of engine.utils.DataProvider interface
-func (fP *FWVProvider) RemoteHost() net.Addr {
-	return utils.LocalAddr()
 }

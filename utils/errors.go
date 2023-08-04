@@ -21,60 +21,71 @@ package utils
 import (
 	"errors"
 	"fmt"
-	"net"
-	"net/rpc"
 	"strings"
 )
 
 var (
-	ErrNoMoreData               = errors.New("NO_MORE_DATA")
-	ErrNotImplemented           = errors.New("NOT_IMPLEMENTED")
-	ErrNotFound                 = errors.New("NOT_FOUND")
-	ErrTimedOut                 = errors.New("TIMED_OUT")
-	ErrServerError              = errors.New("SERVER_ERROR")
-	ErrMaxRecursionDepth        = errors.New("MAX_RECURSION_DEPTH")
-	ErrMandatoryIeMissing       = errors.New("MANDATORY_IE_MISSING")
-	ErrExists                   = errors.New("EXISTS")
-	ErrBrokenReference          = errors.New("BROKEN_REFERENCE")
-	ErrParserError              = errors.New("PARSER_ERROR")
-	ErrInvalidPath              = errors.New("INVALID_PATH")
-	ErrInvalidKey               = errors.New("INVALID_KEY")
-	ErrUnauthorizedDestination  = errors.New("UNAUTHORIZED_DESTINATION")
-	ErrRatingPlanNotFound       = errors.New("RATING_PLAN_NOT_FOUND")
-	ErrAccountNotFound          = errors.New("ACCOUNT_NOT_FOUND")
-	ErrAccountDisabled          = errors.New("ACCOUNT_DISABLED")
-	ErrInsufficientCredit       = errors.New("INSUFFICIENT_CREDIT")
-	ErrNotConvertible           = errors.New("NOT_CONVERTIBLE")
-	ErrResourceUnavailable      = errors.New("RESOURCE_UNAVAILABLE")
-	ErrResourceUnauthorized     = errors.New("RESOURCE_UNAUTHORIZED")
-	ErrNoActiveSession          = errors.New("NO_ACTIVE_SESSION")
-	ErrPartiallyExecuted        = errors.New("PARTIALLY_EXECUTED")
-	ErrMaxUsageExceeded         = errors.New("MAX_USAGE_EXCEEDED")
-	ErrFilterNotPassingNoCaps   = errors.New("filter not passing")
-	ErrNotConvertibleNoCaps     = errors.New("not convertible")
-	ErrMandatoryIeMissingNoCaps = errors.New("mandatory information missing")
-	ErrUnauthorizedApi          = errors.New("UNAUTHORIZED_API")
-	ErrUnknownApiKey            = errors.New("UNKNOWN_API_KEY")
-	ErrReqUnsynchronized        = errors.New("REQ_UNSYNCHRONIZED")
-	ErrUnsupporteServiceMethod  = errors.New("UNSUPPORTED_SERVICE_METHOD")
-	ErrDisconnected             = errors.New("DISCONNECTED")
-	ErrReplyTimeout             = errors.New("REPLY_TIMEOUT")
-	ErrSessionNotFound          = errors.New("SESSION_NOT_FOUND")
-	ErrJsonIncompleteComment    = errors.New("JSON_INCOMPLETE_COMMENT")
-	ErrNotEnoughParameters      = errors.New("NotEnoughParameters")
-	ErrNotConnected             = errors.New("NOT_CONNECTED")
-	RalsErrorPrfx               = "RALS_ERROR"
-	DispatcherErrorPrefix       = "DISPATCHER_ERROR"
-	ErrUnsupportedFormat        = errors.New("UNSUPPORTED_FORMAT")
-	ErrNoDatabaseConn           = errors.New("NO_DATA_BASE_CONNECTION")
-	ErrMaxIncrementsExceeded    = errors.New("MAX_INCREMENTS_EXCEEDED")
-	ErrIndexOutOfBounds         = errors.New("INDEX_OUT_OF_BOUNDS")
-	ErrWrongPath                = errors.New("WRONG_PATH")
-	ErrServiceAlreadyRunning    = fmt.Errorf("service already running")
+	ErrNoMoreData                     = errors.New("NO_MORE_DATA")
+	ErrNotImplemented                 = errors.New("NOT_IMPLEMENTED")
+	ErrNotFound                       = errors.New("NOT_FOUND")
+	ErrDSPHostNotFound                = errors.New("DSP_HOST_NOT_FOUND")
+	ErrDSPProfileNotFound             = errors.New("DSP_PROFILE_NOT_FOUND")
+	ErrTimedOut                       = errors.New("TIMED_OUT")
+	ErrServerError                    = errors.New("SERVER_ERROR")
+	ErrMaxRecursionDepth              = errors.New("MAX_RECURSION_DEPTH")
+	ErrMandatoryIeMissing             = errors.New("MANDATORY_IE_MISSING")
+	ErrExists                         = errors.New("EXISTS")
+	ErrBrokenReference                = errors.New("BROKEN_REFERENCE")
+	ErrParserError                    = errors.New("PARSER_ERROR")
+	ErrInvalidPath                    = errors.New("INVALID_PATH")
+	ErrInvalidKey                     = errors.New("INVALID_KEY")
+	ErrUnauthorizedDestination        = errors.New("UNAUTHORIZED_DESTINATION")
+	ErrRatingPlanNotFound             = errors.New("RATING_PLAN_NOT_FOUND")
+	ErrAccountNotFound                = errors.New("ACCOUNT_NOT_FOUND")
+	ErrAccountDisabled                = errors.New("ACCOUNT_DISABLED")
+	ErrInsufficientCredit             = errors.New("INSUFFICIENT_CREDIT")
+	ErrNotConvertible                 = errors.New("NOT_CONVERTIBLE")
+	ErrResourceUnavailable            = errors.New("RESOURCE_UNAVAILABLE")
+	ErrResourceUnauthorized           = errors.New("RESOURCE_UNAUTHORIZED")
+	ErrNoActiveSession                = errors.New("NO_ACTIVE_SESSION")
+	ErrPartiallyExecuted              = errors.New("PARTIALLY_EXECUTED")
+	ErrMaxUsageExceeded               = errors.New("MAX_USAGE_EXCEEDED")
+	ErrMaxCostExceeded                = errors.New("MAX_COST_EXCEEDED")
+	ErrFilterNotPassingNoCaps         = errors.New("filter not passing")
+	ErrNotConvertibleNoCaps           = errors.New("not convertible")
+	ErrMandatoryIeMissingNoCaps       = errors.New("mandatory information missing")
+	ErrUnauthorizedApi                = errors.New("UNAUTHORIZED_API")
+	ErrUnknownApiKey                  = errors.New("UNKNOWN_API_KEY")
+	ErrReqUnsynchronized              = errors.New("REQ_UNSYNCHRONIZED")
+	ErrUnsupporteServiceMethod        = errors.New("UNSUPPORTED_SERVICE_METHOD")
+	ErrDisconnected                   = errors.New("DISCONNECTED")
+	ErrReplyTimeout                   = errors.New("REPLY_TIMEOUT")
+	ErrSessionNotFound                = errors.New("SESSION_NOT_FOUND")
+	ErrJsonIncompleteComment          = errors.New("JSON_INCOMPLETE_COMMENT")
+	ErrNotEnoughParameters            = errors.New("NotEnoughParameters")
+	ErrNotConnected                   = errors.New("NOT_CONNECTED")
+	RalsErrorPrfx                     = "RALS_ERROR"
+	DispatcherErrorPrefix             = "DISPATCHER_ERROR"
+	RateSErrPrfx                      = "RATES_ERROR"
+	ErrNotAuthorized                  = errors.New("NOT_AUTHORIZED")
+	ErrUnsupportedFormat              = errors.New("UNSUPPORTED_FORMAT")
+	ErrNoDatabaseConn                 = errors.New("NO_DATABASE_CONNECTION")
+	ErrMaxIncrementsExceeded          = errors.New("MAX_INCREMENTS_EXCEEDED")
+	ErrUncomputableIncrement          = errors.New("UNCOMPUTABLE_INCREMENT")
+	ErrIndexOutOfBounds               = errors.New("INDEX_OUT_OF_BOUNDS")
+	ErrWrongPath                      = errors.New("WRONG_PATH")
+	ErrServiceAlreadyRunning          = fmt.Errorf("service already running")
+	ErrMaxConcurrentRPCExceededNoCaps = errors.New("max concurrent rpc exceeded") // on internal we return this error for concureq
+	ErrMaxConcurrentRPCExceeded       = errors.New("MAX_CONCURRENT_RPC_EXCEEDED") // but the codec will rewrite it with this one to be sure that we corectly dealocate the request
+	ErrMaxIterationsReached           = errors.New("maximum iterations reached")
+	ErrNegative                       = errors.New("NEGATIVE")
+	ErrCastFailed                     = errors.New("CAST_FAILED")
 
 	ErrMap = map[string]error{
 		ErrNoMoreData.Error():              ErrNoMoreData,
 		ErrNotImplemented.Error():          ErrNotImplemented,
+		ErrDSPProfileNotFound.Error():      ErrDSPProfileNotFound,
+		ErrDSPHostNotFound.Error():         ErrDSPHostNotFound,
 		ErrNotFound.Error():                ErrNotFound,
 		ErrTimedOut.Error():                ErrTimedOut,
 		ErrServerError.Error():             ErrServerError,
@@ -109,6 +120,7 @@ var (
 		ErrMaxIncrementsExceeded.Error():   ErrMaxIncrementsExceeded,
 		ErrIndexOutOfBounds.Error():        ErrIndexOutOfBounds,
 		ErrWrongPath.Error():               ErrWrongPath,
+		ErrDSPHostNotFound.Error():         ErrDSPHostNotFound,
 	}
 )
 
@@ -172,8 +184,8 @@ func NewErrResourceS(err error) error {
 	return fmt.Errorf("RESOURCES_ERROR:%s", err)
 }
 
-func NewErrSupplierS(err error) error {
-	return fmt.Errorf("SUPPLIERS_ERROR:%s", err)
+func NewErrRouteS(err error) error {
+	return fmt.Errorf("ROUTES_ERROR:%s", err)
 }
 
 func NewErrAttributeS(err error) error {
@@ -184,8 +196,24 @@ func NewErrChargerS(err error) error {
 	return fmt.Errorf("CHARGERS_ERROR:%s", err)
 }
 
+func NewErrStatS(err error) error {
+	return fmt.Errorf("STATS_ERROR:%s", err)
+}
+
+func NewErrCDRS(err error) error {
+	return fmt.Errorf("CDRS_ERROR:%s", err)
+}
+
+func NewErrThresholdS(err error) error {
+	return fmt.Errorf("THRESHOLDS_ERROR:%s", err)
+}
+
 func NewErrDispatcherS(err error) error {
 	return fmt.Errorf("%s:%s", DispatcherErrorPrefix, err.Error())
+}
+
+func NewErrRateS(err error) error {
+	return fmt.Errorf("%s:%s", RateSErrPrfx, err.Error())
 }
 
 // Centralized returns for APIs
@@ -193,7 +221,7 @@ func APIErrorHandler(errIn error) (err error) {
 	cgrErr, ok := errIn.(*CGRError)
 	if !ok {
 		err = errIn
-		if err != ErrNotFound {
+		if err != ErrNotFound && err != ErrDSPProfileNotFound && err != ErrDSPHostNotFound {
 			err = NewErrServerError(err)
 		}
 		return
@@ -202,11 +230,11 @@ func APIErrorHandler(errIn error) (err error) {
 	return cgrErr
 }
 
-func NewErrStringCast(valIface interface{}) error {
+func NewErrStringCast(valIface any) error {
 	return fmt.Errorf("cannot cast value: %v to string", valIface)
 }
 
-func NewErrFldStringCast(fldName string, valIface interface{}) error {
+func NewErrFldStringCast(fldName string, valIface any) error {
 	return fmt.Errorf("cannot cast field: %s with value: %v to string", fldName, valIface)
 }
 
@@ -233,30 +261,15 @@ func ErrEnvNotFound(key string) error {
 	return ErrPrefix(ErrNotFound, "ENV_VAR:"+key)
 }
 
-// IsNetworkError will decide if an error is network generated or RPC one
-// used by Dispatcher to figure out whether it should try another connection
-func IsNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if _, isNetError := err.(*net.OpError); isNetError { // connection reset
-		return true
-	}
-	if _, isDNSError := err.(*net.DNSError); isDNSError {
-		return true
-	}
-	return err.Error() == rpc.ErrShutdown.Error() ||
-		err.Error() == ErrReqUnsynchronized.Error() ||
-		err.Error() == ErrDisconnected.Error() ||
-		err.Error() == ErrReplyTimeout.Error() ||
-		err.Error() == ErrSessionNotFound.Error() ||
-		strings.HasPrefix(err.Error(), "rpc: can't find service")
-}
-
 func ErrPathNotReachable(path string) error {
 	return fmt.Errorf("path:%+q is not reachable", path)
 }
 
 func ErrNotConvertibleTF(from, to string) error {
 	return fmt.Errorf("%s : from: %s to:%s", ErrNotConvertibleNoCaps.Error(), from, to)
+}
+
+// NewSTIRError returns a error with a *stir_authorize prefix
+func NewSTIRError(reason string) error {
+	return fmt.Errorf("%s: %s", MetaSTIRAuthenticate, reason)
 }

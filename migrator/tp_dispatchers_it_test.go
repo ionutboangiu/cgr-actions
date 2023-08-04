@@ -71,20 +71,18 @@ func testTpDispITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpDispCfgIn.StorDbCfg().Type,
 		tpDispCfgIn.StorDbCfg().Host, tpDispCfgIn.StorDbCfg().Port,
 		tpDispCfgIn.StorDbCfg().Name, tpDispCfgIn.StorDbCfg().User,
-		tpDispCfgIn.StorDbCfg().Password, tpDispCfgIn.GeneralCfg().DBDataEncoding, tpDispCfgIn.StorDbCfg().SSLMode,
-		tpDispCfgIn.StorDbCfg().MaxOpenConns, tpDispCfgIn.StorDbCfg().MaxIdleConns,
-		tpDispCfgIn.StorDbCfg().ConnMaxLifetime, tpDispCfgIn.StorDbCfg().StringIndexedFields,
-		tpDispCfgIn.StorDbCfg().PrefixIndexedFields, tpDispCfgIn.StorDbCfg().Items)
+		tpDispCfgIn.StorDbCfg().Password, tpDispCfgIn.GeneralCfg().DBDataEncoding,
+		tpDispCfgIn.StorDbCfg().StringIndexedFields, tpDispCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpDispCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpDispCfgOut.StorDbCfg().Type,
 		tpDispCfgOut.StorDbCfg().Host, tpDispCfgOut.StorDbCfg().Port,
 		tpDispCfgOut.StorDbCfg().Name, tpDispCfgOut.StorDbCfg().User,
-		tpDispCfgOut.StorDbCfg().Password, tpDispCfgOut.GeneralCfg().DBDataEncoding, tpDispCfgIn.StorDbCfg().SSLMode,
-		tpDispCfgIn.StorDbCfg().MaxOpenConns, tpDispCfgIn.StorDbCfg().MaxIdleConns,
-		tpDispCfgIn.StorDbCfg().ConnMaxLifetime, tpDispCfgIn.StorDbCfg().StringIndexedFields,
-		tpDispCfgIn.StorDbCfg().PrefixIndexedFields, tpDispCfgOut.StorDbCfg().Items)
+		tpDispCfgOut.StorDbCfg().Password, tpDispCfgOut.GeneralCfg().DBDataEncoding,
+		tpDispCfgIn.StorDbCfg().StringIndexedFields, tpDispCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpDispCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,10 +109,11 @@ func testTpDispITFlush(t *testing.T) {
 func testTpDispITPopulate(t *testing.T) {
 	tpDisps = []*utils.TPDispatcherProfile{
 		{
-			TPid:      "TP1",
-			Tenant:    "cgrates.org",
-			ID:        "Dsp1",
-			FilterIDs: []string{"*string:Account:1002"},
+			TPid:       "TP1",
+			Tenant:     "cgrates.org",
+			ID:         "Dsp1",
+			FilterIDs:  []string{"*string:Account:1002"},
+			Subsystems: make([]string, 0),
 			ActivationInterval: &utils.TPActivationInterval{
 				ActivationTime: "2014-07-29T15:00:00Z",
 				ExpiryTime:     "",
@@ -127,7 +126,7 @@ func testTpDispITPopulate(t *testing.T) {
 		t.Error("Error when setting TpDispatchers ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpDispMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpDispMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpDispatchers ", err.Error())
 	}
@@ -145,6 +144,7 @@ func testTpDispITCheckData(t *testing.T) {
 	if err != nil {
 		t.Fatal("Error when getting TpDispatchers ", err.Error())
 	}
+	tpDisps[0].Subsystems = nil // because of converting and empty string into a slice
 	if !reflect.DeepEqual(tpDisps[0], result[0]) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			utils.ToJSON(tpDisps[0]), utils.ToJSON(result[0]))

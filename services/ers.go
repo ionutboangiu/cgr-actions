@@ -31,13 +31,15 @@ import (
 
 // NewEventReaderService returns the EventReader Service
 func NewEventReaderService(cfg *config.CGRConfig, filterSChan chan *engine.FilterS,
-	exitChan chan bool, connMgr *engine.ConnManager) servmanager.Service {
+	shdChan *utils.SyncedChan, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &EventReaderService{
 		rldChan:     make(chan struct{}, 1),
 		cfg:         cfg,
 		filterSChan: filterSChan,
-		exitChan:    exitChan,
+		shdChan:     shdChan,
 		connMgr:     connMgr,
+		srvDep:      srvDep,
 	}
 }
 
@@ -46,12 +48,13 @@ type EventReaderService struct {
 	sync.RWMutex
 	cfg         *config.CGRConfig
 	filterSChan chan *engine.FilterS
-	exitChan    chan bool
+	shdChan     *utils.SyncedChan
 
 	ers      *ers.ERService
 	rldChan  chan struct{}
 	stopChan chan struct{}
 	connMgr  *engine.ConnManager
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -66,19 +69,22 @@ func (erS *EventReaderService) Start() (err error) {
 	filterS := <-erS.filterSChan
 	erS.filterSChan <- filterS
 
-	// remake tht stop chan
-	erS.stopChan = make(chan struct{}, 1)
+	// remake the stop chan
+	erS.stopChan = make(chan struct{})
 
 	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.ERs))
 
 	// build the service
-	erS.ers = ers.NewERService(erS.cfg, filterS, erS.stopChan, erS.connMgr)
-	go func(ers *ers.ERService, rldChan chan struct{}) {
-		if err := ers.ListenAndServe(rldChan); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.ERs, err.Error()))
-			erS.exitChan <- true
-		}
-	}(erS.ers, erS.rldChan)
+	erS.ers = ers.NewERService(erS.cfg, filterS, erS.connMgr)
+	go erS.listenAndServe(erS.ers, erS.stopChan, erS.rldChan)
+	return
+}
+
+func (erS *EventReaderService) listenAndServe(ers *ers.ERService, stopChan chan struct{}, rldChan chan struct{}) (err error) {
+	if err = ers.ListenAndServe(stopChan, rldChan); err != nil {
+		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.ERs, err.Error()))
+		erS.shdChan.CloseOnce()
+	}
 	return
 }
 

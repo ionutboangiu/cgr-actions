@@ -71,20 +71,18 @@ func testTpActPlnITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpActPlnCfgIn.StorDbCfg().Type,
 		tpActPlnCfgIn.StorDbCfg().Host, tpActPlnCfgIn.StorDbCfg().Port,
 		tpActPlnCfgIn.StorDbCfg().Name, tpActPlnCfgIn.StorDbCfg().User,
-		tpActPlnCfgIn.StorDbCfg().Password, tpActPlnCfgIn.GeneralCfg().DBDataEncoding, tpActPlnCfgIn.StorDbCfg().SSLMode,
-		tpActPlnCfgIn.StorDbCfg().MaxOpenConns, tpActPlnCfgIn.StorDbCfg().MaxIdleConns,
-		tpActPlnCfgIn.StorDbCfg().ConnMaxLifetime, tpActPlnCfgIn.StorDbCfg().StringIndexedFields,
-		tpActPlnCfgIn.StorDbCfg().PrefixIndexedFields, tpActPlnCfgIn.StorDbCfg().Items)
+		tpActPlnCfgIn.StorDbCfg().Password, tpActPlnCfgIn.GeneralCfg().DBDataEncoding,
+		tpActPlnCfgIn.StorDbCfg().StringIndexedFields, tpActPlnCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpActPlnCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpActPlnCfgOut.StorDbCfg().Type,
 		tpActPlnCfgOut.StorDbCfg().Host, tpActPlnCfgOut.StorDbCfg().Port,
 		tpActPlnCfgOut.StorDbCfg().Name, tpActPlnCfgOut.StorDbCfg().User,
-		tpActPlnCfgOut.StorDbCfg().Password, tpActPlnCfgOut.GeneralCfg().DBDataEncoding, tpActPlnCfgIn.StorDbCfg().SSLMode,
-		tpActPlnCfgIn.StorDbCfg().MaxOpenConns, tpActPlnCfgIn.StorDbCfg().MaxIdleConns,
-		tpActPlnCfgIn.StorDbCfg().ConnMaxLifetime, tpActPlnCfgIn.StorDbCfg().StringIndexedFields,
-		tpActPlnCfgIn.StorDbCfg().PrefixIndexedFields, tpActPlnCfgOut.StorDbCfg().Items)
+		tpActPlnCfgOut.StorDbCfg().Password, tpActPlnCfgOut.GeneralCfg().DBDataEncoding,
+		tpActPlnCfgIn.StorDbCfg().StringIndexedFields, tpActPlnCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpActPlnCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -129,7 +127,7 @@ func testTpActPlnITPopulate(t *testing.T) {
 		t.Error("Error when setting TpActionPlan ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpActPlnMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpActPlnMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpActionPlan ", err.Error())
 	}

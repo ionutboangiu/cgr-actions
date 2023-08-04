@@ -30,7 +30,6 @@ import (
 
 var sTestsDspRALs = []func(t *testing.T){
 	testDspRALsPing,
-	testDspRALsPingEmptyCGREventWIthArgDispatcher,
 	testDspRALsGetRatingPlanCost,
 }
 
@@ -68,12 +67,11 @@ func testDspRALsPing(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := dispEngine.RPC.Call(utils.RALsV1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("rals12345"),
+	if err := dispEngine.RPC.Call(utils.RALsV1Ping, &utils.CGREvent{
+		Tenant: "cgrates.org",
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "rals12345",
 		},
 	}, &reply); err != nil {
 		t.Error(err)
@@ -82,23 +80,14 @@ func testDspRALsPing(t *testing.T) {
 	}
 }
 
-func testDspRALsPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	var reply string
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	if err := dispEngine.RPC.Call(utils.RALsV1Ping,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
-	}
-}
-
 func testDspRALsGetRatingPlanCost(t *testing.T) {
 	arg := &utils.RatingPlanCostArg{
 		Destination:   "1002",
 		RatingPlanIDs: []string{"RP_1001", "RP_1002"},
-		SetupTime:     utils.META_NOW,
+		SetupTime:     utils.MetaNow,
 		Usage:         "1h",
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("rals12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "rals12345",
 		},
 	}
 	var reply RatingPlanCost
@@ -108,7 +97,7 @@ func testDspRALsGetRatingPlanCost(t *testing.T) {
 		t.Error("Unexpected RatingPlanID: ", reply.RatingPlanID)
 	} else if *reply.EventCost.Cost != 6.5118 {
 		t.Error("Unexpected Cost: ", *reply.EventCost.Cost)
-	} else if *reply.EventCost.Usage != time.Duration(time.Hour) {
+	} else if *reply.EventCost.Usage != time.Hour {
 		t.Error("Unexpected Usage: ", *reply.EventCost.Usage)
 	}
 }

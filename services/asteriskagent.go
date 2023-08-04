@@ -32,11 +32,13 @@ import (
 
 // NewAsteriskAgent returns the Asterisk Agent
 func NewAsteriskAgent(cfg *config.CGRConfig,
-	exitChan chan bool, connMgr *engine.ConnManager) servmanager.Service {
+	shdChan *utils.SyncedChan, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &AsteriskAgent{
-		cfg:      cfg,
-		exitChan: exitChan,
-		connMgr:  connMgr,
+		cfg:     cfg,
+		shdChan: shdChan,
+		connMgr: connMgr,
+		srvDep:  srvDep,
 	}
 }
 
@@ -44,10 +46,12 @@ func NewAsteriskAgent(cfg *config.CGRConfig,
 type AsteriskAgent struct {
 	sync.RWMutex
 	cfg      *config.CGRConfig
-	exitChan chan bool
+	shdChan  *utils.SyncedChan
+	stopChan chan struct{}
 
 	smas    []*agents.AsteriskAgent
 	connMgr *engine.ConnManager
+	srvDep  map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -59,30 +63,38 @@ func (ast *AsteriskAgent) Start() (err error) {
 	ast.Lock()
 	defer ast.Unlock()
 
-	listenAndServe := func(sma *agents.AsteriskAgent, exitChan chan bool) {
-		if err = sma.ListenAndServe(); err != nil {
+	listenAndServe := func(sma *agents.AsteriskAgent, stopChan chan struct{}, shdChan *utils.SyncedChan) {
+		if err := sma.ListenAndServe(stopChan); err != nil {
 			utils.Logger.Err(fmt.Sprintf("<%s> runtime error: %s!", utils.AsteriskAgent, err))
+			shdChan.CloseOnce()
 		}
-		exitChan <- true
 	}
+	ast.stopChan = make(chan struct{})
 	ast.smas = make([]*agents.AsteriskAgent, len(ast.cfg.AsteriskAgentCfg().AsteriskConns))
 	for connIdx := range ast.cfg.AsteriskAgentCfg().AsteriskConns { // Instantiate connections towards asterisk servers
-		if ast.smas[connIdx], err = agents.NewAsteriskAgent(ast.cfg, connIdx, ast.connMgr); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: %s!", utils.AsteriskAgent, err))
-			return
-		}
-		go listenAndServe(ast.smas[connIdx], ast.exitChan)
+		ast.smas[connIdx] = agents.NewAsteriskAgent(ast.cfg, connIdx, ast.connMgr)
+		go listenAndServe(ast.smas[connIdx], ast.stopChan, ast.shdChan)
 	}
 	return
 }
 
 // Reload handles the change of config
 func (ast *AsteriskAgent) Reload() (err error) {
-	return
+	ast.shutdown()
+	return ast.Start()
 }
 
 // Shutdown stops the service
 func (ast *AsteriskAgent) Shutdown() (err error) {
+	ast.shutdown()
+	return
+}
+
+func (ast *AsteriskAgent) shutdown() {
+	ast.Lock()
+	close(ast.stopChan)
+	ast.smas = nil
+	ast.Unlock()
 	return // no shutdown for the momment
 }
 

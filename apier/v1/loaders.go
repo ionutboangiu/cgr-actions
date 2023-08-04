@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/loaders"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -33,9 +32,9 @@ type LoaderSv1 struct {
 	ldrS *loaders.LoaderService
 }
 
-// Call implements birpc.ClientConnector interface for internal RPC
-func (ldrSv1 *LoaderSv1) Call(ctx *context.Context, serviceMethod string,
-	args interface{}, reply interface{}) error {
+// Call implements rpcclient.ClientConnector interface for internal RPC
+func (ldrSv1 *LoaderSv1) Call(serviceMethod string,
+	args any, reply any) error {
 	return utils.APIerRPCCall(ldrSv1, serviceMethod, args, reply)
 }
 
@@ -49,7 +48,7 @@ func (ldrSv1 *LoaderSv1) Remove(args *loaders.ArgsProcessFolder,
 	return ldrSv1.ldrS.V1Remove(args, rply)
 }
 
-func (rsv1 *LoaderSv1) Ping(ign *utils.CGREventWithArgDispatcher, reply *string) error {
+func (rsv1 *LoaderSv1) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
 }

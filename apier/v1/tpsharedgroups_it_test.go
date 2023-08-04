@@ -37,7 +37,6 @@ var (
 	tpSharedGroupCfgPath   string
 	tpSharedGroupCfg       *config.CGRConfig
 	tpSharedGroupRPC       *rpc.Client
-	tpSharedGroupDataDir   = "/usr/share/cgrates"
 	tpSharedGroups         *utils.TPSharedGroups
 	tpSharedGroupDelay     int
 	tpSharedGroupConfigDIR string //run tests for specific configuration
@@ -80,13 +79,11 @@ func TestTPSharedGroupsIT(t *testing.T) {
 
 func testTPSharedGroupsInitCfg(t *testing.T) {
 	var err error
-	tpSharedGroupCfgPath = path.Join(tpSharedGroupDataDir, "conf", "samples", tpSharedGroupConfigDIR)
+	tpSharedGroupCfgPath = path.Join(*dataDir, "conf", "samples", tpSharedGroupConfigDIR)
 	tpSharedGroupCfg, err = config.NewCGRConfigFromPath(tpSharedGroupCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpSharedGroupCfg.DataFolderPath = tpSharedGroupDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpSharedGroupCfg)
 	switch tpSharedGroupConfigDIR {
 	case "tutmongo": // Mongo needs more time to reset db
 		tpSharedGroupDelay = 2000
@@ -120,7 +117,7 @@ func testTPSharedGroupsRpcConn(t *testing.T) {
 
 func testTPSharedGroupsBeforeSet(t *testing.T) {
 	var reply *utils.TPSharedGroups
-	if err := tpSharedGroupRPC.Call(utils.APIerSv1GetTPSharedGroups, AttrGetTPSharedGroups{TPid: "TPS1", ID: "Group1"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+	if err := tpSharedGroupRPC.Call(utils.APIerSv1GetTPSharedGroups, &AttrGetTPSharedGroups{TPid: "TPS1", ID: "Group1"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 }
@@ -143,7 +140,7 @@ func testTPSharedGroupsSetSharedGroups(t *testing.T) {
 		},
 	}
 	var result string
-	if err := tpSharedGroupRPC.Call(utils.APIerSv1SetTPSharedGroups, tpSharedGroups, &result); err != nil {
+	if err := tpSharedGroupRPC.Call(utils.APIerSv1SetTPSharedGroups, &tpSharedGroups, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
@@ -167,7 +164,7 @@ func testTPSharedGroupsGetTPSharedGroupIds(t *testing.T) {
 	var result []string
 	expectedTPID := []string{"Group1"}
 	if err := tpSharedGroupRPC.Call(utils.APIerSv1GetTPSharedGroupIds,
-		AttrGetTPSharedGroupIds{tpSharedGroups.TPid, utils.PaginatorWithSearch{}}, &result); err != nil {
+		&AttrGetTPSharedGroupIds{tpSharedGroups.TPid, utils.PaginatorWithSearch{}}, &result); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(result, expectedTPID) {
 		t.Errorf("Expecting: %+v, received: %+v", result, expectedTPID)
@@ -224,7 +221,7 @@ func testTPSharedGroupsRemoveTPSharedGroups(t *testing.T) {
 
 func testTPSharedGroupsGetTPSharedGroupsAfterRemove(t *testing.T) {
 	var reply *utils.TPSharedGroups
-	if err := tpSharedGroupRPC.Call(utils.APIerSv1GetTPSharedGroups, AttrGetTPSharedGroups{TPid: "TPS1", ID: "Group1"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+	if err := tpSharedGroupRPC.Call(utils.APIerSv1GetTPSharedGroups, &AttrGetTPSharedGroups{TPid: "TPS1", ID: "Group1"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 }

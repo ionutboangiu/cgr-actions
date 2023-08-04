@@ -18,7 +18,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 package console
 
-import "github.com/cgrates/cgrates/utils"
+import (
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/utils"
+)
 
 func init() {
 	c := &CmdParse{
@@ -46,17 +49,17 @@ func (self *CmdParse) Name() string {
 }
 
 func (self *CmdParse) RpcMethod() string {
-	return ""
+	return utils.EmptyString
 }
 
-func (self *CmdParse) RpcParams(reset bool) interface{} {
+func (self *CmdParse) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
 		self.rpcParams = &AttrParse{}
 	}
 	return self.rpcParams
 }
 
-func (self *CmdParse) RpcResult() interface{} {
+func (self *CmdParse) RpcResult() any {
 	return nil
 }
 
@@ -65,15 +68,15 @@ func (self *CmdParse) PostprocessRpcParams() error {
 }
 
 func (self *CmdParse) LocalExecute() string {
-	if self.rpcParams.Expression == "" {
+	if self.rpcParams.Expression == utils.EmptyString {
 		return "Empty expression error"
 	}
-	if self.rpcParams.Value == "" {
+	if self.rpcParams.Value == utils.EmptyString {
 		return "Empty value error"
 	}
-	if rsrField, err := utils.NewRSRField(self.rpcParams.Expression); err != nil {
+	if rsrField, err := config.NewRSRParser(self.rpcParams.Expression); err != nil {
 		return err.Error()
-	} else if parsed, err := rsrField.Parse(self.rpcParams.Value); err != nil {
+	} else if parsed, err := rsrField.ParseValue(self.rpcParams.Value); err != nil {
 		return err.Error()
 	} else {
 		return parsed

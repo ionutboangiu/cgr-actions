@@ -97,17 +97,17 @@ func testCdrsIntTestTTL(t *testing.T) {
 		Flags: []string{"*store:true"},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.OriginID:    "testCdrsIntTestTTL",
-				utils.OriginHost:  "192.168.1.1",
-				utils.Source:      "testCdrsIntTestTTL",
-				utils.RequestType: utils.META_NONE,
-				utils.Category:    "call",
-				utils.Account:     "testCdrsIntTestTTL",
-				utils.Subject:     "ANY2CNT2",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-				utils.Usage:       time.Minute,
+			Event: map[string]any{
+				utils.OriginID:     "testCdrsIntTestTTL",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testCdrsIntTestTTL",
+				utils.RequestType:  utils.MetaNone,
+				utils.Category:     "call",
+				utils.AccountField: "testCdrsIntTestTTL",
+				utils.Subject:      "ANY2CNT2",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
 			},
 		},
 	}
@@ -124,7 +124,7 @@ func testCdrsIntTestTTL(t *testing.T) {
 	} else if len(cdrs) != 1 {
 		t.Errorf("Expected 1 result received %v ", len(cdrs))
 	}
-	time.Sleep(3 * time.Second)
+	time.Sleep(time.Second + 50*time.Millisecond)
 	if err := cdrsIntRPC.Call(utils.APIerSv2GetCDRs, &utils.RPCCDRsFilter{}, &cdrs); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Fatal("Unexpected error: ", err)

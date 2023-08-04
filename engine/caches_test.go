@@ -15,308 +15,1033 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
-
 package engine
 
 import (
+	"fmt"
 	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/ltcache"
+	"github.com/cgrates/rpcclient"
 )
 
-func TestV1LoadCache(t *testing.T) {
-	defer func() {
-		InitCache(nil)
-	}()
-	cfg, _ := config.NewDefaultCGRConfig()
+func TestCachesReplicateRemove(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.CacheCfg().ReplicationConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.ReplicationConnsCfg)}
+	cfg.CacheCfg().Partitions = map[string]*config.CacheParamCfg{
+		utils.ReplicatorSv1GetDispatcherHost: {
+			Replicate: true,
+		},
+	}
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	args := utils.AttrReloadCacheWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{},
-		AttrReloadCache: utils.AttrReloadCache{
-			ArgsCache: utils.ArgsCache{
-				ThresholdIDs: []string{"THD1"},
+	clientconn := make(chan rpcclient.ClientConnector, 1)
+	clientconn <- &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.CacheSv1ReplicateRemove: func(args, reply any) error {
+				*reply.(*string) = utils.OK
+				return nil
 			},
 		},
 	}
-	loadIds := map[string]int64{
-		utils.CacheThresholdProfiles: time.Now().Unix(),
-		utils.CacheStatQueueProfiles: time.Now().Unix(),
-		utils.CacheChargerProfiles:   time.Now().Unix(),
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.ReplicationConnsCfg): clientconn,
+	})
+	chS := CacheS{
+		cfg: cfg,
+		dm:  dm,
 	}
-	if err := dm.SetLoadIDs(loadIds); err != nil {
+	SetConnManager(connMgr)
+	if err := chS.ReplicateRemove(utils.ReplicatorSv1GetDispatcherHost, "itm_id"); err != nil {
 		t.Error(err)
-	}
-	cacheS := NewCacheS(cfg, dm)
-	var reply string
-	if err := cacheS.V1LoadCache(args, &reply); err != nil {
-		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("Expectd ok ,received %v", reply)
 	}
 }
 
-func TestCacheV1ReloadCache(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	defer func() {
-		InitCache(nil)
-	}()
+func TestCacheSSetWithReplicate(t *testing.T) {
+	Cache.Clear(nil)
+	args := &utils.ArgCacheReplicateSet{
+		CacheID:  utils.ReplicatorSv1GetActions,
+		ItemID:   "itemID",
+		Value:    &utils.CachedRPCResponse{Result: "reply", Error: nil},
+		GroupIDs: []string{"groupId", "groupId"},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	cfg.CacheCfg().ReplicationConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.ReplicationConnsCfg)}
+	cfg.CacheCfg().Partitions = map[string]*config.CacheParamCfg{
+		args.CacheID: {
+			Replicate: true,
+		},
+	}
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	chS := NewCacheS(cfg, dm)
-	attrs := utils.AttrReloadCacheWithArgDispatcher{
-		AttrReloadCache: utils.AttrReloadCache{
-			ArgsCache: utils.ArgsCache{
-				FilterIDs:             []string{"DSP_FLT"},
-				DestinationIDs:        []string{"CRUDDestination2"},
-				ReverseDestinationIDs: []string{"CRUDDestination2"},
-				RatingPlanIDs:         []string{"RP_DFLT"},
-				RatingProfileIDs:      []string{"*out:cgrates:call:1001"},
+	clientconn := make(chan rpcclient.ClientConnector, 1)
+	clientconn <- &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.CacheSv1ReplicateSet: func(args, reply any) error {
+
+				*reply.(*string) = "reply"
+				return nil
 			},
 		},
 	}
-	dst := &Destination{Id: "CRUDDestination2", Prefixes: []string{"+491", "+492", "+493"}}
-	dm.SetDestination(dst, utils.NonTransactional)
-	dm.SetReverseDestination(dst, utils.NonTransactional)
-	rp := &RatingPlan{
-		Id: "RP_DFLT",
-		Timings: map[string]*RITiming{
-			"30eab301": {
-				StartTime: "00:00:00",
-			},
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.ReplicationConnsCfg): clientconn,
+	})
+	ltcache := ltcache.NewTransCache(map[string]*ltcache.CacheConfig{
+		args.CacheID: {
+			MaxItems: 2,
 		},
-		Ratings: map[string]*RIRate{
-			"b457f861": {
-				Rates: []*Rate{
-					{
-						GroupIntervalStart: 0,
-						Value:              0.01,
-						RateIncrement:      time.Second,
-						RateUnit:           time.Second,
-					},
+	})
+	cacheS := &CacheS{
+		dm:     dm,
+		cfg:    cfg,
+		tCache: ltcache,
+	}
+	SetConnManager(connMgr)
+	if err := cacheS.SetWithReplicate(args); err != nil {
+		t.Error(err)
+	}
+
+}
+
+func TestCacheSV1GetItemIDs(t *testing.T) {
+	args := &utils.ArgsGetCacheItemIDsWithAPIOpts{
+		APIOpts: map[string]any{},
+		Tenant:  "cgrates.org",
+		ArgsGetCacheItemIDs: utils.ArgsGetCacheItemIDs{
+			CacheID:      "cacheID",
+			ItemIDPrefix: "itemID",
+		},
+	}
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Second * 1,
+				StaticTTL: true,
+				OnEvicted: func(itmID string, value any) {
+
 				},
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
-				RoundingDecimals: 4,
 			},
-		},
-		DestinationRates: map[string]RPRateList{
-			"CRUDDestination2": []*RPRate{
-				{
-					Timing: "30eab301",
-					Rating: "b457f861",
-					Weight: 10,
-				},
-			},
-		},
+		})
+	tscache.Set("cacheID", "itemID", "", []string{}, true, "tId")
+
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
 	}
-	dm.SetRatingPlan(rp, utils.NonTransactional)
-	rP := &RatingProfile{Id: utils.ConcatenatedKey(utils.META_OUT, "cgrates", "call", "1001"),
-		RatingPlanActivations: RatingPlanActivations{&RatingPlanActivation{
-			ActivationTime: time.Date(2015, 01, 01, 8, 0, 0, 0, time.UTC),
-			RatingPlanId:   rp.Id,
-		}},
-	}
-	dm.SetRatingProfile(rP, utils.NonTransactional)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "DSP_FLT",
-		Rules: []*FilterRule{
-			{
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Type:    utils.MetaString,
-				Values:  []string{"2009"},
-			},
-		},
-	}
-	if err := dm.SetFilter(fltr); err != nil {
+	reply := &[]string{}
+	exp := &[]string{"itemID"}
+	if err := chS.V1GetItemIDs(args, reply); err != nil {
 		t.Error(err)
+	} else if !reflect.DeepEqual(reply, exp) {
+		t.Errorf("expected %+v,received %+v", utils.ToJSON(exp), utils.ToJSON(reply))
 	}
-	if _, err := GetFilter(dm, "cgrates.org", "DSP_FLT", false, true, utils.NonTransactional); err != nil {
+	tscache.Remove("cacheID", "itemID", true, utils.NonTransactional)
+	if err := chS.V1GetItemIDs(args, reply); err == nil || err != utils.ErrNotFound {
 		t.Error(err)
-	}
-	var reply string
-	if err := chS.V1ReloadCache(attrs, &reply); err != nil {
-		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("Expected ok ,received %v", reply)
 	}
 }
 
-func TestCacheSV1FlushCache(t *testing.T) {
-	defer func() {
-		InitCache(nil)
-	}()
-	cfg, _ := config.NewDefaultCGRConfig()
+func TestCacheSV1HasItem(t *testing.T) {
+	args := &utils.ArgsGetCacheItemWithAPIOpts{
+		APIOpts: map[string]any{},
+		Tenant:  "cgrates.org",
+		ArgsGetCacheItem: utils.ArgsGetCacheItem{
+			CacheID: "cacheID",
+			ItemID:  "itemID",
+		},
+	}
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Second * 1,
+				StaticTTL: true,
+				OnEvicted: func(itmID string, value any) {
+
+				},
+			},
+		})
+	tscache.Set("cacheID", "itemID", "", []string{}, true, "tId")
+
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	chS := NewCacheS(cfg, dm)
-	args := utils.AttrReloadCacheWithArgDispatcher{
-		AttrReloadCache: utils.AttrReloadCache{
-			ArgsCache: utils.ArgsCache{
-				DestinationIDs: []string{"DST1"},
-				RatingPlanIDs:  []string{"RP1"},
-				ResourceIDs:    []string{"RSC1"},
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	reply := utils.BoolPointer(false)
+	if err := chS.V1HasItem(args, reply); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCacheSV1GetItemWithRemote(t *testing.T) {
+	args := &utils.ArgsGetCacheItemWithAPIOpts{
+
+		ArgsGetCacheItem: utils.ArgsGetCacheItem{
+			CacheID: "cacheID",
+			ItemID:  "itemId",
+		},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	cfg.CacheCfg().RemoteConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.RemoteConnsCfg)}
+	cfg.CacheCfg().Partitions = map[string]*config.CacheParamCfg{
+		args.CacheID: {
+			Remote: true,
+		},
+	}
+	clientconn := make(chan rpcclient.ClientConnector, 1)
+	clientconn <- &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.CacheSv1GetItem: func(args, reply any) error {
+
+				return nil
 			},
 		},
 	}
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.RemoteConnsCfg): clientconn,
+	},
+	)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Second * 1,
+				StaticTTL: true,
+				OnEvicted: func(itmID string, value any) {
 
-	loadIds := map[string]int64{
-		utils.CacheAttributeProfiles: time.Now().UnixNano(),
-		utils.CacheSupplierProfiles:  time.Now().UnixNano(),
+				},
+			},
+		})
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
 	}
-	if err := dm.SetLoadIDs(loadIds); err != nil {
+	SetConnManager(connMgr)
+	var reply any = "str"
+	if err := chS.V1GetItemWithRemote(args, &reply); err != nil {
 		t.Error(err)
 	}
-	var reply string
-	if err := chS.V1FlushCache(args, &reply); err != nil {
-		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("Expected ok,recieved %v", reply)
+}
+
+func TestCacheSV1GetItem(t *testing.T) {
+	args := &utils.ArgsGetCacheItemWithAPIOpts{
+		ArgsGetCacheItem: utils.ArgsGetCacheItem{
+			CacheID: "cacheID",
+			ItemID:  "itemID",
+		},
 	}
-	for id := range loadIds {
-		if _, has := Cache.Get(utils.CacheLoadIDs, id); !has {
-			t.Error("Load not stored in cache")
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Second * 1,
+				StaticTTL: true,
+				OnEvicted: func(itmID string, value any) {
+
+				},
+			},
+		})
+	tscache.Set("cacheID", "itemID", "value", []string{}, true, "tId")
+
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	var reply any
+	if err := chS.V1GetItem(args, &reply); err != nil {
+		t.Error(err)
+	} else if val, cancast := reply.(string); cancast {
+		if val != "value" {
+			t.Errorf("expected value,received %v", val)
 		}
 	}
+	tscache.Remove("cacheID", "itemID", true, utils.NonTransactional)
+	if err := chS.V1GetItem(args, &reply); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
 }
 
-func TestLoadDataDbCache(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+func TestCacheSV1GetItemExpiryTime(t *testing.T) {
+	tmp := Cache
+
+	defer func() {
+		Cache = tmp
+		config.SetCgrConfig(config.NewDefaultCGRConfig())
+	}()
+	Cache.Clear(nil)
+	args := &utils.ArgsGetCacheItemWithAPIOpts{
+		ArgsGetCacheItem: utils.ArgsGetCacheItem{
+			CacheID: "cacheID",
+			ItemID:  "itemID",
+		},
+	}
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+
+				},
+			},
+		})
+	tscache.Set("cacheID", "itemID", "value", []string{}, true, "tId")
+
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	rp := &RatingPlan{
-		Id:      "RT_PLAN1",
-		Timings: map[string]*RITiming{},
-		Ratings: map[string]*RIRate{
-			"asjkilj": {
-				ConnectFee:       10,
-				RoundingMethod:   utils.ROUNDING_UP,
-				RoundingDecimals: 1,
-				MaxCost:          10,
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	reply := now
+	loc, _ := time.LoadLocation("EST")
+	exp := now.Add(30 * time.Minute).In(loc).Minute()
+	if err := chS.V1GetItemExpiryTime(args, &reply); err != nil {
+		t.Error(err)
+	} else if reply.Minute() != exp {
+		t.Errorf("expected %+v,received %+v", exp, reply)
+	}
+
+}
+
+func TestCacheSV1RemoveItem(t *testing.T) {
+	args := &utils.ArgsGetCacheItemWithAPIOpts{
+		ArgsGetCacheItem: utils.ArgsGetCacheItem{
+			CacheID: "cacheID",
+			ItemID:  "itemID",
+		},
+	}
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+
+				},
+			},
+		})
+	tscache.Set("cacheID", "itemID", "value", []string{}, true, "tId")
+
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	var reply string
+	if err := chS.V1RemoveItem(args, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Errorf("expected %v,received %v", utils.OK, reply)
+	}
+}
+
+func TestCacheSV1RemoveItems(t *testing.T) {
+	args := utils.NewAttrReloadCacheWithOpts()
+	args.DestinationIDs = []string{"dest1", "dest2", "dest3"}
+	args.ResourceIDs = []string{"res1", "res2", "res3"}
+	args.FilterIDs = []string{"fltr1", "filtr2", "filtr3"}
+	cfgCache := map[string]*ltcache.CacheConfig{
+		utils.CacheDestinations: {
+			MaxItems:  3,
+			TTL:       time.Minute * 30,
+			StaticTTL: false,
+			OnEvicted: func(itmID string, value any) {
 			},
 		},
-		DestinationRates: map[string]RPRateList{},
-	}
-	if err := dm.SetRatingPlan(rp, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	if err := dm.PreloadCacheForPrefix(utils.RATING_PLAN_PREFIX); err != nil {
-		t.Error(nil)
-	}
-}
+		utils.CacheResources: {
+			MaxItems:  3,
+			TTL:       time.Minute * 30,
+			StaticTTL: false,
+			OnEvicted: func(itmID string, value any) {
 
-func TestPreCacheStatus(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	chS := NewCacheS(cfg, dm)
-	args := &utils.AttrCacheIDsWithArgDispatcher{
-		CacheIDs: []string{utils.CacheChargerProfiles, utils.CacheDispatcherHosts},
-	}
-	go func() {
-		chS.pcItems[utils.CacheChargerProfiles] <- struct{}{}
-	}()
-	time.Sleep(5 * time.Millisecond)
-	exp := map[string]string{
-		utils.CacheChargerProfiles: utils.MetaReady,
-		utils.CacheDispatcherHosts: utils.MetaPrecaching,
-	}
-	var reply map[string]string
-	if err := chS.V1PrecacheStatus(args, &reply); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(exp, reply) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(exp), utils.ToJSON(reply))
-	}
-}
+			},
+		},
+		utils.CacheFilters: {
+			MaxItems:  3,
+			TTL:       time.Minute * 30,
+			StaticTTL: false,
+			OnEvicted: func(itmID string, value any) {
 
-func TestCachesRPCCall(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	chS := NewCacheS(cfg, dm)
-	Cache.Clear(nil)
-	Cache.Set(utils.CacheThresholds, "cgrates:TH1", &Threshold{}, []string{}, true, utils.NonTransactional)
-	args := &utils.ArgsGetCacheItemIDsWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{},
-		ArgsGetCacheItemIDs: utils.ArgsGetCacheItemIDs{
-			CacheID: utils.CacheThresholds,
+			},
 		},
 	}
-	var reply []string
-	if err := chS.Call(context.Background(), utils.CacheSv1GetItemIDs, args, &reply); err != nil {
+	args2 := map[string][]string{
+		utils.CacheDestinations: {"dest1", "dest2", "dest3"},
+		utils.CacheResources:    {"res1", "res2", "res3"},
+		utils.CacheFilters:      {"fltr1", "filtr2", "filtr3"},
+	}
+	tscache := ltcache.NewTransCache(cfgCache)
+
+	for keyId := range cfgCache {
+		if itemids, has := args2[keyId]; has {
+			for _, itemid := range itemids {
+				tscache.Set(keyId, itemid, "value", []string{}, true, "tId")
+			}
+		}
+	}
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+
+	reply := "error"
+
+	if err := chS.V1RemoveItems(args, &reply); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(reply, []string{"cgrates:TH1"}) {
-		t.Errorf("Expected %v", []string{"cgrates:TH1"})
+	} else if reply != utils.OK {
+		t.Errorf("expected %v,received %v", utils.OK, reply)
 	}
 }
 
-func TestCacheSPreCache(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	cfg.CacheCfg()[utils.CacheAttributeProfiles].Precache = true
+func TestCacheSV1Clear(t *testing.T) {
+	args := &utils.AttrCacheIDsWithAPIOpts{
+		APIOpts:  map[string]any{},
+		Tenant:   "cgrates.org",
+		CacheIDs: []string{"cacheID", "cacheID2", "cacheID3"},
+	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	chS := NewCacheS(cfg, dm)
-	Cache.Clear(nil)
+
+	cfgCache := map[string]*ltcache.CacheConfig{
+		"cacheID": {
+			MaxItems:  3,
+			TTL:       time.Minute * 30,
+			StaticTTL: false,
+			OnEvicted: func(itmID string, value any) {
+			},
+		},
+		"cacheID2": {
+			MaxItems:  3,
+			TTL:       time.Minute * 30,
+			StaticTTL: false,
+			OnEvicted: func(itmID string, value any) {
+
+			},
+		},
+		"cacheID3": {
+			MaxItems:  3,
+			TTL:       time.Minute * 30,
+			StaticTTL: false,
+			OnEvicted: func(itmID string, value any) {
+
+			},
+		},
+	}
+	tscache := ltcache.NewTransCache(cfgCache)
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	reply := "error"
+	if err := chS.V1Clear(args, &reply); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCacheSV1ReplicateSet(t *testing.T) {
+	fltr := &Filter{
+		Tenant: "cgrates",
+		ID:     "filterID",
+	}
+	args := &utils.ArgCacheReplicateSet{
+		CacheID: "cacheID",
+		ItemID:  "itemID",
+		Value:   fltr,
+	}
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	reply := "reply"
+	if err := chS.V1ReplicateSet(args, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Errorf("expected %+v,received %+v", utils.OK, reply)
+	}
+	val, has := chS.tCache.Get(args.CacheID, args.ItemID)
+
+	if !has {
+		t.Error("has no value")
+	}
+
+	if !reflect.DeepEqual(val, fltr) {
+		t.Errorf("expected %+v,received %+v", "", utils.ToJSON(val))
+	}
+}
+
+func TestCacheSV1GetCacheStats(t *testing.T) {
+	args := &utils.AttrCacheIDsWithAPIOpts{
+		APIOpts:  map[string]any{},
+		Tenant:   "cgrates.org",
+		CacheIDs: []string{"cacheID", "cacheID2", "cacheID3"},
+	}
+	reply := map[string]*ltcache.CacheStats{}
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheID": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			},
+			"cacheID2": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			},
+			"cacheID3": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			},
+		},
+	)
+
+	for i, id := range args.CacheIDs {
+
+		tscache.Set(id, fmt.Sprintf("%s%d", "item", i), "value", []string{}, true, "tId")
+	}
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	exp := map[string]*ltcache.CacheStats{
+		"cacheID":  {Items: 1, Groups: 0},
+		"cacheID2": {Items: 1, Groups: 0},
+		"cacheID3": {Items: 1, Groups: 0},
+	}
+	if err := chS.V1GetCacheStats(args, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, exp) {
+		t.Errorf("expected %v,received %v", utils.ToJSON(reply), utils.ToJSON(exp))
+	}
+
+}
+
+func TestCachesPrecache(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.CacheCfg().Partitions = map[string]*config.CacheParamCfg{
+		utils.CacheDestinations: {
+			Limit:    1,
+			Precache: true,
+			TTL:      time.Minute * 2,
+			Remote:   true,
+		},
+	}
+	pcI := map[string]chan struct{}{
+		utils.CacheDestinations: make(chan struct{})}
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	chS := &CacheS{
+		cfg:     cfg,
+		dm:      dm,
+		pcItems: pcI,
+	}
 	if err := chS.Precache(); err != nil {
 		t.Error(err)
 	}
+
 }
 
-func TestCacheV1HasItem(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+func TestV1PrecacheStatus(t *testing.T) {
+	args := &utils.AttrCacheIDsWithAPIOpts{
+		APIOpts:  map[string]any{},
+		Tenant:   "cgrates.org",
+		CacheIDs: []string{utils.CacheFilters},
+	}
+	cfg := config.NewDefaultCGRConfig()
+
+	pcI := map[string]chan struct{}{
+		utils.CacheFilters: make(chan struct{}),
+	}
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	Cache.Clear(nil)
-	chS := NewCacheS(cfg, dm)
-	args := &utils.ArgsGetCacheItemWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{},
-		ArgsGetCacheItem: utils.ArgsGetCacheItem{
-			CacheID: utils.CacheThresholds,
-			ItemID:  "cgrates.org:TH1",
+	chS := &CacheS{
+		cfg:     cfg,
+		dm:      dm,
+		pcItems: pcI,
+	}
+
+	reply := map[string]string{}
+	exp := map[string]string{
+		utils.CacheFilters: utils.MetaPrecaching,
+	}
+	if err := chS.V1PrecacheStatus(args, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(exp, reply) {
+		t.Errorf("expected %+v,received %+v", exp, reply)
+	}
+	args.CacheIDs = []string{}
+	if err := chS.V1PrecacheStatus(args, &reply); err == nil {
+		t.Error(err)
+	}
+}
+
+func TestCacheSV1HasGroup(t *testing.T) {
+	args := &utils.ArgsGetGroupWithAPIOpts{
+		ArgsGetGroup: utils.ArgsGetGroup{
+			CacheID: "cacheId",
+			GroupID: "groupId",
 		},
+		APIOpts: map[string]any{},
 	}
-	thd := &Threshold{
-		Tenant: "cgrates.org",
-		ID:     "TH1",
-		Hits:   2,
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheId": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	tscache.Set("cacheId", "itemId", "value", []string{"groupId"}, true, "tId")
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
 	}
-	Cache.Set(utils.CacheThresholds, utils.ConcatenatedKey(thd.Tenant, thd.ID), thd, []string{}, true, utils.NonTransactional)
+
 	var reply bool
-	if err := chS.V1HasItem(args, &reply); err != nil {
+	if err := chS.V1HasGroup(args, &reply); err != nil {
 		t.Error(err)
+	} else if !reply {
+		t.Error("expected true,received false")
+	}
+
+}
+
+func TestCacheSV1HasGroupItemIDs(t *testing.T) {
+	args := &utils.ArgsGetGroupWithAPIOpts{
+		ArgsGetGroup: utils.ArgsGetGroup{
+			CacheID: "cacheId",
+			GroupID: "groupId",
+		},
+		APIOpts: map[string]any{},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheId": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	tscache.Set("cacheId", "itemId", "value", []string{"groupId"}, true, "tId")
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	var reply []string
+	exp := []string{"itemId"}
+	if err := chS.V1GetGroupItemIDs(args, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(exp, reply) {
+		t.Errorf("expected %+v,received %+v", exp, reply)
+	}
+
+}
+
+func TestV1RemoveGroup(t *testing.T) {
+	args := &utils.ArgsGetGroupWithAPIOpts{
+		ArgsGetGroup: utils.ArgsGetGroup{
+			CacheID: "cacheId",
+			GroupID: "groupId",
+		},
+		APIOpts: map[string]any{},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheId": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	tscache.Set("cacheId", "itemId", "value", []string{"groupId"}, true, "tId")
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	var reply string
+
+	if err := chS.V1RemoveGroup(args, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Errorf("expected %v,received %v", utils.OK, reply)
+	}
+
+	if has := tscache.HasGroup(args.CacheID, args.GroupID); has {
+		t.Errorf("expected false,received %+v", has)
+	}
+
+}
+
+func TestCacheSV1ReplicateRemove(t *testing.T) {
+	args := &utils.ArgCacheReplicateRemove{
+		CacheID: "cacheID",
+		ItemID:  "itemID",
+		APIOpts: map[string]any{},
+		Tenant:  "cgrates.org",
+	}
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheId": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	tscache.Set(args.CacheID, args.ItemID, "value", []string{"groupId"}, true, "tId")
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	var reply string
+
+	if err := chS.V1ReplicateRemove(args, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Errorf("expected %v,received %v", utils.OK, reply)
+	}
+
+	if _, has := tscache.Get(args.CacheID, args.ItemID); has {
+		t.Errorf("expected false,received %+v", has)
 	}
 }
 
-func TestCacheV1GetItemExpiryTime(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	cfg.CacheCfg()[utils.CacheThresholds].TTL = 24 * time.Hour
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	Cache.Clear(nil)
-	chS := NewCacheS(cfg, dm)
-	args := &utils.ArgsGetCacheItemWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{},
-		ArgsGetCacheItem: utils.ArgsGetCacheItem{
-			CacheID: utils.CacheThresholds,
-			ItemID:  "cgrates.org:TH1",
+func TestNewCacheS(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.CacheCfg().ReplicationConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.ReplicationConnsCfg)}
+	cfg.CacheCfg().Partitions = map[string]*config.CacheParamCfg{
+		"cacheID": {
+			Limit:     3,
+			TTL:       2 * time.Minute,
+			StaticTTL: true,
+			Replicate: true,
 		},
 	}
-	thd := &Threshold{
-		Tenant: "cgrates.org",
-		ID:     "TH1",
-		Hits:   2,
-	}
-	Cache.Set(utils.CacheThresholds, utils.ConcatenatedKey(thd.Tenant, thd.ID), thd, []string{}, true, utils.NonTransactional)
-	var reply time.Time
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	clientconn := make(chan rpcclient.ClientConnector, 1)
+	clientconn <- &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.CacheSv1ReplicateRemove: func(args, reply any) error {
 
-	if err := chS.V1GetItemExpiryTime(args, &reply); err != nil {
+				*reply.(*string) = "reply"
+				return nil
+			},
+		},
+	}
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.ReplicationConnsCfg): clientconn,
+	})
+	expCacheS := &CacheS{}
+	SetConnManager(connMgr)
+	if c := NewCacheS(cfg, dm, &CapsStats{}); reflect.DeepEqual(expCacheS, c) {
+		t.Errorf("expected %+v,received %+v", utils.ToJSON(expCacheS), utils.ToJSON(c))
+	}
+
+}
+
+func TestCacheRemoveWithoutReplicate(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheId": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	tscache.Set("cacheID", "itemId", "value", []string{"groupId"}, true, "tId")
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	chS.RemoveWithoutReplicate("cacheID", "itemId", true, "tId")
+
+	if _, has := tscache.Get("cacheID", "itemId"); has {
+		t.Error("shouldn't exist")
+	}
+}
+func TestCacheRemoveGroup(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	tscache := ltcache.NewTransCache(
+		map[string]*ltcache.CacheConfig{
+			"cacheId": {
+				MaxItems:  3,
+				TTL:       time.Minute * 30,
+				StaticTTL: false,
+				OnEvicted: func(itmID string, value any) {
+				},
+			}},
+	)
+	tscache.Set("cacheID", "itemId", "value", []string{"groupId"}, true, "tId")
+	chS := &CacheS{
+		cfg:    cfg,
+		dm:     dm,
+		tCache: tscache,
+	}
+	chS.RemoveGroup("cacheID", "groupId")
+	if _, has := tscache.Get("cacheID", "itemId"); has {
+		t.Error("shouldn't exist")
+	}
+
+}
+
+func TestUpdateReplicationFilters(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	tmp := *Cache
+	defer func() {
+		*Cache = tmp
+	}()
+	Cache.Clear(nil)
+	Cache = NewCacheS(cfg, nil, nil)
+	Cache.tCache = ltcache.NewTransCache(map[string]*ltcache.CacheConfig{
+		utils.CacheReplicationHosts: {
+			MaxItems: 3,
+		},
+	})
+	objType, objID, connID := "obj", "id", "conn"
+	UpdateReplicationFilters("obj", "id", "conn")
+	if val, has := Cache.Get(utils.CacheReplicationHosts, objType+objID+utils.ConcatenatedKeySep+connID); !has {
+		t.Error("has no value")
+	} else if val.(string) != connID {
+		t.Errorf("expected %v,received %v", connID, val)
+	}
+}
+
+func TestReplicateMultipleIDs(t *testing.T) {
+	tmp := Cache
+	defer func() {
+		Cache = tmp
+	}()
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
+	cfg.ApierCfg().CachesConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCaches)}
+	cfg.AttributeSCfg().Enabled = true
+	cfg.CacheCfg().Partitions = map[string]*config.CacheParamCfg{
+		utils.CacheReplicationHosts: {
+			Limit: 3,
+		},
+	}
+
+	Cache = NewCacheS(cfg, nil, nil)
+	connClient := make(chan rpcclient.ClientConnector, 1)
+	connClient <- &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.CacheSv1ReloadCache: func(args, reply any) error {
+				*reply.(*string) = "reply"
+				return nil
+			},
+		},
+	}
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCaches): connClient,
+	})
+	objType := "obj"
+	objIds := []string{"rpl1", "rpl2"}
+	method := utils.CacheSv1ReloadCache
+	args := &utils.AttrReloadCacheWithAPIOpts{
+		AccountActionPlanIDs: []string{"accID"},
+	}
+	if err := replicateMultipleIDs(connMgr, cfg.ApierCfg().CachesConns, false, objType, objIds, method, args); err != nil {
 		t.Error(err)
-	} else if reply.Day() != time.Now().Add(24*time.Hour).Day() {
-		t.Error("Expected 1 Day ttl")
+	}
+	if err := replicateMultipleIDs(connMgr, cfg.ApierCfg().CachesConns, true, objType, objIds, method, args); err != nil {
+		t.Error(err)
+	}
+}
+func TestCachesGetWithRemote(t *testing.T) {
+	Cache.Clear(nil)
+	args := &utils.ArgsGetCacheItemWithAPIOpts{
+		ArgsGetCacheItem: utils.ArgsGetCacheItem{
+			CacheID: utils.CacheTBLTPActionPlans,
+			ItemID:  "cacheItem",
+		},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	cfg.DataDbCfg().Items = map[string]*config.ItemOpt{
+		utils.CacheTBLTPActionPlans: {
+			Limit:  3,
+			Remote: false,
+		},
+	}
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	chS := NewCacheS(cfg, dm, nil)
+	clientconn := make(chan rpcclient.ClientConnector, 1)
+	clientconn <- &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.CacheSv1GetItem: func(args, reply any) error {
+				*reply.(*string) = utils.OK
+				return utils.ErrNotFound
+			},
+		},
+	}
+
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.RemoteConnsCfg): clientconn,
+	})
+	SetConnManager(connMgr)
+	tpAc := &utils.TPActionTrigger{
+		BalanceId:             "id",
+		Id:                    "STANDARD_TRIGGERS",
+		ThresholdType:         "*min_balance",
+		ThresholdValue:        2,
+		Recurrent:             false,
+		MinSleep:              "0",
+		ExpirationDate:        "date",
+		BalanceType:           "*monetary",
+		BalanceDestinationIds: "FS_USERS",
+		ActionsId:             "LOG_WARNING",
+		Weight:                10,
+	}
+	chS.tCache.Set(args.CacheID, "cacheItem", tpAc, []string{"cacheItem"}, true, utils.NonTransactional)
+	if val, err := chS.GetWithRemote(args); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(val, tpAc) {
+		t.Errorf("expected %v,received %v", utils.ToJSON(tpAc), utils.ToJSON(val))
+	}
+	chS.tCache.Remove(utils.CacheTBLTPActionPlans, "cacheItem", true, utils.NonTransactional)
+	if _, err := chS.GetWithRemote(args); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected %v,received %v", utils.ErrNotFound, err)
+	}
+	cfg.DataDbCfg().Items[utils.CacheTBLTPActionPlans].Remote = true
+	cfg.CacheCfg().RemoteConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.RemoteConnsCfg)}
+	/*
+		if _, err = chS.GetWithRemote(args); err == nil || err != utils.ErrNotFound {
+			t.Errorf("expected %v,received %v", utils.ErrNotFound, err)
+		}
+	*/
+}
+
+func TestV1LoadCache(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	tmpDm := dm
+	defer func() {
+		dm = tmpDm
+	}()
+	attr := &utils.AttrReloadCacheWithAPIOpts{
+		Tenant:                  "cgrates.org",
+		FilterIDs:               []string{"cgrates.org:FLTR_ID"},
+		AttributeFilterIndexIDs: []string{"cgrates.org:*any:*string:*req.Account:1001", "cgrates.org:*any:*string:*req.Account:1002"},
+	}
+	chS := NewCacheS(cfg, dm, nil)
+	var reply string
+	if err := chS.V1LoadCache(attr, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Errorf("reply should  be %v", utils.OK)
+	}
+
+}
+
+func TestCacheSBeginTransaction(t *testing.T) {
+	tmp := Cache
+	defer func() {
+		Cache = tmp
+	}()
+	Cache.Clear(nil)
+
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, false, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+
+	cacheS := NewCacheS(cfg, dm, nil)
+
+	expFormat := `........-....-....-....-............`
+	rcv := cacheS.BeginTransaction()
+	if matched, err := regexp.Match(expFormat, []byte(rcv)); err != nil {
+		t.Error(err)
+	} else if !matched {
+		t.Errorf("Unexpected transaction format, Received <%v>", rcv)
 	}
 
 }

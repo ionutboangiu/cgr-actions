@@ -21,19 +21,21 @@ package services
 import (
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewRalService returns the Ral Service
-func NewRalService(cfg *config.CGRConfig, cacheS *engine.CacheS, server *utils.Server,
-	internalRALsChan, internalResponderChan chan birpc.ClientConnector, exitChan chan bool,
-	connMgr *engine.ConnManager) *RalService {
-	resp := NewResponderService(cfg, server, internalResponderChan, exitChan)
+func NewRalService(cfg *config.CGRConfig, cacheS *engine.CacheS, server *cores.Server,
+	internalRALsChan, internalResponderChan chan rpcclient.ClientConnector, shdChan *utils.SyncedChan,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup,
+	filtersCh chan *engine.FilterS) *RalService {
+	resp := NewResponderService(cfg, server, internalResponderChan, shdChan, anz, srvDep, filtersCh)
 
 	return &RalService{
 		connChan:  internalRALsChan,
@@ -42,6 +44,8 @@ func NewRalService(cfg *config.CGRConfig, cacheS *engine.CacheS, server *utils.S
 		server:    server,
 		responder: resp,
 		connMgr:   connMgr,
+		anz:       anz,
+		srvDep:    srvDep,
 	}
 }
 
@@ -50,11 +54,13 @@ type RalService struct {
 	sync.RWMutex
 	cfg       *config.CGRConfig
 	cacheS    *engine.CacheS
-	server    *utils.Server
+	server    *cores.Server
 	rals      *v1.RALsV1
 	responder *ResponderService
-	connChan  chan birpc.ClientConnector
+	connChan  chan rpcclient.ClientConnector
 	connMgr   *engine.ConnManager
+	anz       *AnalyzerService
+	srvDep    map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -77,10 +83,7 @@ func (rals *RalService) Start() (err error) {
 	<-rals.cacheS.GetPrecacheChannel(utils.CacheActionTriggers)
 	<-rals.cacheS.GetPrecacheChannel(utils.CacheSharedGroups)
 	<-rals.cacheS.GetPrecacheChannel(utils.CacheTimings)
-
-	if err = rals.responder.Start(); err != nil {
-		return
-	}
+	rals.responder.Start() //we don't verify the error because responder.Start() always returns service already running
 
 	rals.rals = v1.NewRALsV1()
 
@@ -88,18 +91,14 @@ func (rals *RalService) Start() (err error) {
 		rals.server.RpcRegister(rals.rals)
 	}
 
-	utils.RegisterRpcParams(utils.RALsV1, rals.rals)
-
-	rals.connChan <- rals.rals
+	rals.connChan <- rals.anz.GetInternalCodec(rals.rals, utils.RALService)
 	return
 }
 
 // Reload handles the change of config
 func (rals *RalService) Reload() (err error) {
 	engine.SetRpSubjectPrefixMatching(rals.cfg.RalsCfg().RpSubjectPrefixMatching)
-	if err = rals.responder.Reload(); err != nil {
-		return
-	}
+	rals.responder.Reload() //we don't verify the error because responder.Reload never returns an error
 	return
 }
 
@@ -107,9 +106,7 @@ func (rals *RalService) Reload() (err error) {
 func (rals *RalService) Shutdown() (err error) {
 	rals.Lock()
 	defer rals.Unlock()
-	if err = rals.responder.Shutdown(); err != nil {
-		return
-	}
+	err = rals.responder.Shutdown() //we don't verify the error because responder.Reload never returns an error
 	rals.rals = nil
 	<-rals.connChan
 	return
@@ -133,11 +130,6 @@ func (rals *RalService) ShouldRun() bool {
 }
 
 // GetResponder returns the responder service
-func (rals *RalService) GetResponder() servmanager.Service {
-	return rals.responder
-}
-
-// GetResponder returns the responder service
-func (rals *RalService) GetResponderService() *ResponderService {
+func (rals *RalService) GetResponder() *ResponderService {
 	return rals.responder
 }

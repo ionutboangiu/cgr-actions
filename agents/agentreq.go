@@ -20,12 +20,7 @@ package agents
 
 import (
 	"fmt"
-	"math"
-	"net"
-	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
@@ -34,24 +29,31 @@ import (
 
 // NewAgentRequest returns a new AgentRequest
 func NewAgentRequest(req utils.DataProvider,
-	vars utils.NavigableMap2,
-	cgrRply *utils.NavigableMap2,
+	vars, cgrRply *utils.DataNode,
 	rply *utils.OrderedNavigableMap,
+	opts utils.MapStorage,
 	tntTpl config.RSRParsers,
 	dfltTenant, timezone string,
 	filterS *engine.FilterS,
-	header, trailer utils.DataProvider) (ar *AgentRequest) {
+	extraDP map[string]utils.DataProvider) (ar *AgentRequest) {
 	if cgrRply == nil {
-		cgrRply = &utils.NavigableMap2{}
+		cgrRply = &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
 	}
 	if vars == nil {
-		vars = make(utils.NavigableMap2)
+		vars = &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
 	}
 	if rply == nil {
 		rply = utils.NewOrderedNavigableMap()
 	}
+	if opts == nil {
+		opts = make(utils.MapStorage)
+	}
+	if extraDP == nil {
+		extraDP = make(map[string]utils.DataProvider)
+	}
 	ar = &AgentRequest{
 		Request:    req,
+		Tenant:     dfltTenant,
 		Vars:       vars,
 		CGRRequest: utils.NewOrderedNavigableMap(),
 		diamreq:    utils.NewOrderedNavigableMap(), // special case when CGRateS is building the request
@@ -59,18 +61,14 @@ func NewAgentRequest(req utils.DataProvider,
 		Reply:      rply,
 		Timezone:   timezone,
 		filterS:    filterS,
-		Header:     header,
-		Trailer:    trailer,
+		Opts:       opts,
+		Cfg:        config.CgrConfig().GetDataProvider(),
+		ExtraDP:    extraDP,
 	}
-	// populate tenant
-	if tntIf, err := ar.ParseField(
-		&config.FCTemplate{Type: utils.META_COMPOSED,
-			Value: tntTpl}); err == nil && tntIf.(string) != "" {
-		ar.Tenant = tntIf.(string)
-	} else {
-		ar.Tenant = dfltTenant
+	if tnt, err := tntTpl.ParseDataProvider(ar); err == nil && tnt != utils.EmptyString {
+		ar.Tenant = tnt
 	}
-	ar.Vars.Set(utils.PathItems{{Field: utils.NodeID}}, utils.NewNMData(config.CgrConfig().GeneralCfg().NodeID))
+	ar.Vars.Set([]string{utils.NodeID}, config.CgrConfig().GeneralCfg().NodeID)
 	return
 }
 
@@ -78,16 +76,18 @@ func NewAgentRequest(req utils.DataProvider,
 // implements utils.DataProvider so we can pass it to filters
 type AgentRequest struct {
 	Request    utils.DataProvider         // request
-	Vars       utils.NavigableMap2        // shared data
+	Vars       *utils.DataNode            // shared data
 	CGRRequest *utils.OrderedNavigableMap // Used in reply to access the request that was send
-	CGRReply   *utils.NavigableMap2
+	CGRReply   *utils.DataNode
 	Reply      *utils.OrderedNavigableMap
 	Tenant     string
 	Timezone   string
 	filterS    *engine.FilterS
-	Header     utils.DataProvider
-	Trailer    utils.DataProvider
 	diamreq    *utils.OrderedNavigableMap // used in case of building requests (ie. DisconnectSession)
+	tmp        *utils.DataNode            // used in case you want to store temporary items and access them later
+	Opts       utils.MapStorage
+	Cfg        utils.DataProvider
+	ExtraDP    map[string]utils.DataProvider
 }
 
 // String implements utils.DataProvider
@@ -95,73 +95,102 @@ func (ar *AgentRequest) String() string {
 	return utils.ToIJSON(ar)
 }
 
-// RemoteHost implements utils.DataProvider
-func (ar *AgentRequest) RemoteHost() net.Addr {
-	return ar.Request.RemoteHost()
-}
-
 // FieldAsInterface implements utils.DataProvider
-func (ar *AgentRequest) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (ar *AgentRequest) FieldAsInterface(fldPath []string) (val any, err error) {
 	switch fldPath[0] {
 	default:
-		return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
+		dp, has := ar.ExtraDP[fldPath[0]]
+		if !has {
+			return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
+		}
+		val, err = dp.FieldAsInterface(fldPath[1:])
 	case utils.MetaReq:
-		val, err = ar.Request.FieldAsInterface(fldPath[1:])
+		if len(fldPath) != 1 {
+			val, err = ar.Request.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.Request
+		}
 	case utils.MetaVars:
-		val, err = ar.Vars.FieldAsInterface(fldPath[1:])
+		if len(fldPath) != 1 {
+			val, err = ar.Vars.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.Vars
+		}
 	case utils.MetaCgreq:
-		val, err = ar.CGRRequest.FieldAsInterface(fldPath[1:])
+		if len(fldPath) != 1 {
+			val, err = ar.CGRRequest.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.CGRRequest
+		}
 	case utils.MetaCgrep:
-		val, err = ar.CGRReply.FieldAsInterface(fldPath[1:])
+		if len(fldPath) != 1 {
+			val, err = ar.CGRReply.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.CGRReply
+		}
 	case utils.MetaDiamreq:
-		val, err = ar.diamreq.FieldAsInterface(fldPath[1:])
+		if len(fldPath) != 1 {
+			val, err = ar.diamreq.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.diamreq
+		}
 	case utils.MetaRep:
-		val, err = ar.Reply.FieldAsInterface(fldPath[1:])
-	case utils.MetaHdr:
-		val, err = ar.Header.FieldAsInterface(fldPath[1:])
-	case utils.MetaTrl:
-		val, err = ar.Trailer.FieldAsInterface(fldPath[1:])
+		if len(fldPath) != 1 {
+			val, err = ar.Reply.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.Reply
+		}
+	case utils.MetaTmp:
+		if len(fldPath) != 1 {
+			val, err = ar.tmp.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.tmp
+		}
+	case utils.MetaUCH:
+		if cacheVal, ok := engine.Cache.Get(utils.CacheUCH, strings.Join(fldPath[1:], utils.NestingSep)); !ok {
+			err = utils.ErrNotFound
+		} else {
+			val = cacheVal
+		}
+	case utils.MetaOpts:
+		if len(fldPath) != 1 {
+			val, err = ar.Opts.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.Opts
+		}
+	case utils.MetaCfg:
+		if len(fldPath) != 1 {
+			val, err = ar.Cfg.FieldAsInterface(fldPath[1:])
+		} else {
+			val = ar.Cfg
+		}
+	case utils.MetaTenant:
+		return ar.Tenant, nil
 	}
 	if err != nil {
 		return
 	}
-	if nmItems, isNMItems := val.(*utils.NMSlice); isNMItems { // special handling of NMItems, take the last value out of it
-		val = (*nmItems)[len(*nmItems)-1].Interface()
-	}
-	return
-}
-
-// Field implements utils.NMInterface
-func (ar *AgentRequest) Field(fldPath utils.PathItems) (val utils.NMInterface, err error) {
-	switch fldPath[0].Field {
-	default:
-		return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
-	case utils.MetaVars:
-		val, err = ar.Vars.Field(fldPath[1:])
-	case utils.MetaCgreq:
-		val, err = ar.CGRRequest.Field(fldPath[1:])
-	case utils.MetaCgrep:
-		val, err = ar.CGRReply.Field(fldPath[1:])
-	case utils.MetaDiamreq:
-		val, err = ar.diamreq.Field(fldPath[1:])
-	case utils.MetaRep:
-		val, err = ar.Reply.Field(fldPath[1:])
+	if nmItems, isNMItems := val.([]*utils.DataNode); isNMItems { // special handling of NMItems, take the last value out of it
+		el := nmItems[len(nmItems)-1]
+		if el.Type == utils.NMDataType {
+			val = el.Value.Data
+		}
 	}
 	return
 }
 
 // FieldAsString implements utils.DataProvider
 func (ar *AgentRequest) FieldAsString(fldPath []string) (val string, err error) {
-	var iface interface{}
+	var iface any
 	if iface, err = ar.FieldAsInterface(fldPath); err != nil {
 		return
 	}
-
 	return utils.IfaceAsString(iface), nil
 }
 
 // SetFields will populate fields of AgentRequest out of templates
 func (ar *AgentRequest) SetFields(tplFlds []*config.FCTemplate) (err error) {
+	ar.tmp = &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
 	for _, tplFld := range tplFlds {
 		if pass, err := ar.filterS.Pass(ar.Tenant,
 			tplFld.Filters, ar); err != nil {
@@ -170,10 +199,10 @@ func (ar *AgentRequest) SetFields(tplFlds []*config.FCTemplate) (err error) {
 			continue
 		}
 		switch tplFld.Type {
-		case utils.META_NONE:
+		case utils.MetaNone:
 		case utils.MetaRemove:
 			if err = ar.Remove(&utils.FullPath{
-				PathItems: tplFld.GetPathItems(),
+				PathSlice: tplFld.GetPathSlice(),
 				Path:      tplFld.Path,
 			}); err != nil {
 				return
@@ -183,7 +212,7 @@ func (ar *AgentRequest) SetFields(tplFlds []*config.FCTemplate) (err error) {
 				return
 			}
 		default:
-			var out interface{}
+			var out any
 			out, err = ar.ParseField(tplFld)
 			if err != nil {
 				if err == utils.ErrNotFound {
@@ -195,19 +224,24 @@ func (ar *AgentRequest) SetFields(tplFlds []*config.FCTemplate) (err error) {
 				}
 				return
 			}
-			fullPath := &utils.FullPath{
-				PathItems: tplFld.GetPathItems().Clone(), // need to clone so me do not modify the template
-				Path:      tplFld.Path,
+			var fullPath *utils.FullPath
+			if fullPath, err = utils.GetFullFieldPath(tplFld.Path, ar); err != nil {
+				return
+			} else if fullPath == nil { // no dynamic path
+				fullPath = &utils.FullPath{
+					PathSlice: utils.CloneStringSlice(tplFld.GetPathSlice()), // need to clone so me do not modify the template
+					Path:      tplFld.Path,
+				}
 			}
 
-			nMItm := &config.NMItem{Data: out, Path: tplFld.GetPathSlice()[1:], Config: tplFld}
+			nMItm := &utils.DataLeaf{Data: out, NewBranch: tplFld.NewBranch, AttributeID: tplFld.AttributeID}
 			switch tplFld.Type {
-			case utils.META_COMPOSED:
-				err = utils.ComposeNavMapVal(ar, fullPath, nMItm)
+			case utils.MetaComposed:
+				err = ar.Compose(fullPath, nMItm)
 			case utils.MetaGroup: // in case of *group type simply append to valSet
-				err = utils.AppendNavMapVal(ar, fullPath, nMItm)
+				err = ar.Append(fullPath, nMItm)
 			default:
-				_, err = ar.Set(fullPath, &utils.NMSlice{nMItm})
+				err = ar.SetAsSlice(fullPath, nMItm)
 			}
 			if err != nil {
 				return
@@ -221,29 +255,38 @@ func (ar *AgentRequest) SetFields(tplFlds []*config.FCTemplate) (err error) {
 }
 
 // Set implements utils.NMInterface
-func (ar *AgentRequest) Set(fullPath *utils.FullPath, nm utils.NMInterface) (added bool, err error) {
-	switch fullPath.PathItems[0].Field {
+func (ar *AgentRequest) SetAsSlice(fullPath *utils.FullPath, nm *utils.DataLeaf) (err error) {
+	switch fullPath.PathSlice[0] {
 	default:
-		return false, fmt.Errorf("unsupported field prefix: <%s> when set field", fullPath.PathItems[0].Field)
+		return fmt.Errorf("unsupported field prefix: <%s> when set field", fullPath.PathSlice[0])
 	case utils.MetaVars:
-		return ar.Vars.Set(fullPath.PathItems[1:], nm)
+		_, err = ar.Vars.Set(fullPath.PathSlice[1:], []*utils.DataNode{{Type: utils.NMDataType, Value: nm}})
+		return
 	case utils.MetaCgreq:
-		return ar.CGRRequest.Set(&utils.FullPath{
-			PathItems: fullPath.PathItems[1:],
+		return ar.CGRRequest.SetAsSlice(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
 			Path:      fullPath.Path[7:],
-		}, nm)
+		}, []*utils.DataNode{{Type: utils.NMDataType, Value: nm}})
 	case utils.MetaCgrep:
-		return ar.CGRReply.Set(fullPath.PathItems[1:], nm)
+		_, err = ar.CGRReply.Set(fullPath.PathSlice[1:], []*utils.DataNode{{Type: utils.NMDataType, Value: nm}})
+		return
 	case utils.MetaRep:
-		return ar.Reply.Set(&utils.FullPath{
-			PathItems: fullPath.PathItems[1:],
+		return ar.Reply.SetAsSlice(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
 			Path:      fullPath.Path[5:],
-		}, nm)
+		}, []*utils.DataNode{{Type: utils.NMDataType, Value: nm}})
 	case utils.MetaDiamreq:
-		return ar.diamreq.Set(&utils.FullPath{
-			PathItems: fullPath.PathItems[1:],
+		return ar.diamreq.SetAsSlice(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
 			Path:      fullPath.Path[9:],
-		}, nm)
+		}, []*utils.DataNode{{Type: utils.NMDataType, Value: nm}})
+	case utils.MetaTmp:
+		_, err = ar.tmp.Set(fullPath.PathSlice[1:], []*utils.DataNode{{Type: utils.NMDataType, Value: nm}})
+		return
+	case utils.MetaOpts:
+		return ar.Opts.Set(fullPath.PathSlice[1:], nm.Data)
+	case utils.MetaUCH:
+		return engine.Cache.Set(utils.CacheUCH, fullPath.Path[5:], nm.Data, nil, true, utils.NonTransactional)
 	}
 }
 
@@ -253,210 +296,76 @@ func (ar *AgentRequest) RemoveAll(prefix string) error {
 	default:
 		return fmt.Errorf("unsupported field prefix: <%s> when set fields", prefix)
 	case utils.MetaVars:
-		ar.Vars = utils.NavigableMap2{}
+		ar.Vars = &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
 	case utils.MetaCgreq:
 		ar.CGRRequest.RemoveAll()
 	case utils.MetaCgrep:
-		ar.CGRReply = &utils.NavigableMap2{}
+		ar.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
 	case utils.MetaRep:
 		ar.Reply.RemoveAll()
 	case utils.MetaDiamreq:
 		ar.diamreq.RemoveAll()
+	case utils.MetaTmp:
+		ar.tmp = &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
+	case utils.MetaUCH:
+		engine.Cache.Clear([]string{utils.CacheUCH})
+	case utils.MetaOpts:
+		ar.Opts = make(utils.MapStorage)
 	}
 	return nil
 }
 
 // Remove deletes the fields found at path with the given prefix
 func (ar *AgentRequest) Remove(fullPath *utils.FullPath) error {
-	switch fullPath.PathItems[0].Field {
+	switch fullPath.PathSlice[0] {
 	default:
-		return fmt.Errorf("unsupported field prefix: <%s> when set fields", fullPath.PathItems[0].Field)
+		return fmt.Errorf("unsupported field prefix: <%s> when set fields", fullPath.PathSlice[0])
 	case utils.MetaVars:
-		return ar.Vars.Remove(fullPath.PathItems[1:])
+		return ar.Vars.Remove(utils.CloneStringSlice(fullPath.PathSlice[1:]))
 	case utils.MetaCgreq:
 		return ar.CGRRequest.Remove(&utils.FullPath{
-			PathItems: fullPath.PathItems[1:].Clone(),
+			PathSlice: fullPath.PathSlice[1:],
 			Path:      fullPath.Path[7:],
 		})
 	case utils.MetaCgrep:
-		return ar.CGRReply.Remove(fullPath.PathItems[1:])
+		return ar.CGRReply.Remove(utils.CloneStringSlice(fullPath.PathSlice[1:]))
 	case utils.MetaRep:
 		return ar.Reply.Remove(&utils.FullPath{
-			PathItems: fullPath.PathItems[1:].Clone(),
+			PathSlice: fullPath.PathSlice[1:],
 			Path:      fullPath.Path[5:],
 		})
 	case utils.MetaDiamreq:
 		return ar.diamreq.Remove(&utils.FullPath{
-			PathItems: fullPath.PathItems[1:].Clone(),
+			PathSlice: fullPath.PathSlice[1:],
 			Path:      fullPath.Path[9:],
 		})
+	case utils.MetaTmp:
+		return ar.tmp.Remove(utils.CloneStringSlice(fullPath.PathSlice[1:]))
+	case utils.MetaOpts:
+		return ar.Opts.Remove(fullPath.PathSlice[1:])
+	case utils.MetaUCH:
+		return engine.Cache.Remove(utils.CacheUCH, fullPath.Path[5:], true, utils.NonTransactional)
 	}
 }
 
 // ParseField outputs the value based on the template item
 func (ar *AgentRequest) ParseField(
-	cfgFld *config.FCTemplate) (out interface{}, err error) {
-	var isString bool
-	switch cfgFld.Type {
-	default:
-		return utils.EmptyString, fmt.Errorf("unsupported type: <%s>", cfgFld.Type)
-	case utils.META_NONE:
-		return
-	case utils.META_FILLER:
-		out, err = cfgFld.Value.ParseValue(utils.EmptyString)
+	cfgFld *config.FCTemplate) (out any, err error) {
+	tmpType := cfgFld.Type
+	switch tmpType {
+	case utils.MetaFiller:
 		cfgFld.Padding = utils.MetaRight
-		isString = true
-	case utils.META_CONSTANT:
-		out, err = cfgFld.Value.ParseValue(utils.EmptyString)
-		isString = true
-	case utils.MetaRemoteHost:
-		out = ar.RemoteHost().String()
-		isString = true
-	case utils.MetaVariable, utils.META_COMPOSED, utils.MetaGroup:
-		out, err = cfgFld.Value.ParseDataProvider(ar, utils.NestingSep)
-		isString = true
-	case utils.META_USAGE_DIFFERENCE:
-		if len(cfgFld.Value) != 2 {
-			return nil, fmt.Errorf("invalid arguments <%s> to %s",
-				utils.ToJSON(cfgFld.Value), utils.META_USAGE_DIFFERENCE)
-		}
-		strVal1, err := cfgFld.Value[0].ParseDataProvider(ar, utils.NestingSep)
-		if err != nil {
-			return "", err
-		}
-		strVal2, err := cfgFld.Value[1].ParseDataProvider(ar, utils.NestingSep)
-		if err != nil {
-			return "", err
-		}
-		tEnd, err := utils.ParseTimeDetectLayout(strVal1, ar.Timezone)
-		if err != nil {
-			return "", err
-		}
-		tStart, err := utils.ParseTimeDetectLayout(strVal2, ar.Timezone)
-		if err != nil {
-			return "", err
-		}
-		out = tEnd.Sub(tStart).String()
-		isString = true
-	case utils.MetaCCUsage:
-		if len(cfgFld.Value) != 3 {
-			return nil, fmt.Errorf("invalid arguments <%s> to %s",
-				utils.ToJSON(cfgFld.Value), utils.MetaCCUsage)
-		}
-		strVal1, err := cfgFld.Value[0].ParseDataProvider(ar, utils.NestingSep) // ReqNr
-		if err != nil {
-			return "", err
-		}
-		reqNr, err := strconv.ParseInt(strVal1, 10, 64)
-		if err != nil {
-			return "", fmt.Errorf("invalid requestNumber <%s> to %s",
-				strVal1, utils.MetaCCUsage)
-		}
-		strVal2, err := cfgFld.Value[1].ParseDataProvider(ar, utils.NestingSep) // TotalUsage
-		if err != nil {
-			return "", err
-		}
-		usedCCTime, err := utils.ParseDurationWithNanosecs(strVal2)
-		if err != nil {
-			return "", fmt.Errorf("invalid usedCCTime <%s> to %s",
-				strVal2, utils.MetaCCUsage)
-		}
-		strVal3, err := cfgFld.Value[2].ParseDataProvider(ar, utils.NestingSep) // DebitInterval
-		if err != nil {
-			return "", err
-		}
-		debitItvl, err := utils.ParseDurationWithNanosecs(strVal3)
-		if err != nil {
-			return "", fmt.Errorf("invalid debitInterval <%s> to %s",
-				strVal3, utils.MetaCCUsage)
-		}
-		mltpl := reqNr - 1 // terminate will be ignored (init request should always be 0)
-		if mltpl < 0 {
-			mltpl = 0
-		}
-		return usedCCTime + time.Duration(debitItvl.Nanoseconds()*mltpl), nil
-	case utils.MetaSum:
-		iFaceVals := make([]interface{}, len(cfgFld.Value))
-		for i, val := range cfgFld.Value {
-			strVal, err := val.ParseDataProvider(ar, utils.NestingSep)
-			if err != nil {
-				return "", err
-			}
-			iFaceVals[i] = utils.StringToInterface(strVal)
-		}
-		out, err = utils.Sum(iFaceVals...)
-	case utils.MetaDifference:
-		iFaceVals := make([]interface{}, len(cfgFld.Value))
-		for i, val := range cfgFld.Value {
-			strVal, err := val.ParseDataProvider(ar, utils.NestingSep)
-			if err != nil {
-				return "", err
-			}
-			iFaceVals[i] = utils.StringToInterface(strVal)
-		}
-		out, err = utils.Difference(iFaceVals...)
-	case utils.MetaValueExponent:
-		if len(cfgFld.Value) != 2 {
-			return nil, fmt.Errorf("invalid arguments <%s> to %s",
-				utils.ToJSON(cfgFld.Value), utils.MetaValueExponent)
-		}
-		strVal1, err := cfgFld.Value[0].ParseDataProvider(ar, utils.NestingSep) // String Value
-		if err != nil {
-			return "", err
-		}
-		val, err := strconv.ParseFloat(strVal1, 64)
-		if err != nil {
-			return "", fmt.Errorf("invalid value <%s> to %s",
-				strVal1, utils.MetaValueExponent)
-		}
-		strVal2, err := cfgFld.Value[1].ParseDataProvider(ar, utils.NestingSep) // String Exponent
-		if err != nil {
-			return "", err
-		}
-		exp, err := strconv.Atoi(strVal2)
-		if err != nil {
-			return "", err
-		}
-		out = strconv.FormatFloat(utils.Round(val*math.Pow10(exp),
-			config.CgrConfig().GeneralCfg().RoundingDecimals, utils.ROUNDING_MIDDLE), 'f', -1, 64)
-	case utils.MetaUnixTimestamp:
-		val, err := cfgFld.Value.ParseDataProvider(ar, utils.NestingSep)
-		if err != nil {
-			return nil, err
-		}
-		t, err := utils.ParseTimeDetectLayout(val, cfgFld.Timezone)
-		if err != nil {
-			return nil, err
-		}
-		out = strconv.Itoa(int(t.Unix()))
-	case utils.MetaSIPCID:
-		isString = true
-		if len(cfgFld.Value) < 1 {
-			return nil, fmt.Errorf("invalid number of arguments <%s> to %s",
-				utils.ToJSON(cfgFld.Value), utils.MetaSIPCID)
-		}
-		values := make([]string, 1, len(cfgFld.Value))
-		if values[0], err = cfgFld.Value[0].ParseDataProvider(ar, utils.NestingSep); err != nil {
-			return
-		}
-		for _, val := range cfgFld.Value[1:] {
-			var valStr string
-			if valStr, err = val.ParseDataProvider(ar, utils.NestingSep); err != nil && err != utils.ErrNotFound {
-				return
-			}
-			if len(valStr) != 0 && err != utils.ErrNotFound {
-				values = append(values, valStr)
-			}
-		}
-		sort.Strings(values[1:])
-		out = strings.Join(values, utils.INFIELD_SEP)
+		tmpType = utils.MetaConstant
+	case utils.MetaGroup:
+		tmpType = utils.MetaVariable
 	}
+	out, err = engine.ParseAttribute(ar, tmpType, cfgFld.Path, cfgFld.Value, config.CgrConfig().GeneralCfg().RoundingDecimals, utils.FirstNonEmpty(cfgFld.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone), cfgFld.Layout, config.CgrConfig().GeneralCfg().RSRSep)
 
 	if err != nil &&
 		!strings.HasPrefix(err.Error(), "Could not find") {
 		return
 	}
-	if isString { // format the string additionally with fmtFieldWidth
+	if utils.StringTmplType.Has(tmpType) { // format the string additionally with fmtFieldWidth
 		out, err = utils.FmtFieldWidth(cfgFld.Tag, out.(string), cfgFld.Width,
 			cfgFld.Strip, cfgFld.Padding, cfgFld.Mandatory)
 	}
@@ -465,27 +374,108 @@ func (ar *AgentRequest) ParseField(
 
 // setCGRReply will set the aReq.cgrReply based on reply coming from upstream or error
 // returns error in case of reply not converting to NavigableMap
-func (ar *AgentRequest) setCGRReply(rply utils.NavigableMapper, errRply error) (err error) {
-	var nm utils.NavigableMap2
-	if errRply != nil {
-		nm = utils.NavigableMap2{utils.Error: utils.NewNMData(errRply.Error())}
-	} else {
-		nm = utils.NavigableMap2{}
-		if rply != nil {
-			nm = rply.AsNavigableMap()
-		}
-		nm.Set(utils.PathItems{{Field: utils.Error}}, utils.NewNMData("")) // enforce empty error
+func (ar *AgentRequest) setCGRReply(rply utils.NavigableMapper, err error) {
+	ar.CGRReply.Map = make(map[string]*utils.DataNode)
+	var errMsg string
+	if err != nil {
+		errMsg = err.Error()
+	} else if rply != nil {
+		ar.CGRReply.Map = rply.AsNavigableMap()
 	}
-	*ar.CGRReply = nm // update value so we can share CGRReply
-	return
+	ar.CGRReply.Map[utils.Error] = utils.NewLeafNode(errMsg)
 }
 
-func needsMaxUsage(ralsFlags []string) bool {
-	for _, flag := range ralsFlags {
-		if utils.IsSliceMember([]string{utils.MetaAuthorize, utils.MetaInitiate, utils.MetaUpdate},
-			flag) {
-			return true
-		}
+func needsMaxUsage(ralsFlags utils.FlagParams) bool {
+	return len(ralsFlags) != 0 &&
+		(ralsFlags.Has(utils.MetaAuthorize) ||
+			ralsFlags.Has(utils.MetaInitiate) ||
+			ralsFlags.Has(utils.MetaUpdate))
+}
+
+// Append sets the value at the given path
+// this used with full path and the processed path to not calculate them for every set
+func (ar *AgentRequest) Append(fullPath *utils.FullPath, val *utils.DataLeaf) (err error) {
+	switch fullPath.PathSlice[0] {
+	default:
+		return fmt.Errorf("unsupported field prefix: <%s> when set field", fullPath.PathSlice[0])
+	case utils.MetaVars:
+		_, err = ar.Vars.Append(fullPath.PathSlice[1:], val)
+		return
+	case utils.MetaCgreq:
+		return ar.CGRRequest.Append(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
+			Path:      fullPath.Path[7:],
+		}, val)
+	case utils.MetaCgrep:
+		_, err = ar.CGRReply.Append(fullPath.PathSlice[1:], val)
+		return
+	case utils.MetaRep:
+		return ar.Reply.Append(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
+			Path:      fullPath.Path[5:],
+		}, val)
+	case utils.MetaDiamreq:
+		return ar.diamreq.Append(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
+			Path:      fullPath.Path[9:],
+		}, val)
+	case utils.MetaTmp:
+		_, err = ar.tmp.Append(fullPath.PathSlice[1:], val)
+		return
+	case utils.MetaOpts:
+		return ar.Opts.Set(fullPath.PathSlice[1:], val.Data)
+	case utils.MetaUCH:
+		return engine.Cache.Set(utils.CacheUCH, fullPath.Path[5:], val.Data, nil, true, utils.NonTransactional)
 	}
-	return false
+}
+
+// Set sets the value at the given path
+// this used with full path and the processed path to not calculate them for every set
+func (ar *AgentRequest) Compose(fullPath *utils.FullPath, val *utils.DataLeaf) (err error) {
+	switch fullPath.PathSlice[0] {
+	default:
+		return fmt.Errorf("unsupported field prefix: <%s> when set field", fullPath.PathSlice[0])
+	case utils.MetaVars:
+		return ar.Vars.Compose(fullPath.PathSlice[1:], val)
+	case utils.MetaCgreq:
+		return ar.CGRRequest.Compose(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
+			Path:      fullPath.Path[7:],
+		}, val)
+	case utils.MetaCgrep:
+		return ar.CGRReply.Compose(fullPath.PathSlice[1:], val)
+	case utils.MetaRep:
+		return ar.Reply.Compose(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
+			Path:      fullPath.Path[5:],
+		}, val)
+	case utils.MetaDiamreq:
+		return ar.diamreq.Compose(&utils.FullPath{
+			PathSlice: fullPath.PathSlice[1:],
+			Path:      fullPath.Path[9:],
+		}, val)
+	case utils.MetaTmp:
+		return ar.tmp.Compose(fullPath.PathSlice[1:], val)
+	case utils.MetaOpts:
+		var prv any
+		if prv, err = ar.Opts.FieldAsInterface(fullPath.PathSlice[1:]); err != nil {
+			if err != utils.ErrNotFound {
+				return
+			}
+			prv = val.Data
+		} else {
+			prv = utils.IfaceAsString(prv) + utils.IfaceAsString(val.Data)
+		}
+		return ar.Opts.Set(fullPath.PathSlice[1:], prv)
+
+	case utils.MetaUCH:
+		path := fullPath.Path[5:]
+		var prv any
+		if prvI, ok := engine.Cache.Get(utils.CacheUCH, path); !ok {
+			prv = val.Data
+		} else {
+			prv = utils.IfaceAsString(prvI) + utils.IfaceAsString(val.Data)
+		}
+		return engine.Cache.Set(utils.CacheUCH, path, prv, nil, true, utils.NonTransactional)
+	}
 }

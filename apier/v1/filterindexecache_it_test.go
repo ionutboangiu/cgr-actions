@@ -139,18 +139,22 @@ func testV1FIdxCaFromFolder(t *testing.T) {
 	if err := tFIdxCaRpc.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 // ThresholdProfile
 func testV1FIdxCaProcessEventWithNotFound(t *testing.T) {
-	tEv := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.BalanceUpdate,
-				utils.Account:   "1001"}}}
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.BalanceUpdate,
+			utils.AccountField: "1001",
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.BalanceUpdate,
+		},
+	}
 	var thIDs []string
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
@@ -158,13 +162,13 @@ func testV1FIdxCaProcessEventWithNotFound(t *testing.T) {
 }
 
 func testV1FIdxCaSetThresholdProfile(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "TestFilter",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1001"},
 				},
@@ -185,7 +189,7 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	tPrfl = &engine.ThresholdWithCache{
+	tPrfl = &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "TEST_PROFILE1",
@@ -195,7 +199,7 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 			},
 			MinHits:  1,
 			MaxHits:  -1,
-			MinSleep: time.Duration(5 * time.Minute),
+			MinSleep: 5 * time.Minute,
 			Blocker:  false,
 			Weight:   20.0,
 			Async:    true,
@@ -208,14 +212,18 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 	//matches TEST_PROFILE1
-	tEv := &engine.ArgsProcessEvent{
-		ThresholdIDs: []string{"TEST_PROFILE1"},
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.BalanceUpdate,
-				utils.Account:   "1001"}}}
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.BalanceUpdate,
+			utils.AccountField: "1001",
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType:            utils.BalanceUpdate,
+			utils.OptsThresholdsProfileIDs: []string{"TEST_PROFILE1"},
+		},
+	}
 	var thIDs []string
 	eIDs := []string{"TEST_PROFILE1"}
 	//Testing ProcessEvent on set thresholdprofile using apier
@@ -229,16 +237,20 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 
 func testV1FIdxCaGetThresholdFromTP(t *testing.T) {
 	//matches THD_ACNT_BALANCE_1
-	tEv := &engine.ArgsProcessEvent{
-		ThresholdIDs: []string{"THD_ACNT_BALANCE_1"},
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.BalanceUpdate,
-				utils.Account:   "1001",
-				utils.BalanceID: utils.MetaDefault,
-				utils.Units:     12.3}}}
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.BalanceUpdate,
+			utils.AccountField: "1001",
+			utils.BalanceID:    utils.MetaDefault,
+			utils.Units:        12.3,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType:            utils.BalanceUpdate,
+			utils.OptsThresholdsProfileIDs: []string{"THD_ACNT_BALANCE_1"},
+		},
+	}
 	var thIDs []string
 	eIDs := []string{"THD_ACNT_BALANCE_1"}
 	//Testing ProcessEvent on set thresholdprofile using apier
@@ -252,13 +264,13 @@ func testV1FIdxCaGetThresholdFromTP(t *testing.T) {
 
 func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 	var result string
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "TestFilter2",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1002"},
 				},
@@ -278,7 +290,7 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	tPrfl = &engine.ThresholdWithCache{
+	tPrfl = &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "TEST_PROFILE1",
@@ -287,7 +299,7 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 			},
 			MaxHits:  -1,
-			MinSleep: time.Duration(5 * time.Minute),
+			MinSleep: 5 * time.Minute,
 			Blocker:  false,
 			Weight:   20.0,
 			Async:    true,
@@ -299,13 +311,17 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 	//make sure doesn't match the thresholdprofile after update
-	tEv := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.AccountUpdate,
-				utils.Account:   "1001"}}}
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1001",
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
+		},
+	}
 	var thIDs []string
 	eIDs := []string{}
 	//Testing ProcessEvent on set thresholdprofile  after update making sure there are no hits
@@ -314,13 +330,17 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 		t.Error(err)
 	}
 	//matches thresholdprofile after update
-	tEv2 := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.AccountUpdate,
-				utils.Account:   "1002"}}}
+	tEv2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1002",
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
+		},
+	}
 	eIDs = []string{"TEST_PROFILE1"}
 	//Testing ProcessEvent on set thresholdprofile after update
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err != nil {
@@ -332,13 +352,13 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 
 func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 	var result string
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "TestFilter3",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1003"},
 				},
@@ -373,31 +393,39 @@ func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 	}
 	reply.FilterIDs = []string{"TestFilter3"}
 
-	if err := tFIdxCaRpc.Call(utils.APIerSv1SetThresholdProfile, &engine.ThresholdWithCache{ThresholdProfile: reply}, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.APIerSv1SetThresholdProfile, &engine.ThresholdProfileWithAPIOpts{ThresholdProfile: reply}, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	tEv := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.Account:   "1002",
-				utils.EventType: utils.BalanceUpdate}}}
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.EventType:    utils.BalanceUpdate,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.BalanceUpdate,
+		},
+	}
 	var thIDs []string
 	//Testing ProcessEvent on set thresholdprofile using apier
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	tEv2 := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event3",
-			Event: map[string]interface{}{
-				utils.Account:   "1003",
-				utils.EventType: utils.BalanceUpdate}}}
+	tEv2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event3",
+		Event: map[string]any{
+			utils.AccountField: "1003",
+			utils.EventType:    utils.BalanceUpdate,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.BalanceUpdate,
+		},
+	}
 	eIDs := []string{"THD_ACNT_BALANCE_1"}
 	//Testing ProcessEvent on set thresholdprofile using apier
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err != nil {
@@ -409,13 +437,17 @@ func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 
 func testV1FIdxCaRemoveThresholdProfile(t *testing.T) {
 	var resp string
-	tEv := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event8",
-			Event: map[string]interface{}{
-				utils.Account:   "1002",
-				utils.EventType: utils.AccountUpdate}}}
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event8",
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.EventType:    utils.AccountUpdate,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
+		},
+	}
 	var thIDs []string
 	eIDs := []string{"TEST_PROFILE1"}
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err != nil {
@@ -424,13 +456,17 @@ func testV1FIdxCaRemoveThresholdProfile(t *testing.T) {
 		t.Errorf("Expecting : %s, received: %s", eIDs, thIDs)
 	}
 
-	tEv2 := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event9",
-			Event: map[string]interface{}{
-				utils.Account:   "1003",
-				utils.EventType: utils.BalanceUpdate}}}
+	tEv2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event9",
+		Event: map[string]any{
+			utils.AccountField: "1003",
+			utils.EventType:    utils.BalanceUpdate,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.BalanceUpdate,
+		},
+	}
 	eIDs = []string{"THD_ACNT_BALANCE_1"}
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err != nil {
 		t.Error(err)
@@ -477,16 +513,23 @@ func testV1FIdxCaRemoveThresholdProfile(t *testing.T) {
 // StatQueue
 func testV1FIdxCaGetStatQueuesWithNotFound(t *testing.T) {
 	var reply *[]string
-	tEv := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.AccountUpdate,
-				utils.Account:   "1001",
-			},
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1001",
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
 		},
 	}
+	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+
+	tEv.Tenant = utils.EmptyString
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
@@ -495,13 +538,13 @@ func testV1FIdxCaGetStatQueuesWithNotFound(t *testing.T) {
 
 func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 	tenant := "cgrates.org"
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: tenant,
 			ID:     "FLTR_1",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1001"},
 				},
@@ -523,7 +566,7 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	statConfig = &engine.StatQueueWithCache{
+	statConfig = &engine.StatQueueProfileWithAPIOpts{
 		StatQueueProfile: &engine.StatQueueProfile{
 			Tenant:    "cgrates.org",
 			ID:        "TEST_PROFILE1",
@@ -532,11 +575,13 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
 			QueueLength: 10,
-			TTL:         time.Duration(10) * time.Second,
-			Metrics: []*engine.MetricWithFilters{{
-				MetricID: "*sum:~*req.Val",
-			}},
-			ThresholdIDs: []string{"Val1", "Val2"},
+			TTL:         10 * time.Second,
+			Metrics: []*engine.MetricWithFilters{
+				{
+					MetricID: "*sum#~*req.Val",
+				},
+			},
+			ThresholdIDs: []string{utils.MetaNone},
 			Blocker:      true,
 			Stored:       true,
 			Weight:       20,
@@ -549,15 +594,16 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 
-	tEv := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.AccountUpdate,
-				utils.Account:   "1001",
-				"Val":           10,
-			},
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1001",
+			"Val":              10,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
 		},
 	}
 	var reply []string
@@ -573,16 +619,14 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 	var reply []string
 	expected := []string{"Stats1"}
-	ev2 := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event2",
-			Event: map[string]interface{}{
-				utils.Account:    "1002",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(45 * time.Second),
-				utils.Cost:       12.1,
-			},
+	ev2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event2",
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.Cost:         12.1,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, ev2, &reply); err != nil {
@@ -590,16 +634,14 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 	} else if !reflect.DeepEqual(reply, expected) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
-	ev3 := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event3",
-			Event: map[string]interface{}{
-				utils.Account:    "1002",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(45 * time.Second),
-				utils.Cost:       12.1,
-			},
+	ev3 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event3",
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.Cost:         12.1,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &ev3, &reply); err != nil {
@@ -608,17 +650,18 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 
-	tEv := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType:  utils.AccountUpdate,
-				utils.Account:    "1001",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(45 * time.Second),
-				utils.Cost:       12.1,
-			},
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1001",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.Cost:         12.1,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &tEv, &reply); err != nil {
@@ -626,17 +669,18 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 	} else if !reflect.DeepEqual(reply, expected) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
-	tEv2 := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType:  utils.AccountUpdate,
-				utils.Account:    "1001",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(45 * time.Second),
-				utils.Cost:       12.1,
-			},
+	tEv2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1001",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.Cost:         12.1,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &tEv2, &reply); err != nil {
@@ -647,13 +691,13 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 }
 
 func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "FLTR_2",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1003"},
 				},
@@ -674,7 +718,7 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	statConfig = &engine.StatQueueWithCache{
+	statConfig = &engine.StatQueueProfileWithAPIOpts{
 		StatQueueProfile: &engine.StatQueueProfile{
 			Tenant:    "cgrates.org",
 			ID:        "TEST_PROFILE1",
@@ -683,10 +727,10 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
 			QueueLength: 10,
-			TTL:         time.Duration(10) * time.Second,
+			TTL:         10 * time.Second,
 			Metrics: []*engine.MetricWithFilters{
 				{
-					MetricID: "*sum:~Val",
+					MetricID: "*sum#~*req.Val",
 				},
 			},
 			ThresholdIDs: []string{"*none"},
@@ -703,15 +747,16 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 	}
 	var reply []string
 	expected := []string{"TEST_PROFILE1"}
-	tEv := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.BalanceUpdate,
-				utils.Account:   "1003",
-				"Val":           10,
-			},
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.BalanceUpdate,
+			utils.AccountField: "1003",
+			"Val":              10,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.BalanceUpdate,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err != nil {
@@ -722,13 +767,13 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 }
 
 func testV1FIdxCaUpdateStatQueueProfileFromTP(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "FLTR_3",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1003"},
 				},
@@ -757,22 +802,23 @@ func testV1FIdxCaUpdateStatQueueProfileFromTP(t *testing.T) {
 	reply.FilterIDs = []string{"FLTR_3"}
 	reply.ActivationInterval = &utils.ActivationInterval{ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}
 	if err := tFIdxCaRpc.Call(utils.APIerSv1SetStatQueueProfile,
-		&engine.StatQueueWithCache{StatQueueProfile: &reply}, &result); err != nil {
+		&engine.StatQueueProfileWithAPIOpts{StatQueueProfile: &reply}, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	tEv := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType:  utils.AccountUpdate,
-				utils.Account:    "1003",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(45 * time.Second),
-				utils.Cost:       12.1,
-			},
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1003",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.Cost:         12.1,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
 		},
 	}
 	var ids []string
@@ -788,15 +834,16 @@ func testV1FIdxCaUpdateStatQueueProfileFromTP(t *testing.T) {
 func testV1FIdxCaRemoveStatQueueProfile(t *testing.T) {
 	var reply []string
 	expected := []string{"TEST_PROFILE1"}
-	tEv := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType: utils.BalanceUpdate,
-				utils.Account:   "1003",
-				"Val":           10,
-			},
+	tEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.BalanceUpdate,
+			utils.AccountField: "1003",
+			"Val":              10,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.BalanceUpdate,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err != nil {
@@ -805,17 +852,18 @@ func testV1FIdxCaRemoveStatQueueProfile(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 	expected = []string{"Stats1"}
-	tEv2 := &engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EventType:  utils.AccountUpdate,
-				utils.Account:    "1003",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(45 * time.Second),
-				utils.Cost:       12.1,
-			},
+	tEv2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventType:    utils.AccountUpdate,
+			utils.AccountField: "1003",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.Cost:         12.1,
+		},
+		APIOpts: map[string]any{
+			utils.MetaEventType: utils.AccountUpdate,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv2, &reply); err != nil {
@@ -864,15 +912,15 @@ func testV1FIdxCaRemoveStatQueueProfile(t *testing.T) {
 
 // AttributeProfile
 func testV1FIdxCaProcessAttributeProfileEventWithNotFound(t *testing.T) {
-	ev := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "3009",
-				utils.Destination: "+492511231234",
-			},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "3009",
+			utils.Destination:  "+492511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	var rplyEv engine.AttrSProcessEventReply
@@ -883,13 +931,13 @@ func testV1FIdxCaProcessAttributeProfileEventWithNotFound(t *testing.T) {
 }
 
 func testV1FIdxCaSetAttributeProfile(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "TestFilter",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1009"},
 				},
@@ -910,7 +958,7 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	alsPrf := &AttributeWithCache{
+	alsPrf := &engine.AttributeProfileWithAPIOpts{
 		AttributeProfile: &engine.AttributeProfile{
 			Tenant:    "cgrates.org",
 			ID:        "TEST_PROFILE1",
@@ -921,12 +969,12 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 			},
 			Attributes: []*engine.Attribute{
 				{
-					Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-					Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+					Path:  utils.MetaReq + utils.NestingSep + utils.AccountField,
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
-					Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 				},
 			},
 			Weight: 20,
@@ -938,15 +986,15 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 	//matches TEST_PROFILE1
-	ev := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "1009",
-				utils.Destination: "+491511231234",
-			},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "1009",
+			utils.Destination:  "+491511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	var rplyEv engine.AttrSProcessEventReply
@@ -958,15 +1006,15 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 
 func testV1FIdxCaGetAttributeProfileFromTP(t *testing.T) {
 	//matches ATTR_1
-	ev := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "1007",
-				utils.Destination: "+491511231234",
-			},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "1007",
+			utils.Destination:  "+491511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	var rplyEv engine.AttrSProcessEventReply
@@ -976,13 +1024,13 @@ func testV1FIdxCaGetAttributeProfileFromTP(t *testing.T) {
 }
 
 func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "TestFilter2",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"2009"},
 				},
@@ -1003,7 +1051,7 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	alsPrf := &AttributeWithCache{
+	alsPrf := &engine.AttributeProfileWithAPIOpts{
 		AttributeProfile: &engine.AttributeProfile{
 			Tenant:    "cgrates.org",
 			ID:        "TEST_PROFILE1",
@@ -1014,12 +1062,12 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 			},
 			Attributes: []*engine.Attribute{
 				{
-					Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-					Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+					Path:  utils.MetaReq + utils.NestingSep + utils.AccountField,
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
-					Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 				},
 			},
 			Weight: 20,
@@ -1031,15 +1079,15 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 	//matches TEST_PROFILE1
-	ev := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "2009",
-				utils.Destination: "+492511231234",
-			},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "2009",
+			utils.Destination:  "+492511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	var rplyEv engine.AttrSProcessEventReply
@@ -1049,13 +1097,13 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 }
 
 func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "TestFilter3",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"3009"},
 				},
@@ -1078,26 +1126,26 @@ func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
 	}
 	var reply engine.AttributeProfile
 	if err := tFIdxCaRpc.Call(utils.APIerSv1GetAttributeProfile,
-		&utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_1"}},
+		&utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_1"}},
 		&reply); err != nil {
 		t.Error(err)
 	}
 	reply.FilterIDs = []string{"TestFilter3"}
-	if err := tFIdxCaRpc.Call(utils.APIerSv1SetAttributeProfile, &AttributeWithCache{AttributeProfile: &reply}, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.APIerSv1SetAttributeProfile, &engine.AttributeProfileWithAPIOpts{AttributeProfile: &reply}, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
 	//matches TEST_PROFILE1
-	ev := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "3009",
-				utils.Destination: "+492511231234",
-			},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "3009",
+			utils.Destination:  "+492511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	var rplyEv engine.AttrSProcessEventReply
@@ -1108,15 +1156,15 @@ func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
 
 func testV1FIdxCaRemoveAttributeProfile(t *testing.T) {
 	var resp string
-	ev := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "3009",
-				utils.Destination: "+492511231234",
-			},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "3009",
+			utils.Destination:  "+492511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	var rplyEv engine.AttrSProcessEventReply
@@ -1124,23 +1172,23 @@ func testV1FIdxCaRemoveAttributeProfile(t *testing.T) {
 		t.Error(err)
 	}
 
-	ev2 := &engine.AttrArgsProcessEvent{
-		Context: utils.StringPointer(utils.MetaSessionS),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "2009",
-				utils.Destination: "+492511231234",
-			},
+	ev2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testAttributeSProcessEvent",
+		Event: map[string]any{
+			utils.AccountField: "2009",
+			utils.Destination:  "+492511231234",
+		},
+		APIOpts: map[string]any{
+			utils.OptsContext: utils.MetaSessionS,
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.AttributeSv1ProcessEvent, ev2, &rplyEv); err != nil {
 		t.Error(err)
 	}
 	//Remove threshold profile that was set form api
-	if err := tFIdxCaRpc.Call(utils.APIerSv1RemoveAttributeProfile, &utils.TenantIDWithCache{Tenant: "cgrates.org",
-		ID: "TEST_PROFILE1"}, &resp); err != nil {
+	if err := tFIdxCaRpc.Call(utils.APIerSv1RemoveAttributeProfile, &utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org",
+		ID: "TEST_PROFILE1"}}, &resp); err != nil {
 		t.Error(err)
 	} else if resp != utils.OK {
 		t.Error("Unexpected reply returned", resp)
@@ -1148,21 +1196,21 @@ func testV1FIdxCaRemoveAttributeProfile(t *testing.T) {
 	var sqp *engine.AttributeProfile
 	//Test the remove
 	if err := tFIdxCaRpc.Call(utils.APIerSv1GetAttributeProfile,
-		&utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "TEST_PROFILE1"}},
+		&utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "TEST_PROFILE1"}},
 		&sqp); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 	//Remove threshold profile that was set form tariffplan
-	if err := tFIdxCaRpc.Call(utils.APIerSv1RemoveAttributeProfile, &utils.TenantIDWithCache{Tenant: "cgrates.org",
-		ID: "ATTR_1"}, &resp); err != nil {
+	if err := tFIdxCaRpc.Call(utils.APIerSv1RemoveAttributeProfile, &utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org",
+		ID: "ATTR_1"}}, &resp); err != nil {
 		t.Error(err)
 	} else if resp != utils.OK {
 		t.Error("Unexpected reply returned", resp)
 	}
 	//Test the remove
 	if err := tFIdxCaRpc.Call(utils.APIerSv1GetAttributeProfile,
-		&utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_1"}},
+		&utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_1"}},
 		&sqp); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
@@ -1180,35 +1228,47 @@ func testV1FIdxCaRemoveAttributeProfile(t *testing.T) {
 // ResourceProfile
 func testV1FIdxCaGetResourceProfileWithNotFound(t *testing.T) {
 	var reply string
-	argsRU := utils.ArgRSv1ResourceUsage{
-		UsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "1002",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
+	cgrEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AllocateResources,
-		argsRU, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+		cgrEv, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources,
-		argsRU, &reply); err.Error() != utils.ErrNotFound.Error() {
+		&cgrEv, &reply); err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
+
+	cgrEv.Tenant = utils.EmptyString
+	if err := tFIdxCaRpc.Call(utils.ResourceSv1AllocateResources,
+		cgrEv, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources,
+		&cgrEv, &reply); err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+
 }
 func testV1FIdxCaSetResourceProfile(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "FLTR_RES_RCFG1",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1001"},
 				},
@@ -1234,7 +1294,7 @@ func testV1FIdxCaSetResourceProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	rlsConfig = &ResourceWithCache{
+	rlsConfig = &engine.ResourceProfileWithAPIOpts{
 		ResourceProfile: &engine.ResourceProfile{
 			Tenant:    "cgrates.org",
 			ID:        "RCFG1",
@@ -1242,12 +1302,13 @@ func testV1FIdxCaSetResourceProfile(t *testing.T) {
 			ActivationInterval: &utils.ActivationInterval{
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			UsageTTL:          time.Duration(0) * time.Microsecond,
+			UsageTTL:          0,
 			AllocationMessage: "Approved",
 			Limit:             10,
 			Blocker:           true,
 			Stored:            true,
 			Weight:            20,
+			ThresholdIDs:      []string{utils.MetaNone},
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.APIerSv1SetResourceProfile, rlsConfig, &result); err != nil {
@@ -1255,26 +1316,28 @@ func testV1FIdxCaSetResourceProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	argsRU := utils.ArgRSv1ResourceUsage{
-		UsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.Subject:     "1002",
-				utils.Destination: "1001"},
+	cgrEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.Subject:      "1002",
+			utils.Destination:  "1001",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AllocateResources,
-		argsRU, &result); err != nil {
+		cgrEv, &result); err != nil {
 		t.Error(err)
 	} else if result != "Approved" {
 		t.Error("Unexpected reply returned", result)
 	}
+
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources,
-		argsRU, &result); err != nil {
+		&cgrEv, &result); err != nil {
 		t.Error(err)
 	} else if result != "Approved" {
 		t.Error("Unexpected reply returned", result)
@@ -1283,45 +1346,47 @@ func testV1FIdxCaSetResourceProfile(t *testing.T) {
 
 func testV1FIdxCaGetResourceProfileFromTP(t *testing.T) {
 	var reply string
-	argsRU := utils.ArgRSv1ResourceUsage{
-		UsageID: "651a8db2-4f67-4cf8-b622-169e8a482e63",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.Subject:     "1002",
-				utils.Destination: "1001"},
+	cgrEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.Subject:      "1002",
+			utils.Destination:  "1001",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "651a8db2-4f67-4cf8-b622-169e8a482e63",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AllocateResources,
-		argsRU, &reply); err != nil {
+		cgrEv, &reply); err != nil {
 		t.Error(err)
 	} else if reply != "Approved" {
 		t.Error("Unexpected reply returned", reply)
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources,
-		argsRU, &reply); err != nil {
+		&cgrEv, &reply); err != nil {
 		t.Error(err)
 	} else if reply != "Approved" {
 		t.Error("Unexpected reply returned", reply)
 	}
 
-	argsReU := utils.ArgRSv1ResourceUsage{
-		UsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "1002",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources,
-		argsReU, &reply); err != nil {
+		&ev, &reply); err != nil {
 		t.Error(err)
 	} else if reply != "ResGroup1" {
 		t.Error("Unexpected reply returned", reply)
@@ -1329,13 +1394,13 @@ func testV1FIdxCaGetResourceProfileFromTP(t *testing.T) {
 }
 
 func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "FLTR_RES_RCFG2",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"2002"},
 				},
@@ -1361,7 +1426,7 @@ func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	rlsConfig = &ResourceWithCache{
+	rlsConfig = &engine.ResourceProfileWithAPIOpts{
 		ResourceProfile: &engine.ResourceProfile{
 			Tenant:    "cgrates.org",
 			ID:        "RCFG1",
@@ -1369,12 +1434,13 @@ func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
 			ActivationInterval: &utils.ActivationInterval{
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			UsageTTL:          time.Duration(10) * time.Microsecond,
+			UsageTTL:          10 * time.Microsecond,
 			Limit:             10,
 			AllocationMessage: "MessageAllocation",
 			Blocker:           true,
 			Stored:            true,
 			Weight:            20,
+			ThresholdIDs:      []string{utils.MetaNone},
 		},
 	}
 	if err := tFIdxCaRpc.Call(utils.APIerSv1SetResourceProfile,
@@ -1383,20 +1449,21 @@ func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	argsReU := utils.ArgRSv1ResourceUsage{
-		UsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "2002",
-				utils.Subject:     "2001",
-				utils.Destination: "2002"},
+	cgrEv := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "2002",
+			utils.Subject:      "2001",
+			utils.Destination:  "2002",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "651a8db2-4f67-4cf8-b622-169e8a482e61",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
 	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources,
-		argsReU, &result); err != nil {
+		&cgrEv, &result); err != nil {
 		t.Error(err)
 	} else if result != "MessageAllocation" {
 		t.Error("Unexpected reply returned", result)
@@ -1404,13 +1471,13 @@ func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
 }
 
 func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "FLTR_RES_RCFG3",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+					Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 					Type:    utils.MetaString,
 					Values:  []string{"1002"},
 				},
@@ -1444,24 +1511,25 @@ func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
 	reply.FilterIDs = []string{"FLTR_RES_RCFG3"}
 	reply.ActivationInterval = &utils.ActivationInterval{ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}
 
-	if err := tFIdxCaRpc.Call(utils.APIerSv1SetResourceProfile, &ResourceWithCache{ResourceProfile: &reply}, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.APIerSv1SetResourceProfile, &engine.ResourceProfileWithAPIOpts{ResourceProfile: &reply}, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	argsReU := utils.ArgRSv1ResourceUsage{
-		UsageID: "651a8db2-4f67-4cf8-b622-169e8a482e65",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "1002",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "651a8db2-4f67-4cf8-b622-169e8a482e65",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
-	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources, argsReU, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources, &ev, &result); err != nil {
 		t.Error(err)
 	} else if result != "ResGroup1" {
 		t.Error("Unexpected reply returned", result)
@@ -1470,41 +1538,43 @@ func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
 
 func testV1FIdxCaRemoveResourceProfile(t *testing.T) {
 	var resp string
-	argsReU := utils.ArgRSv1ResourceUsage{
-		UsageID: "653a8db2-4f67-4cf8-b622-169e8a482e61",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "2002",
-				utils.Subject:     "2001",
-				utils.Destination: "2002"},
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "2002",
+			utils.Subject:      "2001",
+			utils.Destination:  "2002",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "653a8db2-4f67-4cf8-b622-169e8a482e61",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
-	if err := tFIdxCaRpc.Call(utils.ResourceSv1AllocateResources, argsReU, &resp); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ResourceSv1AllocateResources, ev, &resp); err != nil {
 		t.Error(err)
 	} else if resp != "MessageAllocation" {
 		t.Error("Unexpected reply returned", resp)
 	}
-	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources, argsReU, &resp); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources, &ev, &resp); err != nil {
 		t.Error(err)
 	} else if resp != "MessageAllocation" {
 		t.Error("Unexpected reply returned", resp)
 	}
-	argsRU := utils.ArgRSv1ResourceUsage{
-		UsageID: "654a8db2-4f67-4cf8-b622-169e8a482e61",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.Account:     "1002",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
+	ev2 := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     utils.UUIDSha1Prefix(),
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
 		},
-		Units: 6,
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "654a8db2-4f67-4cf8-b622-169e8a482e61",
+			utils.OptsResourcesUnits:   6,
+		},
 	}
-	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources, argsRU, &resp); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ResourceSv1AuthorizeResources, &ev2, &resp); err != nil {
 		t.Error(err)
 	} else if resp != "ResGroup1" {
 		t.Error("Unexpected reply returned", resp)

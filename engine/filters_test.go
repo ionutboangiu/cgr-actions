@@ -15,19 +15,22 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
+
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
-	"github.com/cgrates/birpc/context"
+	"github.com/cgrates/baningo"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 func TestFilterPassString(t *testing.T) {
@@ -43,14 +46,21 @@ func TestFilterPassString(t *testing.T) {
 	}
 	rf := &FilterRule{Type: utils.MetaString,
 		Element: "~Category", Values: []string{"call"}}
-	if passes, err := rf.passString(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passString(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
+
 	rf = &FilterRule{Type: utils.MetaString,
 		Element: "~Category", Values: []string{"cal"}}
-	if passes, err := rf.passString(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passString(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Filter passes")
@@ -58,14 +68,75 @@ func TestFilterPassString(t *testing.T) {
 	//not
 	rf = &FilterRule{Type: utils.MetaNotString,
 		Element: "~Category", Values: []string{"call"}}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Filter passes")
 	}
 	rf = &FilterRule{Type: utils.MetaNotString,
 		Element: "~Category", Values: []string{"cal"}}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("Not passes filter")
+	}
+}
+
+func TestFilterPassRegex(t *testing.T) {
+	cd := &CallDescriptor{
+		Category:      "call",
+		Tenant:        "cgrates.org",
+		Subject:       "dan",
+		Destination:   "+4986517174963",
+		TimeStart:     time.Date(2013, time.October, 7, 14, 50, 0, 0, time.UTC),
+		TimeEnd:       time.Date(2013, time.October, 7, 14, 52, 12, 0, time.UTC),
+		DurationIndex: 132 * time.Second,
+		ExtraFields:   map[string]string{"navigation": "off"},
+	}
+	rf := &FilterRule{Type: utils.MetaRegex,
+		Element: "~Category", Values: []string{"^call$"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passRegex(cd); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("Not passes filter")
+	}
+
+	rf = &FilterRule{Type: utils.MetaRegex,
+		Element: "~Category", Values: []string{"cal$"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passRegex(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+	//not
+	rf = &FilterRule{Type: utils.MetaNotRegex,
+		Element: "~Category", Values: []string{"^call$"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+	rf = &FilterRule{Type: utils.MetaNotRegex,
+		Element: "~Category", Values: []string{"cal$"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
@@ -84,12 +155,18 @@ func TestFilterPassEmpty(t *testing.T) {
 		ExtraFields:   map[string]string{"navigation": "off"},
 	}
 	rf := &FilterRule{Type: utils.MetaEmpty, Element: "~Category", Values: []string{}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if passes, err := rf.passEmpty(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaEmpty, Element: "~ExtraFields", Values: []string{}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if passes, err := rf.passEmpty(cd); err != nil {
 		t.Error(err)
 	} else if passes {
@@ -97,6 +174,9 @@ func TestFilterPassEmpty(t *testing.T) {
 	}
 	cd.ExtraFields = map[string]string{}
 	rf = &FilterRule{Type: utils.MetaEmpty, Element: "~ExtraFields", Values: []string{}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if passes, err := rf.passEmpty(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
@@ -104,7 +184,10 @@ func TestFilterPassEmpty(t *testing.T) {
 	}
 	//not
 	rf = &FilterRule{Type: utils.MetaNotEmpty, Element: "~Category", Values: []string{}}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Filter passes")
@@ -123,12 +206,18 @@ func TestFilterPassExists(t *testing.T) {
 		ExtraFields:   map[string]string{"navigation": "off"},
 	}
 	rf := &FilterRule{Type: utils.MetaExists, Element: "~Category", Values: []string{}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if passes, err := rf.passExists(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaExists, Element: "~ExtraFields1", Values: []string{}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if passes, err := rf.passExists(cd); err != nil {
 		t.Error(err)
 	} else if passes {
@@ -136,6 +225,9 @@ func TestFilterPassExists(t *testing.T) {
 	}
 	cd.ExtraFields = map[string]string{}
 	rf = &FilterRule{Type: utils.MetaExists, Element: "~ExtraFields", Values: []string{}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if passes, err := rf.passExists(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
@@ -143,7 +235,10 @@ func TestFilterPassExists(t *testing.T) {
 	}
 	//not
 	rf = &FilterRule{Type: utils.MetaNotExists, Element: "~Category1", Values: []string{}}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
@@ -162,44 +257,68 @@ func TestFilterPassStringPrefix(t *testing.T) {
 		ExtraFields:   map[string]string{"navigation": "off"},
 	}
 	rf := &FilterRule{Type: utils.MetaPrefix, Element: "~Category", Values: []string{"call"}}
-	if passes, err := rf.passStringPrefix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringPrefix(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaPrefix, Element: "~Category", Values: []string{"premium"}}
-	if passes, err := rf.passStringPrefix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringPrefix(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaPrefix, Element: "~Destination", Values: []string{"+49"}}
-	if passes, err := rf.passStringPrefix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringPrefix(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaPrefix, Element: "~Destination", Values: []string{"+499"}}
-	if passes, err := rf.passStringPrefix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringPrefix(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaPrefix, Element: "~navigation", Values: []string{"off"}}
-	if passes, err := rf.passStringPrefix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringPrefix(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaPrefix, Element: "~nonexisting", Values: []string{"off"}}
-	if passing, err := rf.passStringPrefix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passing, err := rf.passStringPrefix(cd); err != nil {
 		t.Error(err)
 	} else if passing {
 		t.Error("Passes filter")
 	}
 	//not
 	rf = &FilterRule{Type: utils.MetaNotPrefix, Element: "~Category", Values: []string{"premium"}}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
@@ -218,44 +337,65 @@ func TestFilterPassStringSuffix(t *testing.T) {
 		ExtraFields:   map[string]string{"navigation": "off"},
 	}
 	rf := &FilterRule{Type: utils.MetaSuffix, Element: "~Category", Values: []string{"call"}}
-	if passes, err := rf.passStringSuffix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringSuffix(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaSuffix, Element: "~Category", Values: []string{"premium"}}
-	if passes, err := rf.passStringSuffix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringSuffix(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaSuffix, Element: "~Destination", Values: []string{"963"}}
-	if passes, err := rf.passStringSuffix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringSuffix(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaSuffix, Element: "~Destination", Values: []string{"4966"}}
-	if passes, err := rf.passStringSuffix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringSuffix(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaSuffix, Element: "~navigation", Values: []string{"off"}}
-	if passes, err := rf.passStringSuffix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passStringSuffix(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passes filter")
 	}
 	rf = &FilterRule{Type: utils.MetaSuffix, Element: "~nonexisting", Values: []string{"off"}}
-	if passing, err := rf.passStringSuffix(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passing, err := rf.passStringSuffix(cd); err != nil {
 		t.Error(err)
 	} else if passing {
 		t.Error("Passes filter")
 	}
 	//not
 	rf = &FilterRule{Type: utils.MetaNotSuffix, Element: "~Destination", Values: []string{"963"}}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{cd}); err != nil {
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passes filter")
@@ -273,85 +413,133 @@ func TestFilterPassRSRFields(t *testing.T) {
 		DurationIndex: 132 * time.Second,
 		ExtraFields:   map[string]string{"navigation": "off"},
 	}
-	rf, err := NewFilterRule(utils.MetaRSR, "", []string{"~Tenant(~^cgr.*\\.org$)"})
+	rf, err := NewFilterRule(utils.MetaRSR, "~Tenant", []string{"~^cgr.*\\.org$"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passRSR([]utils.DataProvider{cd}); err != nil {
+	if passes, err := rf.passRSR(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passing")
 	}
-	rf, err = NewFilterRule(utils.MetaRSR, "", []string{"~navigation(on)"})
+	rf, err = NewFilterRule(utils.MetaRSR, "~navigation", []string{"on"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passRSR([]utils.DataProvider{cd}); err != nil {
+	if passes, err := rf.passRSR(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passing")
 	}
-	rf, err = NewFilterRule(utils.MetaRSR, "", []string{"~navigation(off)"})
+	rf, err = NewFilterRule(utils.MetaRSR, "~navigation", []string{"off"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passRSR([]utils.DataProvider{cd}); err != nil {
+	if passes, err := rf.passRSR(cd); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("Not passing")
 	}
 	//not
-	rf, err = NewFilterRule(utils.MetaNotRSR, "", []string{"~navigation(off)"})
+	rf, err = NewFilterRule(utils.MetaNotRSR, "~navigation", []string{"off"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{cd}); err != nil {
+	if passes, err := rf.Pass(cd); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("Passing")
 	}
 }
 
-func TestFilterPassDestinations(t *testing.T) {
-	Cache.Set(utils.CacheReverseDestinations, "+49",
-		[]string{"DE", "EU_LANDLINE"}, nil, true, "")
-	cd := &CallDescriptor{
-		Category:      "call",
-		Tenant:        "cgrates.org",
-		Subject:       "dan",
-		Destination:   "+4986517174963",
-		TimeStart:     time.Date(2013, time.October, 7, 14, 50, 0, 0, time.UTC),
-		TimeEnd:       time.Date(2013, time.October, 7, 14, 52, 12, 0, time.UTC),
-		DurationIndex: 132 * time.Second,
-		ExtraFields:   map[string]string{"navigation": "off"},
-	}
-	rf, err := NewFilterRule(utils.MetaDestinations, "~Destination", []string{"DE"})
+func TestFilterPassGtOrLtPass(t *testing.T) {
+	rf, err := NewFilterRule(utils.MetaGreaterThan, "~Usage", []string{"70"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passDestinations(cd, []utils.DataProvider{cd}); err != nil {
+	ev := utils.MapStorage{
+		"Usage": "77",
+	}
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
-		t.Error("Not passing")
+		t.Error("not passing")
 	}
-	rf, err = NewFilterRule(utils.MetaDestinations, "~Destination", []string{"RO"})
+
+	rf, err = NewFilterRule(utils.MetaGreaterOrEqual, "~Usage", []string{"77"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passDestinations(cd, []utils.DataProvider{cd}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
-	} else if passes {
-		t.Error("Passing")
+	} else if !passes {
+		t.Error("not passing")
 	}
-	//not
-	rf, err = NewFilterRule(utils.MetaNotDestinations, "~Destination", []string{"DE"})
+
+	rf, err = NewFilterRule(utils.MetaLessThan, "~Usage", []string{"80"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.Pass(cd, []utils.DataProvider{cd}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("not passing")
+	}
+
+	rf, err = NewFilterRule(utils.MetaLessOrEqual, "~Usage", []string{"77"})
+	if err != nil {
+		t.Error(err)
+	}
+	if passes, err := rf.passGreaterThan(ev); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("not passing")
+	}
+}
+
+func TestFilterPassGtOrLtFail(t *testing.T) {
+	ev := utils.MapStorage{
+		"Usage": "77",
+	}
+
+	rf, err := NewFilterRule(utils.MetaGreaterThan, "~Usage", []string{"80"})
+	if err != nil {
+		t.Error(err)
+	}
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if passes {
-		t.Error("Passing")
+		t.Error("passing")
+	}
+
+	rf, err = NewFilterRule(utils.MetaGreaterOrEqual, "~Usage", []string{"80"})
+	if err != nil {
+		t.Error(err)
+	}
+	if passes, err := rf.passGreaterThan(ev); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("passing")
+	}
+
+	rf, err = NewFilterRule(utils.MetaLessThan, "~Usage", []string{"70"})
+	if err != nil {
+		t.Error(err)
+	}
+	if passes, err := rf.passGreaterThan(ev); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("passing")
+	}
+
+	rf, err = NewFilterRule(utils.MetaLessOrEqual, "~Usage", []string{"70"})
+	if err != nil {
+		t.Error(err)
+	}
+	if passes, err := rf.passGreaterThan(ev); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("passing")
 	}
 }
 
@@ -362,14 +550,14 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	}
 	ev := utils.MapStorage{}
 	ev.Set([]string{"ASR"}, 20)
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing")
 	}
 	ev = utils.MapStorage{}
 	ev.Set([]string{"ASR"}, 40)
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("equal should not be passing")
@@ -378,7 +566,7 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing")
@@ -387,7 +575,7 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing")
@@ -396,14 +584,14 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing")
 	}
 	ev = utils.MapStorage{}
 	ev.Set([]string{"ASR"}, 20)
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("should not pass")
@@ -413,20 +601,20 @@ func TestFilterPassGreaterThan(t *testing.T) {
 		t.Error(err)
 	}
 	ev = utils.MapStorage{}
-	ev.Set([]string{"ACD"}, time.Duration(2*time.Minute))
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	ev.Set([]string{"ACD"}, 2*time.Minute)
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not pass")
 	}
 	// Second
 	ev = utils.MapStorage{}
-	ev.Set([]string{"ASR"}, time.Duration(20*time.Second))
+	ev.Set([]string{"ASR"}, 20*time.Second)
 	rf, err = NewFilterRule("*gte", "~ASR", []string{"10s"})
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("passing")
@@ -436,7 +624,7 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("passing")
@@ -447,7 +635,7 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("passing")
@@ -459,7 +647,7 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("passing")
@@ -471,7 +659,7 @@ func TestFilterPassGreaterThan(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passGreaterThan(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passGreaterThan(ev); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("passing")
@@ -485,14 +673,14 @@ func TestFilterpassEqualTo(t *testing.T) {
 	}
 	ev := utils.MapStorage{}
 	ev.Set([]string{"ASR"}, 40.0)
-	if passes, err := rf.passEqualTo(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passEqualTo(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing")
 	}
 	ev = utils.MapStorage{}
 	ev.Set([]string{"ASR"}, 39)
-	if passes, err := rf.passEqualTo(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passEqualTo(ev); err != nil {
 		t.Error(err)
 	} else if passes {
 		t.Error("equal should not be passing")
@@ -501,7 +689,7 @@ func TestFilterpassEqualTo(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.Pass(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.Pass(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing", passes)
@@ -512,7 +700,7 @@ func TestFilterpassEqualTo(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if passes, err := rf.passEqualTo(ev, []utils.DataProvider{ev}); err != nil {
+	if passes, err := rf.passEqualTo(ev); err != nil {
 		t.Error(err)
 	} else if !passes {
 		t.Error("not passing")
@@ -525,6 +713,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf := &FilterRule{Type: utils.MetaString, Element: "~MetaString", Values: []string{"String"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -533,6 +724,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaEmpty, Element: "~MetaEmpty", Values: []string{}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -541,6 +735,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaExists, Element: "~MetaExists", Values: []string{}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -549,6 +746,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaPrefix, Element: "~MetaPrefix", Values: []string{"stringPrefix"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -557,22 +757,31 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaSuffix, Element: "~MetaSuffix", Values: []string{"stringSuffix"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
-	rf, err = NewFilterRule(utils.MetaTimings, "~MetaTimings", []string{""})
+	// rf, err = NewFilterRule(utils.MetaTimings, "~MetaTimings", []string{""})
+	// if err != nil {
+	// 	t.Errorf("Error: %+v", err)
+	// }
+	// erf = &FilterRule{Type: utils.MetaTimings, Element: "~MetaTimings", Values: []string{""}, negative: utils.BoolPointer(false)}
+	// if err = erf.CompileValues(); err != nil {
+	// 	t.Fatal(err)
+	// }
+	// if !reflect.DeepEqual(erf, rf) {
+	// 	t.Errorf("Expecting: %+v, received: %+v", erf, rf)
+	// }
+	rf, err = NewFilterRule(utils.MetaDestinations, "~MetaDestinations", []string{"1001"})
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
-	erf = &FilterRule{Type: utils.MetaTimings, Element: "~MetaTimings", Values: []string{""}, negative: utils.BoolPointer(false)}
-	if !reflect.DeepEqual(erf, rf) {
-		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
+	erf = &FilterRule{Type: utils.MetaDestinations, Element: "~MetaDestinations", Values: []string{"1001"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
 	}
-	rf, err = NewFilterRule(utils.MetaDestinations, "~MetaDestinations", []string{""})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	erf = &FilterRule{Type: utils.MetaDestinations, Element: "~MetaDestinations", Values: []string{""}, negative: utils.BoolPointer(false)}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -581,6 +790,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaLessThan, Element: "~MetaLessThan", Values: []string{"20"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -589,6 +801,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaLessOrEqual, Element: "~MetaLessOrEqual", Values: []string{"20"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -597,6 +812,9 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaGreaterThan, Element: "~MetaGreaterThan", Values: []string{"20"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
 	}
@@ -605,23 +823,45 @@ func TestFilterNewRequestFilter(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	erf = &FilterRule{Type: utils.MetaGreaterOrEqual, Element: "~MetaGreaterOrEqual", Values: []string{"20"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(erf, rf) {
 		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
+	}
+
+	rf, err = NewFilterRule(utils.MetaRegex, "~MetaRegex", []string{"Regex"})
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	erf = &FilterRule{Type: utils.MetaRegex, Element: "~MetaRegex", Values: []string{"Regex"}, negative: utils.BoolPointer(false)}
+	if err = erf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(erf, rf) {
+		t.Errorf("Expecting: %+v, received: %+v", erf, rf)
+	}
+	if _, err = NewFilterRule("", "~MetaRegex", []string{"Regex"}); err == nil {
+		t.Error(err)
+	} else if _, err = NewFilterRule(utils.MetaRegex, "", []string{"Regex"}); err == nil {
+		t.Error(err)
+	} else if _, err = NewFilterRule(utils.MetaRegex, "~MetaRegex", []string{}); err == nil {
+		t.Error(err)
 	}
 }
 
 func TestInlineFilterPassFiltersForEvent(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := FilterS{
 		cfg: cfg,
 		dm:  dmFilterPass,
 	}
-	failEvent := map[string]interface{}{
+	failEvent := map[string]any{
 		"Account": "1001",
 	}
-	passEvent := map[string]interface{}{
+	passEvent := map[string]any{
 		"Account": "1007",
 	}
 	fEv := utils.MapStorage{}
@@ -653,10 +893,10 @@ func TestInlineFilterPassFiltersForEvent(t *testing.T) {
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
-	failEvent = map[string]interface{}{
+	failEvent = map[string]any{
 		"Account": "2001",
 	}
-	passEvent = map[string]interface{}{
+	passEvent = map[string]any{
 		"Account": "1007",
 	}
 	fEv = utils.MapStorage{}
@@ -694,10 +934,10 @@ func TestInlineFilterPassFiltersForEvent(t *testing.T) {
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
-	failEvent = map[string]interface{}{
+	failEvent = map[string]any{
 		"Tenant": "anotherTenant.org",
 	}
-	passEvent = map[string]interface{}{
+	passEvent = map[string]any{
 		"Tenant": "cgrates.org",
 	}
 	fEv = utils.MapStorage{}
@@ -705,52 +945,28 @@ func TestInlineFilterPassFiltersForEvent(t *testing.T) {
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~Tenant(~^cgr.*\\.org$)"}, fEv); err != nil {
+		[]string{"*rsr:~*req.Tenant:~^cgr.*\\.org$"}, fEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Tenant(~^cgr.*\\.org$)"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Tenant:~^cgr.*\\.org$"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
 		t.Errorf("Expecting: %+v, received: %+v", true, pass)
 	}
 	//not
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*notrsr::~*req.Tenant(~^cgr.*\\.org$)"}, pEv); err != nil {
+		[]string{"*notrsr:~*req.Tenant:~^cgr.*\\.org$"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
-	Cache.Set(utils.CacheReverseDestinations, "+49",
-		[]string{"DE", "EU_LANDLINE"}, nil, true, "")
-	failEvent = map[string]interface{}{
-		utils.Destination: "+5086517174963",
-	}
-	passEvent = map[string]interface{}{
-		utils.Destination: "+4986517174963",
-	}
-	fEv = utils.MapStorage{}
-	fEv.Set([]string{utils.MetaReq}, failEvent)
-	pEv = utils.MapStorage{}
-	pEv.Set([]string{utils.MetaReq}, passEvent)
-	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*destinations:~*req.Destination:EU"}, fEv); err != nil {
-		t.Errorf(err.Error())
-	} else if pass {
-		t.Errorf("Expecting: %+v, received: %+v", false, pass)
-	}
-	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*destinations:~*req.Destination:EU_LANDLINE"}, pEv); err != nil {
-		t.Errorf(err.Error())
-	} else if !pass {
-		t.Errorf("Expecting: %+v, received: %+v", true, pass)
-	}
-	failEvent = map[string]interface{}{
+	failEvent = map[string]any{
 		utils.Weight: 10,
 	}
-	passEvent = map[string]interface{}{
+	passEvent = map[string]any{
 		utils.Weight: 20,
 	}
 	fEv = utils.MapStorage{}
@@ -770,7 +986,7 @@ func TestInlineFilterPassFiltersForEvent(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", true, pass)
 	}
 
-	failEvent = map[string]interface{}{
+	failEvent = map[string]any{
 		"EmptyString":   "nonEmpty",
 		"EmptySlice":    []string{""},
 		"EmptyMap":      map[string]string{"": ""},
@@ -779,9 +995,8 @@ func TestInlineFilterPassFiltersForEvent(t *testing.T) {
 		"EmptyPtrSlice": &[]string{""},
 		"EmptyPtrMap":   &map[string]string{"": ""},
 	}
-	var testnil *struct{}
-	testnil = nil
-	passEvent = map[string]interface{}{
+	var testnil *struct{} = nil
+	passEvent = map[string]any{
 		"EmptyString":   "",
 		"EmptySlice":    []string{},
 		"EmptyMap":      map[string]string{},
@@ -820,83 +1035,92 @@ func TestInlineFilterPassFiltersForEvent(t *testing.T) {
 	} else if !pass {
 		t.Errorf("For NewKey expecting: %+v, received: %+v", true, pass)
 	}
-}
 
-func TestPassRsr(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	filterS := FilterS{
-		cfg: cfg,
-		dm:  dmFilterPass,
+	failEvent = map[string]any{
+		"Account": "1001",
 	}
-	passEvent1 := map[string]interface{}{
-		"8": "0045664",
+	passEvent = map[string]any{
+		"Account": "1007",
 	}
-	pEv1 := utils.MapStorage{}
-	pEv1.Set([]string{utils.MetaReq}, passEvent1)
-
+	fEv = utils.MapStorage{}
+	fEv.Set([]string{utils.MetaReq}, failEvent)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.8(~^004)"}, pEv1); err != nil {
-		t.Errorf(err.Error())
-	} else if !pass {
-		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+		[]string{"*regex:~*req.Account:^1007:error"}, fEv); err != nil {
+		t.Error(err)
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
-
-	passEvent1 = map[string]interface{}{
-		"5": "0",
-	}
-	pEv1 = utils.MapStorage{}
-	pEv1.Set([]string{utils.MetaReq}, passEvent1)
-
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.5(~^0$)"}, pEv1); err != nil {
-		t.Errorf(err.Error())
-	} else if !pass {
-		t.Errorf("Expecting: %+v, received: %+v", true, pass)
-	}
-}
-
-func TestPassRsr2(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	dmFilterPass := NewDataManager(NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items), config.CgrConfig().CacheCfg(), nil)
-	filterS := FilterS{
-		cfg: cfg,
-		dm:  dmFilterPass,
-	}
-	pEv1 := utils.MapStorage{
-		utils.MetaReq: utils.MapStorage{
-			"8": "00545664",
-		},
-	}
-
-	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.8(~^004)"}, pEv1); err != nil {
+		[]string{"*regex:~*req.Account:\\d{3}7"}, fEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
+	pEv = utils.MapStorage{}
+	pEv.Set([]string{utils.MetaReq}, passEvent)
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*regex:~*req.Account:\\d{3}7"}, pEv); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+	//not
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*notregex:~*req.Account:\\d{3}7"}, pEv); err != nil {
+		t.Errorf(err.Error())
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
+	}
+
+	pEv = utils.MapStorage{utils.MetaReq: utils.MapStorage{utils.AccountField: "sip:12345678901234567@abcdefg"}}
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*regex:~*req.Account:.{29,}"}, pEv); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*regex:~*req.Account:^.{28}$"}, pEv); err != nil {
+		t.Errorf(err.Error())
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
+	}
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*gte:~*req.Account{*len}:29"}, pEv); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+
+	pEv = utils.MapStorage{utils.MetaReq: utils.MapStorage{utils.AccountField: "[1,2,3]"}}
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*eq:~*req.Account{*slice&*len}:3"}, pEv); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+
 }
 
 func TestPassFiltersForEventWithEmptyFilter(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := FilterS{
 		cfg: cfg,
 		dm:  dmFilterPass,
 	}
-	passEvent1 := map[string]interface{}{
-		utils.Tenant:      "cgrates.org",
-		utils.Account:     "1010",
-		utils.Destination: "+49",
-		utils.Weight:      10,
+	passEvent1 := map[string]any{
+		utils.Tenant:       "cgrates.org",
+		utils.AccountField: "1010",
+		utils.Destination:  "+49",
+		utils.Weight:       10,
 	}
-	passEvent2 := map[string]interface{}{
-		utils.Tenant:      "itsyscom.com",
-		utils.Account:     "dan",
-		utils.Destination: "+4986517174963",
-		utils.Weight:      20,
+	passEvent2 := map[string]any{
+		utils.Tenant:       "itsyscom.com",
+		utils.AccountField: "dan",
+		utils.Destination:  "+4986517174963",
+		utils.Weight:       20,
 	}
 	pEv1 := utils.MapStorage{}
 	pEv1.Set([]string{utils.MetaReq}, passEvent1)
@@ -914,68 +1138,71 @@ func TestPassFiltersForEventWithEmptyFilter(t *testing.T) {
 	} else if !pass {
 		t.Errorf("Expecting: %+v, received: %+v", true, pass)
 	}
-	ev := map[string]interface{}{
+	ev := map[string]any{
 		"Test": "MultipleCharacter",
 	}
 	pEv := utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, ev)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Test(~^\\w{30,})"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Test:~^\\w{30,}"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
-	ev = map[string]interface{}{
+	ev = map[string]any{
 		"Test": "MultipleCharacter123456789MoreThan30Character",
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, ev)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Test(~^\\w{30,})"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Test:~^\\w{30,}"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
 		t.Errorf("Expecting: %+v, received: %+v", true, pass)
 	}
 
-	ev = map[string]interface{}{
-		"Test": map[string]interface{}{
+	ev = map[string]any{
+		"Test": map[string]any{
 			"Test2": "MultipleCharacter",
 		},
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, ev)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Test.Test2(~^\\w{30,})"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Test.Test2:~^\\w{30,}"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
-	ev = map[string]interface{}{
-		"Test": map[string]interface{}{
+	ev = map[string]any{
+		"Test": map[string]any{
 			"Test2": "MultipleCharacter123456789MoreThan30Character",
 		},
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, ev)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Test.Test2(~^\\w{30,})"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Test.Test2:~^\\w{30,}"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
 		t.Errorf("Expecting: %+v, received: %+v", false, pass)
 	}
 
-	ev = map[string]interface{}{
-		utils.Account:     "1003",
-		utils.Subject:     "1003",
-		utils.Destination: "1002",
-		utils.SetupTime:   time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
-		utils.Usage:       "1m20s",
+	ev = map[string]any{
+		utils.AccountField: "1003",
+		utils.Subject:      "1003",
+		utils.Destination:  "1002",
+		utils.SetupTime:    time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
+		utils.Usage:        "1m20s",
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, ev)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*string:~*req.Account:1003", "*prefix:~*req.Destination:10",
-			"*suffix:~*req.Subject:03", "*rsr::~*req.Destination(1002)"},
+		[]string{
+			"*string:~*req.Account:1003",
+			"*prefix:~*req.Destination:10",
+			"*suffix:~*req.Subject:03",
+			"*rsr:~*req.Destination:1002"},
 		pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
@@ -984,7 +1211,7 @@ func TestPassFiltersForEventWithEmptyFilter(t *testing.T) {
 }
 
 func TestPassFilterMaxCost(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := FilterS{
@@ -992,37 +1219,37 @@ func TestPassFilterMaxCost(t *testing.T) {
 		dm:  dmFilterPass,
 	}
 	//check with max usage -1 should fail
-	passEvent1 := map[string]interface{}{
-		"MaxUsage": time.Duration(-1),
+	passEvent1 := map[string]any{
+		"MaxUsage": -1,
 	}
 	pEv := utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent1)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.MaxUsage{*duration_nanoseconds}(>0)"}, pEv); err != nil {
+		[]string{"*gt:~*req.MaxUsage:0s"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: false , received: %+v", pass)
 	}
 	//check with max usage 0 should fail
-	passEvent2 := map[string]interface{}{
-		"MaxUsage": time.Duration(0),
+	passEvent2 := map[string]any{
+		"MaxUsage": 0,
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent2)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.MaxUsage{*duration_nanoseconds}(>0)"}, pEv); err != nil {
+		[]string{"*gt:~*req.MaxUsage:0s"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: false, received: %+v", pass)
 	}
 	//check with max usage 123 should pass
-	passEvent3 := map[string]interface{}{
-		"MaxUsage": time.Duration(123),
+	passEvent3 := map[string]any{
+		"MaxUsage": 123,
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent3)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.MaxUsage{*duration_nanoseconds}(>0)"}, pEv); err != nil {
+		[]string{"*gt:~*req.MaxUsage:0"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
 		t.Errorf("Expecting: true, received: %+v", pass)
@@ -1036,7 +1263,7 @@ func TestPassFilterMaxCost(t *testing.T) {
 }
 
 func TestPassFilterMissingField(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := FilterS{
@@ -1044,37 +1271,37 @@ func TestPassFilterMissingField(t *testing.T) {
 		dm:  dmFilterPass,
 	}
 
-	passEvent1 := map[string]interface{}{
+	passEvent1 := map[string]any{
 		"test": "call",
 	}
 	pEv := utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent1)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Category(^$)"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Category:^$"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
 		t.Errorf("Expecting: true , received: %+v", pass)
 	}
 
-	passEvent2 := map[string]interface{}{
+	passEvent2 := map[string]any{
 		"Category": "",
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent2)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~Category(^$)"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Category:^$"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if !pass {
 		t.Errorf("Expecting: true , received: %+v", pass)
 	}
 
-	passEvent3 := map[string]interface{}{
+	passEvent3 := map[string]any{
 		"Category": "call",
 	}
 	pEv = utils.MapStorage{}
 	pEv.Set([]string{utils.MetaReq}, passEvent3)
 	if pass, err := filterS.Pass("cgrates.org",
-		[]string{"*rsr::~*req.Category(^$)"}, pEv); err != nil {
+		[]string{"*rsr:~*req.Category:^$"}, pEv); err != nil {
 		t.Errorf(err.Error())
 	} else if pass {
 		t.Errorf("Expecting: false , received: %+v", pass)
@@ -1082,7 +1309,7 @@ func TestPassFilterMissingField(t *testing.T) {
 }
 
 func TestEventCostFilter(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := FilterS{
@@ -1242,991 +1469,1175 @@ func TestEventCostFilter(t *testing.T) {
 	} else if !pass {
 		t.Errorf("Expecting: true , received: %+v", pass)
 	}
-}
-
-func TestComputeThresholdIndexes(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_2",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaPrefix,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Values:  []string{"1001"},
-			},
-		},
-	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	thd1 := &ThresholdProfile{
-		Tenant:    "cgrates.org",
-		ID:        "TH_1",
-		FilterIDs: []string{"FLTR_2"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
-		},
-	}
-	if err := dm.SetThresholdProfile(thd1, true); err != nil {
-		t.Error(err)
-	}
-	thd2 := &ThresholdProfile{
-		Tenant:    "cgrates.org",
-		ID:        "TH_2",
-		FilterIDs: []string{utils.META_NONE},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
-		},
-	}
-	if err := dm.SetThresholdProfile(thd2, true); err != nil {
-		t.Error(err)
-	}
-	thIDs := []string{"TH_1", "TH_2"}
-	if _, err := ComputeThresholdIndexes(dm, "cgrates.org", &thIDs, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	expIndexes := map[string]utils.StringMap{
-		"*prefix:~*req.Account:1001": {"TH_1": true},
-		"*none:*any:*any":            {"TH_2": true},
-	}
-
-	if fltrIndexer, err := ComputeThresholdIndexes(dm, "cgrates.org", nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(fltrIndexer.indexes, expIndexes) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(expIndexes), utils.ToJSON(fltrIndexer.indexes))
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*lt:~*ec.AccountSummary.BalanceSummaries.MONETARY_POSTPAID.Value:60"}, cgrDp); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: true , received: %+v", pass)
 	}
 }
 
-func TestComputeChargerIndexes(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
+func TestVerifyPrefixes(t *testing.T) {
+	rf, err := NewFilterRule(utils.MetaString, "~*req.Account", []string{"1001"})
 	if err != nil {
-		t.Error(err)
+		t.Errorf("Error: %+v", err)
 	}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "Filter3",
-		Rules: []*FilterRule{
-			{
-				Element: "~*req.Destination",
-				Type:    utils.MetaString,
-				Values:  []string{"10", "20"},
-			},
-		},
-	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	chP := &ChargerProfile{
-		Tenant:    "cgrates.org",
-		ID:        "CHRG_1",
-		FilterIDs: []string{"Filter3", "*string:~*req.Account:1001", utils.META_NONE},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		AttributeIDs: []string{"ATTR_1"},
-		Weight:       20,
+	prefixes := []string{utils.DynamicDataPrefix + utils.MetaReq}
+	if check := verifyPrefixes(rf, prefixes); !check {
+		t.Errorf("Expecting: true , received: %+v", check)
 	}
 
-	if err := dm.SetChargerProfile(chP, true); err != nil {
-		t.Error(err)
+	rf, err = NewFilterRule(utils.MetaString, "~*req.Account", []string{"~*req.Field1"})
+	if err != nil {
+		t.Errorf("Error: %+v", err)
 	}
-	chIDs := []string{"CHRG_1"}
-	if _, err := ComputeChargerIndexes(dm, "cgrates.org", &chIDs, utils.NonTransactional); err != nil {
-		t.Error(err)
+	if check := verifyPrefixes(rf, prefixes); !check {
+		t.Errorf("Expecting: true , received: %+v", check)
 	}
-	expIndexes := map[string]utils.StringMap{
-		"*string:~*req.Account:1001":   {"CHRG_1": true},
-		"*string:~*req.Destination:10": {"CHRG_1": true},
-		"*string:~*req.Destination:20": {"CHRG_1": true},
-		"*none:*any:*any":              {"CHRG_1": true},
+
+	rf, err = NewFilterRule(utils.MetaString, "~*req.Account", []string{"~*req.Field1", "~*req.Field2"})
+	if err != nil {
+		t.Errorf("Error: %+v", err)
 	}
-	if fltrIndexer, err := ComputeChargerIndexes(dm, "cgrates.org", nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(fltrIndexer.indexes, expIndexes) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(expIndexes), utils.ToJSON(fltrIndexer.indexes))
+	if check := verifyPrefixes(rf, prefixes); !check {
+		t.Errorf("Expecting: true , received: %+v", check)
+	}
+
+	rf, err = NewFilterRule(utils.MetaString, "~*vars.Account", []string{"1001"})
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if check := verifyPrefixes(rf, prefixes); check {
+		t.Errorf("Expecting: false , received: %+v", check)
+	}
+
+	rf, err = NewFilterRule(utils.MetaString, "~*req.Account", []string{"~*req.Field1", "~*vars.Field2"})
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if check := verifyPrefixes(rf, prefixes); check {
+		t.Errorf("Expecting: false , received: %+v", check)
+	}
+
+	rf, err = NewFilterRule(utils.MetaString, "~*req.Account", []string{"~*req.Field1", "~*vars.Field2"})
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	prefixes = []string{utils.DynamicDataPrefix + utils.MetaReq, utils.DynamicDataPrefix + utils.MetaVars}
+	if check := verifyPrefixes(rf, prefixes); !check {
+		t.Errorf("Expecting: true , received: %+v", check)
 	}
 }
 
-func TestComputeResourceIndexes(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
+func TestPassPartial(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := FilterS{
+		cfg: cfg,
+		dm:  dmFilterPass,
 	}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_RES_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Resources",
-				Values:  []string{"ResourceProfile2"},
-			},
-		},
+	passEvent := map[string]any{
+		"Account": "1007",
 	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
+	fEv := utils.MapStorage{}
+	fEv.Set([]string{utils.MetaReq}, passEvent)
+	prefixes := []string{utils.DynamicDataPrefix + utils.MetaReq}
+	if pass, ruleList, err := filterS.LazyPass("cgrates.org",
+		[]string{"*string:~*req.Account:1007"}, fEv, prefixes); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	} else if len(ruleList) != 0 {
+		t.Errorf("Expecting: %+v, received: %+v", 0, len(ruleList))
 	}
-	rs := &ResourceProfile{
-		Tenant:    "cgrates.org",
-		ID:        "RES_GR_TEST",
-		FilterIDs: []string{"FLTR_RES_1", utils.META_NONE},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		UsageTTL:          time.Duration(-1),
-		Limit:             2,
-		AllocationMessage: "Account1Channels",
-		Weight:            20,
-		ThresholdIDs:      []string{utils.META_NONE},
+	// in PartialPass we verify the filters matching the prefixes
+	if pass, ruleList, err := filterS.LazyPass("cgrates.org",
+		[]string{"*string:~*req.Account:1007", "*string:~*vars.Field1:Val1"}, fEv, prefixes); err != nil {
+		t.Errorf(err.Error())
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	} else if len(ruleList) != 1 {
+		t.Errorf("Expecting: %+v, received: %+v", 1, len(ruleList))
 	}
-	if err := dm.SetResourceProfile(rs, true); err != nil {
-		t.Error(err)
-	}
-	chIDs := []string{"RES_GR_TEST"}
-	if _, err := ComputeResourceIndexes(dm, "cgrates.org", &chIDs, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	expIndexes := map[string]utils.StringMap{
-		"*none:*any:*any":                          {"RES_GR_TEST": true},
-		"*string:~*req.Resources:ResourceProfile2": {"RES_GR_TEST": true},
-	}
-	if fltrIndexer, err := ComputeResourceIndexes(dm, "cgrates.org", nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(fltrIndexer.indexes, expIndexes) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(fltrIndexer.indexes), utils.ToJSON(expIndexes))
-	}
-}
-func TestComputeSupplierIndexes(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_SUPP_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Supplier",
-				Values:  []string{"SupplierProfile1"},
-			},
-		},
-	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	spp := &SupplierProfile{
-		Tenant:    "cgrates.org",
-		ID:        "SPL_2",
-		Sorting:   utils.MetaLC,
-		FilterIDs: []string{"FLTR_SUPP_1"},
-		Suppliers: []*Supplier{
-			{
-				ID:         "SPL1",
-				FilterIDs:  []string{"FLTR_1"},
-				AccountIDs: []string{"accc"},
-				Weight:     20,
-				Blocker:    false,
-			},
-		},
-		Weight: 10,
-	}
-	if err := dm.SetSupplierProfile(spp, true); err != nil {
-		t.Error(err)
-	}
-	chIDs := []string{"SPL_2"}
-	if _, err := ComputeSupplierIndexes(dm, "cgrates.org", &chIDs, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	expIndexes := map[string]utils.StringMap{
-		"*string:~*req.Supplier:SupplierProfile1": {"SPL_2": true},
-	}
-	if fltrIndexes, err := ComputeSupplierIndexes(dm, "cgrates.org", nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expIndexes, fltrIndexes.indexes) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(expIndexes), utils.ToJSON(fltrIndexes.indexes))
+	if pass, ruleList, err := filterS.LazyPass("cgrates.org",
+		[]string{"*string:~*req.Account:1010", "*string:~*vars.Field1:Val1"}, fEv, prefixes); err != nil {
+		t.Errorf(err.Error())
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
+	} else if len(ruleList) != 0 {
+		t.Errorf("Expecting: %+v, received: %+v", 0, len(ruleList))
 	}
 }
 
-func TestRemoveItemFromIndexRP(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
+func TestNewFilterFromInline(t *testing.T) {
+	exp := &Filter{
 		Tenant: "cgrates.org",
-		ID:     "FLTR_1",
+		ID:     "*string:~*req.Account:~*uhc.<~*req.CGRID;-Account>|1001",
 		Rules: []*FilterRule{
 			{
 				Type:    utils.MetaString,
 				Element: "~*req.Account",
-				Values:  []string{"1001"},
+				Values:  []string{"~*uhc.<~*req.CGRID;-Account>", "1001"},
 			},
 		},
 	}
-	if err := dm.SetFilter(fltr); err != nil {
+	if err := exp.Compile(); err != nil {
+		t.Fatal(err)
+	}
+	if rcv, err := NewFilterFromInline("cgrates.org", "*string:~*req.Account:~*uhc.<~*req.CGRID;-Account>|1001"); err != nil {
 		t.Error(err)
+	} else if !reflect.DeepEqual(exp, rcv) {
+		t.Errorf("Expected: %s , received: %s", utils.ToJSON(exp), utils.ToJSON(rcv))
 	}
-	fltr.Compile()
-	rs := &ResourceProfile{
-		Tenant:    "cgrates.org",
-		ID:        "RES_GR_TEST",
-		FilterIDs: []string{"FLTR_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		UsageTTL:          time.Duration(-1),
-		Limit:             2,
-		AllocationMessage: "Account1Channels",
-		Weight:            20,
-		ThresholdIDs:      []string{utils.META_NONE},
-	}
-	if err := dm.SetResourceProfile(rs, true); err != nil {
-		t.Error(err)
-	}
-	fltInd := NewFilterIndexer(dm, utils.ResourceProfilesPrefix, rs.Tenant)
 
-	if err := fltInd.RemoveItemFromIndex("cgrates.org", rs.ID, []string{}); err != nil {
+	if _, err := NewFilterFromInline("cgrates.org", "*string:~*req.Account"); err == nil {
+		t.Error("Expected error received nil")
+	}
+
+	if _, err := NewFilterFromInline("cgrates.org", "*string:~*req.Account:~*req.CGRID{*|1001"); err == nil {
+		t.Error("Expected error received nil")
+	}
+}
+
+func TestVerifyInlineFilterS(t *testing.T) {
+	if err := verifyInlineFilterS([]string{"ATTR", "*string:~*req,Acoount:1001"}); err != nil {
 		t.Error(err)
 	}
-	if err := dm.RemoveResourceProfile("cgrates.org", rs.ID, utils.NonTransactional, true); err != nil {
+	if err := verifyInlineFilterS([]string{"ATTR", "*string:~*req,Acoount1001"}); err == nil {
+		t.Errorf("Expected error received nil")
+	}
+}
+
+func TestActivationIntervalPass(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := FilterS{
+		cfg: cfg,
+		dm:  dmFilterPass,
+	}
+	passEvent := map[string]any{
+		"CustomTime": time.Date(2013, time.July, 1, 0, 0, 0, 0, time.UTC),
+	}
+	fEv := utils.MapStorage{}
+	fEv.Set([]string{utils.MetaReq}, passEvent)
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*ai:~*req.CustomTime:2013-06-01T00:00:00Z"}, fEv); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*ai:~*req.CustomTime:2013-09-01T00:00:00Z"}, fEv); err != nil {
+		t.Error(err)
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
+	}
+
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*ai:~*req.CustomTime:|2013-09-01T00:00:00Z"}, fEv); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*ai:~*req.CustomTime:|2013-06-01T00:00:00Z"}, fEv); err != nil {
+		t.Error(err)
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
+	}
+
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*ai:~*req.CustomTime:2013-06-01T00:00:00Z|2013-09-01T00:00:00Z"}, fEv); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Errorf("Expecting: %+v, received: %+v", true, pass)
+	}
+
+	if pass, err := filterS.Pass("cgrates.org",
+		[]string{"*ai:~*req.CustomTime:2013-08-01T00:00:00Z|2013-09-01T00:00:00Z"}, fEv); err != nil {
+		t.Error(err)
+	} else if pass {
+		t.Errorf("Expecting: %+v, received: %+v", false, pass)
+	}
+}
+
+func TestFilterPassIPNet(t *testing.T) {
+	cd := utils.MapStorage{
+		"IP":      "192.0.2.0",
+		"WrongIP": "192.0.3.",
+	}
+	rf := &FilterRule{Type: utils.MetaIPNet,
+		Element: "~IP", Values: []string{"192.0.2.1/24"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passIPNet(cd); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("Not passes filter")
+	}
+	rf = &FilterRule{Type: utils.MetaIPNet,
+		Element: "~IP", Values: []string{"~IP2", "192.0.3.0/30"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passIPNet(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+	//not
+	rf = &FilterRule{Type: utils.MetaNotIPNet,
+		Element: "~IP", Values: []string{"192.0.2.0/24"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+	rf = &FilterRule{Type: utils.MetaNotIPNet,
+		Element: "~IP", Values: []string{"192.0.3.0/24"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.Pass(cd); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("Not passes filter")
+	}
+
+	rf = &FilterRule{Type: utils.MetaIPNet,
+		Element: "~IP2", Values: []string{"192.0.2.0/24"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passIPNet(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+
+	rf = &FilterRule{Type: utils.MetaIPNet,
+		Element: "~IP", Values: []string{"192.0.2.0"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passIPNet(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+
+	rf = &FilterRule{Type: utils.MetaIPNet,
+		Element: "~WrongIP", Values: []string{"192.0.2.0"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if passes, err := rf.passIPNet(cd); err != nil {
+		t.Error(err)
+	} else if passes {
+		t.Error("Filter passes")
+	}
+	rf = &FilterRule{Type: utils.MetaIPNet,
+		Element: "~IP{*duration}", Values: []string{"192.0.2.0/24"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rf.Pass(cd); err == nil {
 		t.Error(err)
 	}
 }
 
-func TestRemoveItemFromIndexCHP(t *testing.T) {
-	Cache.Clear(nil)
+func TestAPIBan(t *testing.T) {
+	var counter int
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		responses := map[string]struct {
+			code int
+			body []byte
+		}{
+			"/testKey/check/1.2.3.251": {code: http.StatusOK, body: []byte(`{"ipaddress":["1.2.3.251"], "ID":"987654321"}`)},
+			"/testKey/check/1.2.3.254": {code: http.StatusBadRequest, body: []byte(`{"ipaddress":["not blocked"], "ID":"none"}`)},
+		}
+		if val, has := responses[r.URL.EscapedPath()]; has {
+			w.WriteHeader(val.code)
+			if val.body != nil {
+				w.Write(val.body)
+			}
+			return
+		}
+		counter++
+		w.WriteHeader(http.StatusOK)
+		if counter < 2 {
+			_, _ = w.Write([]byte(`{"ipaddress": ["1.2.3.251", "1.2.3.252"], "ID": "100"}`))
+		} else {
+			_, _ = w.Write([]byte(`{"ID": "none"}`))
+			counter = 0
+		}
+	}))
+	defer testServer.Close()
+	baningo.RootURL = testServer.URL + "/"
 
-	cfg, err := config.NewDefaultCGRConfig()
+	dp := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"bannedIP":  "1.2.3.251",
+			"bannedIP2": "1.2.3.252",
+			"IP":        "1.2.3.253",
+			"IP2":       "1.2.3.254",
+		},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dmFilterPass := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := FilterS{
+		cfg: cfg,
+		dm:  dmFilterPass,
+	}
+	config.CgrConfig().APIBanCfg().Keys = []string{"testKey"}
+	if pass, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.IP:*all"}, dp); err != nil {
+		t.Fatal(err)
+	} else if pass {
+		t.Error("Expected not to pass")
+	}
+	// from cache
+	if pass, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.IP:*all"}, dp); err != nil {
+		t.Fatal(err)
+	} else if pass {
+		t.Error("Expected not to pass")
+	}
+	if pass, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.IP2:*single"}, dp); err != nil {
+		t.Fatal(err)
+	} else if pass {
+		t.Error("Expected not to pass")
+	}
+	Cache.Clear([]string{utils.MetaAPIBan})
+	if pass, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.bannedIP:*single"}, dp); err != nil {
+		t.Fatal(err)
+	} else if !pass {
+		t.Error("Expected to pass")
+	}
+	if pass, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.bannedIP2:*all"}, dp); err != nil {
+		t.Fatal(err)
+	} else if !pass {
+		t.Error("Expected to pass")
+	}
+
+	if pass, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.notFound:*all"}, dp); err != nil {
+		t.Fatal(err)
+	} else if pass {
+		t.Error("Expected not to pass")
+	}
+	expErr := "invalid value for apiban filter: <*any>"
+	if _, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.IP:*any"}, dp); err == nil || err.Error() != expErr {
+		t.Errorf("Expected error %s received: %v", expErr, err)
+	}
+	baningo.RootURL = "http://127.0.0.1:12345/"
+
+	expErr = `Get "http://127.0.0.1:12345/testKey/banned/100": dial tcp 127.0.0.1:12345: connect: connection refused`
+	if _, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.IP:*all"}, dp); err == nil || err.Error() != expErr {
+		t.Errorf("Expected error %s received: %v", expErr, err)
+	}
+	expErr = `Get "http://127.0.0.1:12345/testKey/check/1.2.3.253": dial tcp 127.0.0.1:12345: connect: connection refused`
+	if _, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.IP:*single"}, dp); err == nil || err.Error() != expErr {
+		t.Errorf("Expected error %s received: %v", expErr, err)
+	}
+
+	expErr = `invalid converter value in string: <*>, err: unsupported converter definition: <*>`
+	if _, err := filterS.Pass("cgrates.org", []string{"*apiban:~*req.<~*req.IP>{*}:*all"}, dp); err == nil || err.Error() != expErr {
+		t.Errorf("Expected error %s received: %v", expErr, err)
+	}
+}
+
+func TestFiltersPassTimingsErrParseNotFound(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"2018-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{}
+	rcv, err := fltr.passTimings(dtP)
+
 	if err != nil {
 		t.Error(err)
 	}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassTimingsErrParseWrongPath(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"2018-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: 13,
+	}
+
+	experr := utils.ErrWrongPath
+	rcv, err := fltr.passTimings(dtP)
+
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassTimingsTimeConvertErr(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"2018-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			"AnswerTime": "invalid time",
+		},
+	}
+	experr := "Unsupported time format"
+	rcv, err := fltr.passTimings(dtP)
+
+	if err == nil || err.Error() != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassTimingsParseDPErr(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"~2018-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			"AnswerTime": "2018-01-07T17:00:10Z",
+		},
+	}
+
+	experr := utils.ErrNotFound
+	rcv, err := fltr.passTimings(dtP)
+
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassTimingsCallSuccessful(t *testing.T) {
+	tmp1, tmp2 := connMgr, config.CgrConfig()
+	defer func() {
+		connMgr = tmp1
+		config.SetCgrConfig(tmp2)
+	}()
+
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ApierSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier)}
+	config.SetCgrConfig(cfg)
+	Cache.Clear(nil)
+
+	client := make(chan rpcclient.ClientConnector, 1)
+	ccM := &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.APIerSv1GetTiming: func(args, reply any) error {
+				exp := &utils.TPTiming{
+					ID:        "MIDNIGHT",
+					Years:     utils.Years{2020, 2018},
+					Months:    utils.Months{1, 2, 3, 4},
+					MonthDays: utils.MonthDays{5, 6, 7, 8},
+					WeekDays:  utils.WeekDays{0, 1, 2, 3, 4, 5, 6},
+					StartTime: "17:00:00",
+					EndTime:   "17:00:18",
+				}
+				*reply.(*utils.TPTiming) = *exp
+				return nil
+			},
+		},
+	}
+	client <- ccM
+
+	NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier): client,
+	})
+
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"2018-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			"AnswerTime": "2018-01-07T17:00:10Z",
+		},
+	}
+
+	rcv, err := fltr.passTimings(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != true {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", true, rcv)
+	}
+}
+
+func TestFiltersPassTimingsCallErr(t *testing.T) {
+
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"2018-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			"AnswerTime": "2018-01-07T17:00:10Z",
+		},
+	}
+	rcv, err := fltr.passTimings(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassDestinationsErrParseNotFound(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaDestinations, "~*req.Account", []string{"1001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{}
+	rcv, err := fltr.passDestinations(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassDestinationsErrParseWrongPath(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaDestinations, "~*req.Account", []string{"1001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: 13,
+	}
+
+	experr := utils.ErrWrongPath
+	rcv, err := fltr.passDestinations(dtP)
+
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassDestinationsCallErr(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaDestinations, "~*req.Account", []string{"1001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			utils.AccountField: "1001",
+		},
+	}
+
+	rcv, err := fltr.passDestinations(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassDestinationsCallSuccessSameDest(t *testing.T) {
+	tmp1, tmp2 := connMgr, config.CgrConfig()
+	defer func() {
+		connMgr = tmp1
+		config.SetCgrConfig(tmp2)
+	}()
+
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ApierSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier)}
+	config.SetCgrConfig(cfg)
+	Cache.Clear(nil)
+
+	client := make(chan rpcclient.ClientConnector, 1)
+	ccM := &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.APIerSv1GetReverseDestination: func(args, reply any) error {
+				rply := []string{"1002"}
+				*reply.(*[]string) = rply
+				return nil
+			},
+		},
+	}
+	client <- ccM
+
+	NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier): client,
+	})
+
+	fltr, err := NewFilterRule(utils.MetaDestinations, "~*req.Account", []string{"1002"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			utils.AccountField: "1002",
+		},
+	}
+
+	rcv, err := fltr.passDestinations(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != true {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", true, rcv)
+	}
+}
+
+func TestFiltersPassDestinationsCallSuccessParseErr(t *testing.T) {
+	tmp1, tmp2 := connMgr, config.CgrConfig()
+	defer func() {
+		connMgr = tmp1
+		config.SetCgrConfig(tmp2)
+	}()
+
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ApierSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier)}
+	config.SetCgrConfig(cfg)
+	Cache.Clear(nil)
+
+	client := make(chan rpcclient.ClientConnector, 1)
+	ccM := &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.APIerSv1GetReverseDestination: func(args, reply any) error {
+				rply := []string{"1002"}
+				*reply.(*[]string) = rply
+				return nil
+			},
+		},
+	}
+	client <- ccM
+
+	NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier): client,
+	})
+
+	fltr, err := NewFilterRule(utils.MetaDestinations, "~*req.Account", []string{"~1002"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			utils.AccountField: "1002",
+		},
+	}
+
+	rcv, err := fltr.passDestinations(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassRSRErrParseWrongPath(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaDestinations, "~*req.Account", []string{"1001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: 13,
+	}
+
+	experr := utils.ErrWrongPath
+	rcv, err := fltr.passRSR(dtP)
+
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassGreaterThanErrParseWrongPath(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaGreaterThan, "~*req.Usage", []string{"10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: 13,
+	}
+
+	experr := utils.ErrWrongPath
+	rcv, err := fltr.passGreaterThan(dtP)
+
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassGreaterThanErrIncomparable(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaGreaterThan, "~*req.Usage", []string{"10"})
+	fltr.rsrElement.Rules = "rules"
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			utils.Usage: nil,
+		},
+	}
+
+	experr := fmt.Sprintf("incomparable: <%v> with <%d>", nil, 10)
+	rcv, err := fltr.passGreaterThan(dtP)
+
+	if err == nil || err.Error() != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFiltersPassGreaterThanErrParseValues(t *testing.T) {
+	fltr, err := NewFilterRule(utils.MetaGreaterThan, "~*req.Usage", []string{"~10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			utils.Usage: "10",
+		},
+	}
+
+	rcv, err := fltr.passGreaterThan(dtP)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv != false {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", false, rcv)
+	}
+}
+
+func TestFilterPassRSRFieldsWithMultplieValues(t *testing.T) {
+	ev := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"23": "sip:11561561561561568@dan",
+		},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	dm := NewDataManager(NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items), cfg.CacheCfg(), nil)
+	flts := NewFilterS(cfg, nil, dm)
+	if passes, err := flts.Pass("cgrates.org", []string{"*rsr:~*req.23:dan|1001"}, ev); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("Not passing")
+	}
+	if passes, err := flts.Pass("cgrates.org", []string{"*rsr:~*req.23:dan"}, ev); err != nil {
+		t.Error(err)
+	} else if !passes {
+		t.Error("Not passing")
+	}
+}
+
+func TestFilterGreaterThanOnObjectDP(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ResourceSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources)}
+	dm := NewDataManager(NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items), cfg.CacheCfg(), nil)
+	mockConn := &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.ResourceSv1GetResourceWithConfig: func(args any, reply any) error {
+				*(reply.(*ResourceWithConfig)) = ResourceWithConfig{
+					Resource: &Resource{},
+				}
+				return nil
+			},
+		},
+	}
+	mockChan := make(chan rpcclient.ClientConnector, 1)
+	mockChan <- mockConn
+	connMgr := NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources): mockChan,
+	})
+	flts := NewFilterS(cfg, connMgr, dm)
+	ev := utils.MapStorage{}
+
+	if _, err := flts.Pass("cgrates.org", []string{"*gte:~*resources.RES1.Available2:2",
+		"*lt:~*resources.RES1.Available2:10"}, ev); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestWeightFromDynamics(t *testing.T) {
+	dWs := []*utils.DynamicWeight{
+		{
+			FilterIDs: []string{"*destinations:~*req.Destination:EU"},
+			Weight:    10.2,
+		},
+	}
+	cfg := config.NewDefaultCGRConfig()
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dmSPP := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	passEvent := map[string]any{
+		utils.Destination: "+4986517174963",
+	}
+
+	pEv := utils.MapStorage{utils.MetaReq: passEvent}
+	fltrS := &FilterS{
+		cfg:     cfg,
+		dm:      dmSPP,
+		connMgr: nil,
+	}
+
+	if _, err := WeightFromDynamics(dWs, fltrS, "cgrates.org", pEv); err != nil {
+		t.Error(err)
+	}
+
+}
+
+func TestCheckFilterErr(t *testing.T) {
 	fltr := &Filter{
 		Tenant: "cgrates.org",
 		ID:     "FLTR_CP_2",
 		Rules: []*FilterRule{
 			{
 				Type:    utils.MetaString,
-				Element: "~*req.Charger",
+				Element: "~*reqCharger",
 				Values:  []string{"ChargerProfile2"},
 			},
-		}}
-	if err := fltr.Compile(); err != nil {
-		t.Error(err)
-	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	chp := &ChargerProfile{
-		Tenant:       "cgrates.org",
-		ID:           "Raw",
-		FilterIDs:    []string{"FLTR_CP_2"},
-		RunID:        utils.MetaRaw,
-		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
-		Weight:       0,
-	}
-	if err := dm.SetChargerProfile(chp, false); err != nil {
-		t.Error(err)
-	}
-	fltInd := NewFilterIndexer(dm, utils.ChargerProfilePrefix, chp.Tenant)
-	if err := fltInd.RemoveItemFromIndex("cgrates.org", chp.ID, []string{}); err != nil {
-		t.Error(err)
-	}
-	if err := dm.RemoveFilter("cgrates.org", fltr.ID, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	if err := fltInd.RemoveItemFromIndex("cgrates.org", chp.ID, []string{}); err == nil {
-		t.Error(err)
-	}
-	if err := dm.SetChargerProfile(chp, true); err == nil || !strings.HasPrefix(err.Error(), "broken reference to filter:") {
-		t.Error(err)
-	}
-}
-
-func TestComputeStatIndexes(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:     "FLTR_STATS_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Stats",
-				Values:  []string{"StatQueueProfile1"},
-			},
 		},
 	}
-	if err := fltr.Compile(); err != nil {
+	if err := CheckFilter(fltr); err == nil {
 		t.Error(err)
 	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	sq := &StatQueueProfile{
-		Tenant:    "cgrates.org",
-		ID:        "TEST_PROFILE2",
-		FilterIDs: []string{"FLTR_STATS_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		QueueLength: 10,
-		TTL:         time.Duration(10) * time.Second,
-		Metrics: []*MetricWithFilters{
-			{
-				MetricID: "*sum",
-			},
-			{
-				MetricID: utils.MetaACD,
-			},
-		},
-		ThresholdIDs: []string{"Val1", "Val2"},
-		Blocker:      true,
-		Stored:       true,
-		Weight:       20,
-		MinItems:     1,
-	}
-
-	if err := dm.SetStatQueueProfile(sq, true); err != nil {
-		t.Error(err)
-	}
-	stIDs := []string{"TEST_PROFILE2"}
-	if _, err := ComputeStatIndexes(dm, "cgrates.org", &stIDs, ""); err != nil {
-		t.Error(err)
-	}
-	expIndexes := map[string]utils.StringMap{
-		"*string:~*req.Stats:StatQueueProfile1": {"TEST_PROFILE2": true},
-	}
-	if fltrIndexer, err := ComputeStatIndexes(dm, "cgrates.org", nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expIndexes, fltrIndexer.indexes) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(expIndexes), utils.ToJSON(fltrIndexer))
-	}
-}
-
-func TestComputeAttributeIndexes(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltrAttr1 := &Filter{
-		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:     "FLTR_ATTR_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Attribute",
-				Values:  []string{"AttributeProfile1"},
-			},
-			{
-				Type:    utils.MetaGreaterOrEqual,
-				Element: "~*req.UsageInterval",
-				Values:  []string{(1 * time.Second).String()},
-			},
-			{
-				Type:    utils.MetaGreaterOrEqual,
-				Element: "~*req." + utils.Weight,
-				Values:  []string{"9.0"},
-			},
-			{
-				Type:    utils.MetaPrefix,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Values:  []string{"1001"},
-			},
-		},
-	}
-	if err := fltrAttr1.Compile(); err != nil {
-		t.Error(err)
-	}
-	if err := dm.SetFilter(fltrAttr1); err != nil {
-		t.Error(err)
-	}
-	ap := &AttributeProfile{
-		Tenant:    "cgrates.org",
-		ID:        "AttrPrf1",
-		FilterIDs: []string{"FLTR_ATTR_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Contexts: []string{"con1"},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "FN1",
-				Value: config.NewRSRParsersMustCompile("Val1", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 20,
-	}
-	if err := dm.SetAttributeProfile(ap, true); err != nil {
-		t.Error(err)
-	}
-	ids := []string{"AttrPrf1"}
-	if _, err := ComputeAttributeIndexes(dm, "cgrates.org", "con1", &ids, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	expIndexes := map[string]utils.StringMap{
-		"*string:~*req.Attribute:AttributeProfile1": {
-			"AttrPrf1": true,
-		},
-		"*prefix:~*req.Account:1001": {
-			"AttrPrf1": true,
-		},
-	}
-	if fltrIndexer, err := ComputeAttributeIndexes(dm, "cgrates.org", "con1", nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expIndexes, fltrIndexer.indexes) {
-		t.Errorf("Expected %v , Receveid %v", utils.ToJSON(expIndexes), utils.ToJSON(fltrIndexer.indexes))
-	}
-
-}
-
-func TestComputeDispatcherIndexes(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	Cache.Clear(nil)
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
+	fltr = &Filter{
 		Tenant: "cgrates.org",
-		ID:     "DSP_FLT",
-		Rules: []*FilterRule{
-			{
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Type:    utils.MetaString,
-				Values:  []string{"2009"},
-			},
-		}}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-
-	dpP := &DispatcherProfile{
-		Tenant:    "cgrates.org",
-		ID:        "Dsp1",
-		FilterIDs: []string{"DSP_FLT"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+		ID:     "TestFilter",
+		Rules: []*FilterRule{{
+			Element: "~*req.Account",
+			Type:    utils.MetaString,
+			Values:  []string{"~1001"},
 		},
-		Strategy:   utils.MetaFirst,
-		Weight:     20,
-		Subsystems: []string{utils.MetaAttributes, utils.MetaSessionS},
-	}
-	if err := dm.SetDispatcherProfile(dpP, true); err != nil {
-		t.Error(err)
-	}
-	ids := []string{"Dsp1"}
-	if _, err := ComputeDispatcherIndexes(dm, "cgrates.org", utils.MetaAttributes, &ids, utils.NonTransactional); err != nil {
-		t.Error(err)
-	}
-	expIndexes := map[string]utils.StringMap{
-		"*string:~*req.Account:2009": {
-			"Dsp1": true,
 		},
 	}
-	if fltrIndexer, err := ComputeDispatcherIndexes(dm, "cgrates.org", utils.MetaSessionS, nil, "ID"); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expIndexes, fltrIndexer.indexes) {
-		t.Errorf("Expected %v,Received %v", utils.ToJSON(expIndexes), utils.ToJSON(fltrIndexer.indexes))
-	}
-}
-
-func TestRemoveItemFromIndexSQP(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_1",
-		Rules: []*FilterRule{
-			{
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Type:    utils.MetaString,
-				Values:  []string{"1001"},
-			},
-		},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	sqs := &StatQueueProfile{
-		Tenant:      "cgrates.org",
-		ID:          "DistinctMetricProfile",
-		QueueLength: 10,
-		FilterIDs:   []string{"FLTR_1"},
-		TTL:         time.Duration(10) * time.Second,
-		Metrics: []*MetricWithFilters{
-			{
-				MetricID: utils.MetaDDC,
-			},
-		},
-		ThresholdIDs: []string{utils.META_NONE},
-		Stored:       true,
-		Weight:       20,
-	}
-	if err := dm.SetStatQueueProfile(sqs, true); err != nil {
-		t.Error(err)
-	}
-	fltrIndexer := NewFilterIndexer(dm, utils.StatQueueProfilePrefix, sqs.Tenant)
-	if err := fltrIndexer.RemoveItemFromIndex(sqs.Tenant, sqs.ID, []string{}); err != nil {
+	if err := CheckFilter(fltr); err == nil {
 		t.Error(err)
 	}
 }
 
-func TestRemoveItemFromIndexSPP(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_SUPP_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Supplier",
-				Values:  []string{"SupplierProfile1"},
-			},
-		},
+func TestFilterPassRegexErr(t *testing.T) {
+	cd := &CallDescriptor{
+		Category:      "callx",
+		Tenant:        "cgrates.org",
+		Subject:       "dan",
+		Destination:   "+4986517174963",
+		TimeStart:     time.Date(2013, time.October, 7, 14, 50, 0, 0, time.UTC),
+		TimeEnd:       time.Date(2013, time.October, 7, 14, 52, 12, 0, time.UTC),
+		DurationIndex: 132 * time.Second,
+		ExtraFields:   map[string]string{"navigation": "off"},
 	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
+	rf := &FilterRule{Type: utils.MetaRegex,
+		Element: "~ategory", Values: []string{"^call"}}
+	if err := rf.CompileValues(); err != nil {
+		t.Fatal(err)
 	}
-	spp := &SupplierProfile{
-		Tenant:    "cgrates.org",
-		ID:        "SPL_ACNT_1001",
-		FilterIDs: []string{"FLTR_SUPP_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2017, 11, 27, 0, 0, 0, 0, time.UTC),
-		},
-		Sorting:           utils.MetaWeight,
-		SortingParameters: []string{},
-		Suppliers: []*Supplier{
-			{
-				ID:     "supplier1",
-				Weight: 10,
-			},
-		},
-		Weight: 20,
-	}
-	if err := dm.SetSupplierProfile(spp, true); err != nil {
-		t.Error(err)
-	}
-	fltrIndexer := NewFilterIndexer(dm, utils.SupplierProfilePrefix, spp.Tenant)
-	if err := fltrIndexer.RemoveItemFromIndex(spp.Tenant, spp.ID, []string{}); err != nil {
+	if pass, err := rf.passRegex(cd); err != nil || pass {
 		t.Error(err)
 	}
 }
-
-func TestRemoveItemFromIndexDP(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "DSP_FLT",
-		Rules: []*FilterRule{
-			{
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Type:    utils.MetaString,
-				Values:  []string{"2009"},
-			},
-		},
-	}
-	if err := dm.SetFilter(fltr); err != nil {
-		t.Error(err)
-	}
-	dpp := &DispatcherProfile{
-		Tenant:     "cgrates.org",
-		ID:         "DSP_Test1",
-		FilterIDs:  []string{"DSP_FLT"},
-		Strategy:   utils.MetaFirst,
-		Subsystems: []string{utils.MetaAttributes, utils.MetaSessionS},
-		Weight:     20,
-	}
-	if err := dm.SetDispatcherProfile(dpp, true); err != nil {
-		t.Error(err)
-	}
-	fltrIndexer := NewFilterIndexer(dm, utils.DispatcherProfilePrefix, dpp.Tenant)
-	if err := fltrIndexer.RemoveItemFromIndex(dpp.Tenant, dpp.ID, []string{}); err != nil {
-		t.Error(err)
-	}
-}
-
-func TestUpdateFilterIndexes(t *testing.T) {
-
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-
-	oldFlt := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Values:  []string{"1001", "1002"},
-			},
-			{
-				Type:    "*prefix",
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Destination,
-				Values:  []string{"10", "20"},
-			},
-			{
-				Type:    "*rsr",
-				Element: "",
-				Values:  []string{"~*req.Subject(~^1.*1$)", "~*req.Destination(1002)"},
-			},
-		},
-	}
-	if err := dm.SetFilter(oldFlt); err != nil {
-		t.Error(err)
-	}
-	chg := &ChargerProfile{
-		Tenant:    "cgrates.org",
-		ID:        "CPP_3",
-		FilterIDs: []string{"FLTR_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		RunID:        "*rated",
-		AttributeIDs: []string{"ATTR_1"},
-		Weight:       20,
-	}
-
-	if err := dm.SetChargerProfile(chg, true); err != nil {
-		t.Error(err)
-	}
-	thP := &ThresholdProfile{
-		Tenant:    "cgrates.org",
-		ID:        "THD_ACNT_1001",
-		FilterIDs: []string{"FLTR_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 29, 15, 0, 0, 0, time.UTC),
-		},
-		MaxHits:   1,
-		MinHits:   1,
-		MinSleep:  time.Duration(1 * time.Second),
-		Weight:    10.0,
-		ActionIDs: []string{"ACT_LOG_WARNING"},
-		Async:     true,
-	}
-	if err := dm.SetThresholdProfile(thP, true); err != nil {
-		t.Error(err)
-	}
-	rcf := &ResourceProfile{
-		Tenant:    "cgrates.org",
-		ID:        "RCFG1",
-		FilterIDs: []string{"FLTR_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		UsageTTL:          time.Duration(10) * time.Microsecond,
-		Limit:             10,
-		AllocationMessage: "MessageAllocation",
-		Blocker:           true,
-		Stored:            true,
-		Weight:            20,
-	}
-	if err := dm.SetResourceProfile(rcf, true); err != nil {
-		t.Error(err)
-	}
-	supp := &SupplierProfile{
-		Tenant:    "cgrates.org",
-		ID:        "SPL_DESTINATION",
-		FilterIDs: []string{"FLTR_1"},
-		Sorting:   utils.MetaLC,
-		Suppliers: []*Supplier{
-			{
-				ID:            "local",
-				RatingPlanIDs: []string{"RP_LOCAL"},
-				Weight:        10,
-			},
-			{
-				ID:            "mobile",
-				RatingPlanIDs: []string{"RP_MOBILE"},
-				FilterIDs:     []string{"*destinations:~*req.Destination:DST_MOBILE"},
-				Weight:        10,
-			},
-		},
-		Weight: 100,
-	}
-	if err := dm.SetSupplierProfile(supp, true); err != nil {
-		t.Error(err)
-	}
-	stat := &StatQueueProfile{
-		Tenant:    "cgrates.org",
-		ID:        "TEST_PROFILE1",
-		FilterIDs: []string{"FLTR_1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		QueueLength: 10,
-		TTL:         time.Duration(10) * time.Second,
-		Metrics: []*MetricWithFilters{
-			{
-				MetricID: utils.MetaACD,
-			},
-		},
-		ThresholdIDs: []string{"THD_ACNT_1001"},
-		Blocker:      true,
-		Stored:       true,
-		Weight:       20,
-		MinItems:     1,
-	}
-	if err := dm.SetStatQueueProfile(stat, true); err != nil {
-		t.Error(err)
-	}
-	attr := &AttributeProfile{
-		Tenant:    "cgrates.org",
-		ID:        "ApierTest",
-		Contexts:  []string{utils.META_ANY},
-		FilterIDs: []string{"FLTR_1"},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
-				Value: config.NewRSRParsersMustCompile("1011", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 20,
-	}
-	if err := dm.SetAttributeProfile(attr, true); err != nil {
-		t.Error(err)
-	}
-	dpp := &DispatcherProfile{
-		Tenant:     "cgrates.org",
-		ID:         "DSP_Test1",
-		FilterIDs:  []string{"FLTR_1"},
-		Strategy:   utils.MetaFirst,
-		Subsystems: []string{utils.MetaAttributes, utils.MetaSessionS},
-		Weight:     20,
-	}
-	if err := dm.SetDispatcherProfile(dpp, true); err != nil {
-		t.Error(err)
-	}
-	newFlt := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "FLTR_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Values:  []string{"1001"},
-			},
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Subject",
-				Values:  []string{"1001"},
-			},
-			{
-				Type:    utils.MetaRSR,
-				Element: utils.EmptyString,
-				Values:  []string{"~*req.Tenant(~^cgr.*\\.org$)"},
-			},
-		},
-	}
-	if err := UpdateFilterIndexes(dm, "cgrates.org", oldFlt, newFlt); err != nil {
-		t.Error(err)
-	}
-
-}
-
-func TestFilterSPass11(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+func TestFilterLazyPassErr(t *testing.T) {
+	tmp := Cache
 	defer func() {
-		Cache.Clear(nil)
+		Cache = tmp
 	}()
-	cfg.FilterSCfg().ResourceSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources)}
-	cfg.FilterSCfg().StatSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStatS)}
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	acc := &Account{
-		ID: "cgrates.org:1001",
-		BalanceMap: map[string]Balances{
-			utils.VOICE: {
-				&Balance{Value: 20 * float64(time.Second),
-					DestinationIDs: utils.NewStringMap("DST1"),
-					Weight:         10},
-				&Balance{Value: 100 * float64(time.Second),
-					DestinationIDs: utils.NewStringMap("DST2"), Weight: 20},
-			}},
+	dm := NewDataManager(db, config.CgrConfig().CacheCfg(), nil)
+	filterS := FilterS{
+		cfg: cfg,
+		dm:  dm,
 	}
-	rsr := &Resource{
-		Tenant: "cgrates.org",
-		ID:     "RL1",
-		Usages: map[string]*ResourceUsage{
-			"RU1": {
-				ID:         "RU1",
-				ExpiryTime: time.Date(2014, 7, 3, 13, 43, 0, 0, time.UTC),
-				Units:      2,
-			},
-		},
-		TTLIdx: []string{"RU1"},
+	fltrID := "*string:~*req.Account:1007"
+	passEvent := map[string]any{
+		"Account": "1007",
 	}
-	sq := &StatQueue{
-		Tenant: "cgrates.org",
-		ID:     "SQ_1",
-		dirty:  utils.BoolPointer(true),
-		SQMetrics: map[string]StatMetric{
-			utils.MetaASR: &StatASR{
-				Answered: 1,
-				Count:    1,
-				Events: map[string]*StatWithCompress{
-					"cgrates.org:TestStatRemExpired_1": {Stat: 1, CompressFactor: 1},
-				},
-			},
-		}}
-	dm.SetResource(rsr)
-	dm.SetAccount(acc)
-	dm.SetStatQueue(sq)
-	clientConn := make(chan birpc.ClientConnector, 1)
-	clientConn <- clMock(func(ctx *context.Context, serviceMethod string, args, reply interface{}) error {
-		if serviceMethod == utils.ResourceSv1GetResource {
-			tntId, concat := args.(*utils.TenantID)
-			if !concat {
-				return utils.ErrNotConvertible
+	dm.dataDB = &DataDBMock{}
+	fEv := utils.MapStorage{}
+	fEv.Set([]string{utils.MetaReq}, passEvent)
+	prefixes := []string{utils.DynamicDataPrefix + utils.MetaReq}
+	Cache.Set(utils.CacheFilters, utils.ConcatenatedKey("cgrates.org", fltrID), nil, []string{}, true, utils.NonTransactional)
+	if _, _, err := filterS.LazyPass("cgrates.org",
+		[]string{fltrID}, fEv, prefixes); err == nil || err.Error() != utils.ErrPrefixNotFound(fltrID).Error() {
+		t.Errorf(err.Error())
+	}
+}
+
+func TestSentryPeer(t *testing.T) {
+	token := "token27072023"
+	count := 0
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if r.Method == http.MethodPost {
+
+			if r.URL.EscapedPath() != "/oauth/token" {
+				w.WriteHeader(http.StatusNotFound)
+				return
 			}
-			rpl, err := dm.GetResource(tntId.Tenant, tntId.ID, false, false, utils.NonTransactional)
+			contentType := r.Header.Get(utils.ContentType)
+			if contentType != utils.JsonBody {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			var data map[string]string
+			err := json.NewDecoder(r.Body).Decode(&data)
 			if err != nil {
-				return err
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
-			*reply.(**Resource) = rpl
-			return nil
-		} else if serviceMethod == utils.StatSv1GetQueueFloatMetrics {
-			rpl := map[string]float64{
-				utils.MetaACC: 100.0,
+
+			if data[utils.ClientIdCfg] != "ererwffwssf" ||
+				data[utils.ClientSecretCfg] != "3354rf43f34sf" ||
+				data[utils.AudienceCfg] != "https://sentrypeer.com/api" ||
+				data[utils.GrantTypeCfg] != "client_credentials" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
-			*reply.(*map[string]float64) = rpl
-			return nil
+			response := struct {
+				AccessToken string `json:"access_token"`
+			}{
+				AccessToken: token,
+			}
+			w.WriteHeader(http.StatusOK)
+			err = json.NewEncoder(w).Encode(response)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			return
 		}
-		return utils.ErrNotImplemented
-	})
 
-	fltrs := []*Filter{
-		{
-			Tenant: "cgrates.org",
-			ID:     "FLTR_ACC",
-			Rules: []*FilterRule{{
-				Type:    utils.MetaString,
-				Element: "~*accounts.1001.BalanceMap.*voice[0].Value",
-				Values:  []string{"~*accounts.1001.BalanceMap.*voice[0].Value" + utils.IfaceAsString(20*float64(time.Second))},
-			}},
-		},
-		{
-			Tenant: "cgrates.org",
-			ID:     "FLTR_RES",
-			Rules: []*FilterRule{
-				{
-					Type:    "*lte",
-					Element: "~*resources.RL1.Usage.RUI.Units",
-					Values:  []string{"~*resources.RL1.Usage.RUI.Units.2"},
-				},
-			},
-		},
-		{
-			Tenant: "cgrates.org",
-			ID:     "FLTR_STAT",
-			Rules: []*FilterRule{
-				{
-					Type:    "*gt",
-					Element: "~*stats.SQ_1.*asr",
-					Values:  []string{"~*stats.SQ_1.*asr.10.0"},
-				},
-			},
-		},
-	}
-	connMgr := NewConnManager(cfg, map[string]chan birpc.ClientConnector{
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources): clientConn,
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStatS):     clientConn,
-	})
-	ev := &utils.MapStorage{}
-	fS := NewFilterS(cfg, connMgr, dm)
-	fltriDs := make([]string, len(fltrs))
-	for i, fltr := range fltrs {
-		dm.SetFilter(fltr)
-		fltriDs[i] = fltr.ID
-	}
-	if _, err := fS.Pass("cgrates.org", fltriDs, ev); err != nil {
-		t.Error(err)
-	}
-}
-
-func TestValidateInlineFilters(t *testing.T) {
-	cases := []struct {
-		fltrs       []string
-		expectedErr string
-	}{
-		{[]string{"FLTR", "*string:~*req.Account:1001"}, ""},
-		{[]string{"FLTR", "*string:~*req,Acoount1001"}, "inline parse error for string: <*string:~*req,Acoount1001>"},
-		{[]string{"*exists:~*req.Supplier:"}, ""},
-		{[]string{"*exists:*req.Supplier"}, "inline parse error for string: <*exists:*req.Supplier>"},
-		{[]string{"*rsr:~*req.Account:(10)"}, "invalid RSRFilter start rule in string: <(10)>"},
-	}
-	computeTestName := func(idx int, params []string) string {
-		return fmt.Sprintf("Test No %d with parameters: %v", idx, params)
-	}
-
-	for i, c := range cases {
-		t.Run(computeTestName(i, c.fltrs), func(t *testing.T) {
-			err := validateInlineFilters(c.fltrs)
-			if err != nil {
-				if c.expectedErr == "" {
-					t.Errorf("did not expect error, received: %v", err)
-				}
-			} else if c.expectedErr != "" {
-				t.Errorf("expected error: %v", err)
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		responses := map[string]struct {
+			code int
+			body []byte
+		}{
+			"/api/ip-addresses/1.2.3.254":       {code: http.StatusNotFound, body: []byte(`{"IP Address not found"}`)},
+			"/api/ip-addresses/184.168.31.232":  {code: http.StatusOK, body: []byte(`{"IP Address  found"}`)},
+			"/api/phone-numbers/22663272712":    {code: http.StatusNotFound, body: []byte(`Phone Number not found`)},
+			"/api/phone-numbers/90046322651795": {code: http.StatusOK, body: []byte(`{"Phone Number  found`)},
+			"/api/phone-numbers/1123452353245":  {code: http.StatusUnauthorized, body: []byte(`{"Not Authorized`)},
+		}
+		if val, has := responses[r.URL.EscapedPath()]; has {
+			if r.Header.Get(utils.AuthorizationHdr) != utils.BearerAuth+" "+token {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
 			}
-		})
+			if count == 1 {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`Phone number not found`))
+				return
+			}
+			if val.code == http.StatusUnauthorized {
+				count++
+			}
+			w.WriteHeader(val.code)
+			if val.body != nil {
+				w.Write(val.body)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`Wrong path in the request`))
+	}))
+
+	defer testServer.Close()
+	cfg := config.NewDefaultCGRConfig()
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := FilterS{
+		cfg: cfg,
+		dm:  dm,
+	}
+	dp := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"BADIP":     "184.168.31.232",
+			"IP":        "1.2.3.254",
+			"Number":    "22663272712",
+			"BadNumber": "90046322651795",
+			"No":        "1123452353245",
+		},
+	}
+	config.CgrConfig().SentryPeerCfg().ClientID = "ererwffwssf"
+	config.CgrConfig().SentryPeerCfg().ClientSecret = "3354rf43f34sf"
+	config.CgrConfig().SentryPeerCfg().TokenUrl = testServer.URL + "/oauth/token"
+	config.CgrConfig().SentryPeerCfg().IpsUrl = testServer.URL + "/api/ip-addresses"
+	config.CgrConfig().SentryPeerCfg().NumbersUrl = testServer.URL + "/api/phone-numbers"
+
+	if pass, err := filterS.Pass("cgrates.org", []string{"*sentrypeer:~*req.IP:*ip"}, dp); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Error("Expected to pass")
+	}
+	if val, has := Cache.Get(utils.MetaSentryPeer, utils.MetaToken); !has {
+		t.Error("Expected token to be set in the cahe")
+	} else if val.(string) != token {
+		t.Errorf("Expected +%v,Received +%v", token, val)
+	}
+
+	if val, has := Cache.Get(utils.MetaSentryPeer, utils.ConcatenatedKey(utils.MetaIp, "1.2.3.254")); !has {
+		t.Error("value should had been set in cache")
+	} else if !val.(bool) {
+		t.Error("Expected item to be true")
+	}
+
+	if pass, err := filterS.Pass("cgrates.org", []string{"*sentrypeer:~*req.BADIP:*ip"}, dp); err != nil {
+		t.Error(err)
+	} else if pass {
+		t.Error("Expected to not pass")
+	}
+	if val, has := Cache.Get(utils.MetaSentryPeer, utils.ConcatenatedKey(utils.MetaIp, "184.168.31.232")); !has {
+		t.Error("value should had been set in cache")
+	} else if val.(bool) {
+		t.Error("Expected item to be false")
+	}
+
+	if pass, err := filterS.Pass("cgrates.org", []string{"*sentrypeer:~*req.Number:*number"}, dp); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Error("Expected to pass")
+	}
+
+	if val, has := Cache.Get(utils.MetaSentryPeer, utils.ConcatenatedKey(utils.MetaNumber, "22663272712")); !has {
+		t.Error("value should had been set in cache")
+	} else if !val.(bool) {
+		t.Error("Expected item to be true")
+	}
+
+	if pass, err := filterS.Pass("cgrates.org", []string{"*sentrypeer:~*req.BadNumber:*number"}, dp); err != nil {
+		t.Error(err)
+	} else if pass {
+		t.Error("Expected to not  pass")
+	}
+
+	if val, has := Cache.Get(utils.MetaSentryPeer, utils.ConcatenatedKey(utils.MetaNumber, "90046322651795")); !has {
+		t.Error("value should had  been set in cache")
+	} else if val.(bool) {
+		t.Error("Expected item to be false")
+	}
+
+	if pass, err := filterS.Pass("cgrates.org", []string{"*sentrypeer:~*req.No:*number"}, dp); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Error("Expected to pass")
+	}
+
+	if val, has := Cache.Get(utils.MetaSentryPeer, utils.ConcatenatedKey(utils.MetaNumber, "1123452353245")); !has {
+		t.Error("value should had been set in cache")
+	} else if !val.(bool) {
+		t.Error("Expected item to be true")
 	}
 }
-func TestComputeDispatcherIndexesErr(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
-	dm.SetDispatcherProfile(&DispatcherProfile{
-		Tenant:     "cgrates.org",
-		ID:         "DSP1",
-		FilterIDs:  []string{"DSP_FLT"},
-		Strategy:   utils.MetaFirst,
-		Subsystems: []string{utils.MetaAttributes, utils.MetaSessionS},
-		Weight:     20,
-	}, true)
+func TestFilterPassTiming(t *testing.T) {
+	tmp1, tmp2 := connMgr, config.CgrConfig()
+	defer func() {
+		connMgr = tmp1
+		config.SetCgrConfig(tmp2)
+	}()
 
-	if _, err := ComputeDispatcherIndexes(dm, "cgrates.org", utils.MetaSessionS, &[]string{"DSP1"}, ""); err == nil {
-		t.Error(err)
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ApierSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier)}
+	config.SetCgrConfig(cfg)
+	Cache.Clear(nil)
 
+	client := make(chan rpcclient.ClientConnector, 1)
+	ccM := &ccMock{
+		calls: map[string]func(args any, reply any) error{
+			utils.APIerSv1GetTiming: func(args, reply any) error {
+				exp := &utils.TPTiming{
+					ID:        "MIDNIGHT",
+					Years:     utils.Years{2023},
+					Months:    utils.Months{1, 2, 3, 4},
+					MonthDays: utils.MonthDays{5, 6, 7, 8},
+					WeekDays:  utils.WeekDays{0, 1, 2, 3, 4, 5, 6},
+					StartTime: "17:00:00",
+					EndTime:   "17:00:18",
+				}
+				*reply.(*utils.TPTiming) = *exp
+				return nil
+			},
+		},
 	}
+	client <- ccM
+
+	NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier): client,
+	})
+
+	fltr, err := NewFilterRule(utils.MetaTimings, "~*req.AnswerTime", []string{"2023-01-07T17:00:10Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtP := utils.MapStorage{
+		utils.MetaReq: map[string]any{
+			"AnswerTime": "2023-01-07T17:00:10Z",
+		},
+	}
+
+	if pass, err := fltr.Pass(dtP); err != nil {
+		t.Error(err)
+	} else if !pass {
+		t.Errorf("expected: <%+v>, received: <%+v>", false, pass)
+	}
+
 }

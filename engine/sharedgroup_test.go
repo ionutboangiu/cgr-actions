@@ -118,7 +118,7 @@ func TestSharedSetGet(t *testing.T) {
 		},
 		MemberIds: utils.NewStringMap("1", "2", "3"),
 	}
-	err := dm.SetSharedGroup(sg, utils.NonTransactional)
+	err := dm.SetSharedGroup(sg)
 	if err != nil {
 		t.Error("Error storing Shared groudp: ", err)
 	}
@@ -182,6 +182,24 @@ func TestSharedPopBalanceByStrategyMineHigh(t *testing.T) {
 		sbc[1].Value != 3.0 {
 		t.Error("Error sorting balance chain: ", sbc)
 	}
+}
+
+func TestSortBalancesByStrategyRandom(t *testing.T) {
+
+	bc := Balances{
+		&Balance{Uuid: "uuuu", Value: 2.0, account: &Account{ID: "test"}},
+		&Balance{Value: 1.0},
+		&Balance{Value: 3.0},
+	}
+	sg := &SharedGroup{AccountParameters: map[string]*SharingParameters{
+		"test": {Strategy: "default"}},
+	}
+
+	sbc := sg.SortBalancesByStrategy(bc[0], bc)
+	if len(sbc) != 3 {
+		t.Error("Error sorting balance chain: ", sbc)
+	}
+
 }
 
 /*func TestSharedPopBalanceByStrategyRandomHigh(t *testing.T) {

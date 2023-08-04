@@ -22,31 +22,37 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-// Creates a new stat within a tariff plan
-func (self *APIerSv1) SetTPStat(attr *utils.TPStatProfile, reply *string) error {
-	if missing := utils.MissingStructFields(attr, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 {
+// SetTPStat creates a new stat within a tariff plan
+func (apierSv1 *APIerSv1) SetTPStat(attr *utils.TPStatProfile, reply *string) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.TPid, utils.ID}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := self.StorDb.SetTPStats([]*utils.TPStatProfile{attr}); err != nil {
+	if attr.Tenant == utils.EmptyString {
+		attr.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if err := apierSv1.StorDb.SetTPStats([]*utils.TPStatProfile{attr}); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
 	return nil
 }
 
-// Queries specific Stat on Tariff plan
-func (self *APIerSv1) GetTPStat(attr *utils.TPTntID, reply *utils.TPStatProfile) error {
-	if missing := utils.MissingStructFields(attr, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 { //Params missing
+// GetTPStat queries specific Stat on Tariff plan
+func (apierSv1 *APIerSv1) GetTPStat(attr *utils.TPTntID, reply *utils.TPStatProfile) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.TPid, utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if rls, err := self.StorDb.GetTPStats(attr.TPid, attr.Tenant, attr.ID); err != nil {
+	if attr.Tenant == utils.EmptyString {
+		attr.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	rls, err := apierSv1.StorDb.GetTPStats(attr.TPid, attr.Tenant, attr.ID)
+	if err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
 		return err
-	} else {
-		*reply = *rls[0]
 	}
+	*reply = *rls[0]
 	return nil
 }
 
@@ -56,34 +62,39 @@ type AttrGetTPStatIds struct {
 	utils.PaginatorWithSearch
 }
 
-// Queries Stat identities on specific tariff plan.
-func (self *APIerSv1) GetTPStatIDs(attrs *AttrGetTPStatIds, reply *[]string) error {
-	if missing := utils.MissingStructFields(&attrs, []string{"TPid"}); len(missing) != 0 { //Params missing
+// GetTPStatIDs queries Stat identities on specific tariff plan.
+func (apierSv1 *APIerSv1) GetTPStatIDs(attrs *AttrGetTPStatIds, reply *[]string) error {
+	if missing := utils.MissingStructFields(&attrs, []string{utils.TPid}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if ids, err := self.StorDb.GetTpTableIds(attrs.TPid, utils.TBLTPStats,
-		utils.TPDistinctIds{"id"}, nil, &attrs.PaginatorWithSearch); err != nil {
+	if attrs.Tenant == utils.EmptyString {
+		attrs.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	ids, err := apierSv1.StorDb.GetTpTableIds(attrs.TPid, utils.TBLTPStats,
+		utils.TPDistinctIds{utils.TenantCfg, utils.IDCfg}, nil, &attrs.PaginatorWithSearch)
+	if err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
 		return err
-	} else {
-		*reply = ids
 	}
+	*reply = ids
 	return nil
 }
 
-// Removes specific Stat on Tariff plan
-func (self *APIerSv1) RemoveTPStat(attrs *utils.TPTntID, reply *string) error {
-	if missing := utils.MissingStructFields(attrs, []string{"TPid", "Tenant", "ID"}); len(missing) != 0 { //Params missing
+// RemoveTPStat removes specific Stat on Tariff plan
+func (apierSv1 *APIerSv1) RemoveTPStat(attrs *utils.TPTntID, reply *string) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.TPid, utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := self.StorDb.RemTpData(utils.TBLTPStats, attrs.TPid,
-		map[string]string{"tenant": attrs.Tenant, "id": attrs.ID}); err != nil {
-		return utils.NewErrServerError(err)
-	} else {
-		*reply = utils.OK
+	if attrs.Tenant == utils.EmptyString {
+		attrs.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
+	if err := apierSv1.StorDb.RemTpData(utils.TBLTPStats, attrs.TPid,
+		map[string]string{utils.TenantCfg: attrs.Tenant, utils.IDCfg: attrs.ID}); err != nil {
+		return utils.NewErrServerError(err)
+	}
+	*reply = utils.OK
 	return nil
 
 }

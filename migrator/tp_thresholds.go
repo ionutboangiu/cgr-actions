@@ -19,8 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package migrator
 
 import (
-	"fmt"
-
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -38,25 +36,23 @@ func (m *Migrator) migrateCurrentTPthresholds() (err error) {
 			return err
 		}
 		for _, id := range ids {
-
 			thresholds, err := m.storDBIn.StorDB().GetTPThresholds(tpid, "", id)
 			if err != nil {
 				return err
 			}
-			if thresholds != nil {
-				if m.dryRun != true {
-					if err := m.storDBOut.StorDB().SetTPThresholds(thresholds); err != nil {
-						return err
-					}
-					for _, threshold := range thresholds {
-						if err := m.storDBIn.StorDB().RemTpData(utils.TBLTPThresholds, threshold.TPid,
-							map[string]string{"tenant": threshold.Tenant, "id": threshold.ID}); err != nil {
-							return err
-						}
-					}
-					m.stats[utils.TpThresholds] += 1
+			if thresholds == nil || m.dryRun {
+				continue
+			}
+			if err := m.storDBOut.StorDB().SetTPThresholds(thresholds); err != nil {
+				return err
+			}
+			for _, threshold := range thresholds {
+				if err := m.storDBIn.StorDB().RemTpData(utils.TBLTPThresholds, threshold.TPid,
+					map[string]string{"tenant": threshold.Tenant, "id": threshold.ID}); err != nil {
+					return err
 				}
 			}
+			m.stats[utils.TpThresholds]++
 		}
 	}
 	return
@@ -65,17 +61,8 @@ func (m *Migrator) migrateCurrentTPthresholds() (err error) {
 func (m *Migrator) migrateTPthresholds() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentStorDBVersions()
-	vrs, err = m.storDBOut.StorDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.TpThresholds); err != nil {
+		return
 	}
 	switch vrs[utils.TpThresholds] {
 	case current[utils.TpThresholds]:

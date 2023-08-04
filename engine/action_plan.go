@@ -37,7 +37,7 @@ type ActionTiming struct {
 	Uuid         string
 	Timing       *RateInterval
 	ActionsID    string
-	ExtraData    interface{}
+	ExtraData    any
 	Weight       float64
 	actions      Actions
 	accountIDs   utils.StringMap // copy of action plans accounts
@@ -48,11 +48,10 @@ type ActionTiming struct {
 // Tasks converts an ActionTiming into multiple Tasks
 func (at *ActionTiming) Tasks() (tsks []*Task) {
 	if len(at.accountIDs) == 0 {
-		return []*Task{
-			{
-				Uuid:      at.Uuid,
-				ActionsID: at.ActionsID,
-			}}
+		return []*Task{{
+			Uuid:      at.Uuid,
+			ActionsID: at.ActionsID,
+		}}
 	}
 	tsks = make([]*Task, len(at.accountIDs))
 	i := 0
@@ -81,10 +80,7 @@ func (apl *ActionPlan) RemoveAccountID(accID string) (found bool) {
 }
 
 // Clone clones *ActionPlan
-func (apl *ActionPlan) Clone() (interface{}, error) {
-	if apl == nil {
-		return nil, nil
-	}
+func (apl *ActionPlan) Clone() (any, error) {
 	cln := &ActionPlan{
 		Id:         apl.Id,
 		AccountIDs: apl.AccountIDs.Clone(),
@@ -113,7 +109,15 @@ func (at *ActionTiming) Clone() (cln *ActionTiming) {
 	return
 }
 
-func (at *ActionTiming) GetNextStartTime(now time.Time) (t time.Time) {
+// getDayOrEndOfMonth returns the day if is a valid date relative to t1 month
+func getDayOrEndOfMonth(day int, t1 time.Time) int {
+	if lastDay := utils.GetEndOfMonth(t1).Day(); lastDay <= day { // clamp the day to last day of month in order to corectly compare the time
+		day = lastDay
+	}
+	return day
+}
+
+func (at *ActionTiming) GetNextStartTime(t1 time.Time) (t time.Time) {
 	if !at.stCache.IsZero() {
 		return at.stCache
 	}
@@ -131,159 +135,21 @@ func (at *ActionTiming) GetNextStartTime(now time.Time) (t time.Time) {
 	if len(i.Timing.Months) > 0 && len(i.Timing.MonthDays) == 0 {
 		i.Timing.MonthDays = append(i.Timing.MonthDays, 1)
 	}
-	at.stCache = cronexpr.MustParse(i.Timing.CronString()).Next(now)
+	at.stCache = cronexpr.MustParse(i.Timing.CronString()).Next(t1)
+	if i.Timing.ID == utils.MetaMonthlyEstimated {
+		// substract a month from at.stCache only if we skip 2 months
+		// or we skip a month because mentioned MonthDay is after the last day of the current month
+		if at.stCache.Month() == t1.Month()+2 ||
+			(utils.GetEndOfMonth(t1).Day() < at.Timing.Timing.MonthDays[0] &&
+				at.stCache.Month() == t1.Month()+1) {
+			lastDay := utils.GetEndOfMonth(at.stCache).Day()
+			// only change the time if the new one is after t1
+			if tmp := at.stCache.AddDate(0, 0, -lastDay); tmp.After(t1) {
+				at.stCache = tmp
+			}
+		}
+	}
 	return at.stCache
-}
-
-// To be deleted after the above solution proves reliable
-func (at *ActionTiming) GetNextStartTimeOld(now time.Time) (t time.Time) {
-	if !at.stCache.IsZero() {
-		return at.stCache
-	}
-	i := at.Timing
-	if i == nil {
-		return
-	}
-	// Normalize
-	if i.Timing.StartTime == "" {
-		i.Timing.StartTime = "00:00:00"
-	}
-	if len(i.Timing.Years) > 0 && len(i.Timing.Months) == 0 {
-		i.Timing.Months = append(i.Timing.Months, 1)
-	}
-	if len(i.Timing.Months) > 0 && len(i.Timing.MonthDays) == 0 {
-		i.Timing.MonthDays = append(i.Timing.MonthDays, 1)
-	}
-	y, m, d := now.Date()
-	z, _ := now.Zone()
-	if i.Timing.StartTime != utils.ASAP {
-		l := fmt.Sprintf("%d-%d-%d %s %s", y, m, d, i.Timing.StartTime, z)
-		var err error
-		t, err = time.Parse(FORMAT, l)
-		if err != nil {
-			utils.Logger.Err(fmt.Sprintf("Cannot parse action plan's StartTime %v", l))
-			at.stCache = t
-			return
-		}
-		if now.After(t) || now.Equal(t) { // Set it to next day this time
-			t = t.AddDate(0, 0, 1)
-		}
-	}
-	// weekdays
-	if i.Timing.WeekDays != nil && len(i.Timing.WeekDays) > 0 {
-		i.Timing.WeekDays.Sort()
-		if t.IsZero() {
-			t = time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), 0, now.Location())
-		}
-		for j := 0; j < 8; j++ {
-			n := t.AddDate(0, 0, j)
-			for _, wd := range i.Timing.WeekDays {
-				if n.Weekday() == wd && (n.Equal(now) || n.After(now)) {
-					at.stCache = n
-					t = n
-					return
-				}
-			}
-		}
-	}
-	// monthdays
-	if i.Timing.MonthDays != nil && len(i.Timing.MonthDays) > 0 {
-		i.Timing.MonthDays.Sort()
-		year := t.Year()
-		month := t
-		x := sort.SearchInts(i.Timing.MonthDays, t.Day())
-		d = i.Timing.MonthDays[0]
-		if x < len(i.Timing.MonthDays) {
-			if i.Timing.MonthDays[x] == t.Day() {
-				if t.Equal(now) || t.After(now) {
-					goto MONTHS
-				}
-				if x+1 < len(i.Timing.MonthDays) { // today was found in the list, jump to the next grater day
-					d = i.Timing.MonthDays[x+1]
-				} else { // jump to next month
-					//not using now to make sure the next month has the the 1 date
-					//(if today is 31) next month may not have it
-					tmp := time.Date(year, month.Month(), 1, 0, 0, 0, 0, time.Local)
-					month = tmp.AddDate(0, 1, 0)
-				}
-			} else { // today was not found in the list, x is the first greater day
-				d = i.Timing.MonthDays[x]
-			}
-		}
-		h, m, s := t.Clock()
-		t = time.Date(month.Year(), month.Month(), d, h, m, s, 0, time.Local)
-	}
-MONTHS:
-	if i.Timing.Months != nil && len(i.Timing.Months) > 0 {
-		i.Timing.Months.Sort()
-		year := t.Year()
-		x := sort.Search(len(i.Timing.Months), func(x int) bool { return i.Timing.Months[x] >= t.Month() })
-		m = i.Timing.Months[0]
-		if x < len(i.Timing.Months) {
-			if i.Timing.Months[x] == t.Month() {
-				if t.Equal(now) || t.After(now) {
-					goto YEARS
-				}
-				if x+1 < len(i.Timing.Months) { // this month was found in the list so jump to next available month
-					m = i.Timing.Months[x+1]
-					// reset the monthday
-					t = time.Date(t.Year(), t.Month(), i.Timing.MonthDays[0], t.Hour(), t.Minute(), t.Second(), 0, t.Location())
-				} else { // jump to next year
-					//not using now to make sure the next year has the the 1 date
-					//(if today is 31) next month may not have it
-					tmp := time.Date(year, 1, 1, 0, 0, 0, 0, time.Local)
-					year = tmp.AddDate(1, 0, 0).Year()
-				}
-			} else { // this month was not found in the list, x is the first greater month
-				m = i.Timing.Months[x]
-				// reset the monthday
-				t = time.Date(t.Year(), t.Month(), i.Timing.MonthDays[0], t.Hour(), t.Minute(), t.Second(), 0, t.Location())
-			}
-		}
-		h, min, s := t.Clock()
-		t = time.Date(year, m, t.Day(), h, min, s, 0, time.Local)
-	} else {
-		if now.After(t) {
-			t = t.AddDate(0, 1, 0)
-		}
-	}
-YEARS:
-	if i.Timing.Years != nil && len(i.Timing.Years) > 0 {
-		i.Timing.Years.Sort()
-		x := sort.Search(len(i.Timing.Years), func(x int) bool { return i.Timing.Years[x] >= t.Year() })
-		y = i.Timing.Years[0]
-		if x < len(i.Timing.Years) {
-			if i.Timing.Years[x] == now.Year() {
-				if t.Equal(now) || t.After(now) {
-					h, m, s := t.Clock()
-					t = time.Date(now.Year(), t.Month(), t.Day(), h, m, s, 0, time.Local)
-					at.stCache = t
-					return
-				}
-				if x+1 < len(i.Timing.Years) { // this year was found in the list so jump to next available year
-					y = i.Timing.Years[x+1]
-					// reset the month
-					if i.Timing.Months != nil {
-						t = time.Date(t.Year(), i.Timing.Months[0], t.Day(), t.Hour(), t.Minute(), t.Second(), 0, t.Location())
-					}
-					// reset the monthday
-					t = time.Date(t.Year(), t.Month(), i.Timing.MonthDays[0], t.Hour(), t.Minute(), t.Second(), 0, t.Location())
-				}
-			} else { // this year was not found in the list, x is the first greater year
-				y = i.Timing.Years[x]
-				// reset the month/monthday
-				t = time.Date(t.Year(), i.Timing.Months[0], i.Timing.MonthDays[0], t.Hour(), t.Minute(), t.Second(), 0, t.Location())
-			}
-		}
-		h, min, s := t.Clock()
-		t = time.Date(y, t.Month(), t.Day(), h, min, s, 0, time.Local)
-	} else {
-		if now.After(t) {
-			t = t.AddDate(1, 0, 0)
-		}
-	}
-	at.stCache = t
-	return
 }
 
 func (at *ActionTiming) ResetStartTimeCache() {
@@ -327,7 +193,7 @@ func (at *ActionTiming) getActions() (as []*Action, err error) {
 
 // Execute will execute all actions in an action plan
 // Reports on success/fail via channel if != nil
-func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err error) {
+func (at *ActionTiming) Execute(fltrS *FilterS) (err error) {
 	at.ResetStartTimeCache()
 	aac, err := at.getActions()
 	if err != nil {
@@ -336,23 +202,27 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 	}
 	var partialyExecuted bool
 	for accID := range at.accountIDs {
-		_, err = guardian.Guardian.Guard(func() (interface{}, error) {
+		err = guardian.Guardian.Guard(func() error {
 			acc, err := dm.GetAccount(accID)
-			if err != nil {
-				utils.Logger.Warning(fmt.Sprintf("Could not get account id: %s. Skipping!", accID))
-				return 0, err
+			if err != nil { // create account
+				if err != utils.ErrNotFound {
+					utils.Logger.Warning(fmt.Sprintf("Could not get account id: %s. Skipping!", accID))
+					return err
+				}
+				err = nil
+				acc = &Account{
+					ID: accID,
+				}
 			}
 			transactionFailed := false
 			removeAccountActionFound := false
 			for _, a := range aac {
 				// check action filter
-				if len(a.Filter) > 0 {
-					matched, err := acc.matchActionFilter(a.Filter)
-					//log.Print("Checkng: ", a.Filter, matched)
-					if err != nil {
-						return 0, err
-					}
-					if !matched {
+				if len(a.Filters) > 0 {
+					if pass, err := fltrS.Pass(utils.NewTenantID(accID).Tenant, a.Filters,
+						utils.MapStorage{utils.MetaReq: acc}); err != nil {
+						return err
+					} else if !pass {
 						continue
 					}
 				}
@@ -366,6 +236,7 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 						*a.Balance.ExpirationDate = expDate
 					}
 				}
+				utils.Logger.Debug(fmt.Sprintf("### ActionTiming.Execute - a.ActionType: %s", a.ActionType))
 
 				actionFunction, exists := getActionFunc(a.ActionType)
 				if !exists {
@@ -376,27 +247,24 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 					transactionFailed = true
 					break
 				}
-				if err := actionFunction(acc, a, aac, at.ExtraData); err != nil {
+				utils.Logger.Debug(fmt.Sprintf("### ActionTiming.Execute - before actionFunction\nacc: %v\na: %v\naac: %v\nat.ExtraData: %v", acc, a, aac, at.ExtraData))
+				if err := actionFunction(acc, a, aac, fltrS, at.ExtraData); err != nil {
+					utils.Logger.Debug(fmt.Sprintf("### ActionTiming.Execute - actionFunction err: %v", err))
 					utils.Logger.Err(fmt.Sprintf("Error executing action %s: %v!", a.ActionType, err))
 					partialyExecuted = true
 					transactionFailed = true
-					if failedActions != nil {
-						go func() { failedActions <- a }()
-					}
 					break
 				}
-				if successActions != nil {
-					go func() { successActions <- a }()
-				}
-				if a.ActionType == utils.REMOVE_ACCOUNT {
+				utils.Logger.Debug(fmt.Sprintf("### ActionTiming.Execute - after actionFunction\nacc: %v\na: %v\naac: %v\nat.ExtraData: %v", acc, a, aac, at.ExtraData))
+				if a.ActionType == utils.MetaRemoveAccount {
 					removeAccountActionFound = true
 				}
 			}
 			if !transactionFailed && !removeAccountActionFound {
 				dm.SetAccount(acc)
 			}
-			return 0, nil
-		}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+accID)
+			return nil
+		}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+accID)
 	}
 	//reset the error in case that the account is not found
 	err = nil
@@ -415,21 +283,12 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 				at.Timing = nil
 				utils.Logger.Err(fmt.Sprintf("Function type %v not available, aborting execution!", a.ActionType))
 				partialyExecuted = true
-				if failedActions != nil {
-					go func() { failedActions <- a }()
-				}
 				break
 			}
-			if err := actionFunction(nil, a, aac, at.ExtraData); err != nil {
+			if err := actionFunction(nil, a, aac, fltrS, at.ExtraData); err != nil {
 				utils.Logger.Err(fmt.Sprintf("Error executing accountless action %s: %v!", a.ActionType, err))
 				partialyExecuted = true
-				if failedActions != nil {
-					go func() { failedActions <- a }()
-				}
 				break
-			}
-			if successActions != nil {
-				go func() { successActions <- a }()
 			}
 		}
 	}
@@ -447,7 +306,7 @@ func (at *ActionTiming) IsASAP() bool {
 	if at.Timing == nil {
 		return false
 	}
-	return at.Timing.Timing.StartTime == utils.ASAP
+	return at.Timing.Timing.StartTime == utils.MetaASAP
 }
 
 // Structure to store actions according to execution time and weight

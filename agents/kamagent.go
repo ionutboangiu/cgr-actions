@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package agents
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -27,8 +26,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cgrates/birpc/context"
+	"github.com/cenkalti/rpc2"
 	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/rpcclient"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/sessions"
@@ -77,8 +77,8 @@ func (self *KamailioAgent) Connect() (err error) {
 	errChan := make(chan error)
 	for connIdx, connCfg := range self.cfg.EvapiConns {
 		logger := log.New(utils.Logger, "kamevapi:", 2)
-		if self.conns[connIdx], err = kamevapi.NewKamEvapi(connCfg.Address, connIdx, connCfg.Reconnects, 0, utils.FibDuration,
-			eventHandlers, logger); err != nil {
+		if self.conns[connIdx], err = kamevapi.NewKamEvapi(connCfg.Address, connIdx, connCfg.Reconnects, connCfg.MaxReconnectInterval,
+			utils.FibDuration, eventHandlers, logger); err != nil {
 			return
 		}
 		utils.Logger.Info(fmt.Sprintf("<%s> successfully connected to Kamailio at: <%s>", utils.KamailioAgent, connCfg.Address))
@@ -106,8 +106,8 @@ func (self *KamailioAgent) Shutdown() (err error) {
 	return
 }
 
-// birpc.ClientConnector interface
-func (ka *KamailioAgent) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+// rpcclient.ClientConnector interface
+func (ka *KamailioAgent) Call(serviceMethod string, args any, reply any) error {
 	return utils.RPCCall(ka, serviceMethod, args, reply)
 }
 
@@ -124,7 +124,7 @@ func (ka *KamailioAgent) onCgrAuth(evData []byte, connIdx int) {
 			utils.KamailioAgent, evData, err.Error()))
 		return
 	}
-	if kev[utils.RequestType] == utils.META_NONE { // Do not process this request
+	if kev[utils.RequestType] == utils.MetaNone { // Do not process this request
 		return
 	}
 	if kev.MissingParameter() {
@@ -169,7 +169,7 @@ func (ka *KamailioAgent) onCallStart(evData []byte, connIdx int) {
 			utils.KamailioAgent, evData, err.Error()))
 		return
 	}
-	if kev[utils.RequestType] == utils.META_NONE { // Do not process this request
+	if kev[utils.RequestType] == utils.MetaNone { // Do not process this request
 		return
 	}
 	if kev.MissingParameter() {
@@ -211,7 +211,7 @@ func (ka *KamailioAgent) onCallEnd(evData []byte, connIdx int) {
 			utils.KamailioAgent, evData, err.Error()))
 		return
 	}
-	if kev[utils.RequestType] == utils.META_NONE { // Do not process this request
+	if kev[utils.RequestType] == utils.MetaNone { // Do not process this request
 		return
 	}
 	if kev.MissingParameter() {
@@ -235,15 +235,10 @@ func (ka *KamailioAgent) onCallEnd(evData []byte, connIdx int) {
 		// no return here since we want CDR anyhow
 	}
 	if ka.cfg.CreateCdr || strings.Index(kev[utils.CGRFlags], utils.MetaCDRs) != -1 {
-		cgrEv, err := kev.AsCGREvent(ka.timezone) // FixMe: do we need to create the event once again?
-		if err != nil {
-			return
-		}
-		cgrArgs := cgrEv.ExtractArgs(strings.Index(kev[utils.CGRFlags], utils.MetaDispatchers) != -1, false)
 		if err := ka.connMgr.Call(ka.cfg.SessionSConns, ka, utils.SessionSv1ProcessCDR,
-			&utils.CGREventWithArgDispatcher{CGREvent: cgrEv, ArgDispatcher: cgrArgs.ArgDispatcher}, &reply); err != nil {
+			tsArgs.CGREvent, &reply); err != nil {
 			utils.Logger.Err(fmt.Sprintf("%s> failed processing CGREvent: %s, error: %s",
-				utils.KamailioAgent, utils.ToJSON(cgrEv), err.Error()))
+				utils.KamailioAgent, utils.ToJSON(tsArgs.CGREvent), err.Error()))
 		}
 	}
 }
@@ -290,7 +285,7 @@ func (ka *KamailioAgent) onCgrProcessMessage(evData []byte, connIdx int) {
 		return
 	}
 
-	//in case that we don't reveice cgr_flags from kamailio
+	//in case that we don't receive cgr_flags from kamailio
 	//we consider this as ping-pong event
 	if _, has := kev[utils.CGRFlags]; !has {
 		if err = ka.conns[connIdx].Send(kev.AsKamProcessMessageEmptyReply().String()); err != nil {
@@ -350,7 +345,7 @@ func (ka *KamailioAgent) onCgrProcessCDR(evData []byte, connIdx int) {
 			utils.KamailioAgent, kev[utils.OriginID]))
 		return
 	}
-	procCDRArgs.CGREvent.Event[EvapiConnID] = connIdx // Attach the connection ID
+	procCDRArgs.Event[EvapiConnID] = connIdx // Attach the connection ID
 
 	var processReply string
 	err = ka.connMgr.Call(ka.cfg.SessionSConns, ka, utils.SessionSv1ProcessCDR, procCDRArgs, &processReply)
@@ -405,22 +400,32 @@ func (ka *KamailioAgent) V1DisconnectSession(args utils.AttrDisconnectSession, r
 
 // V1GetActiveSessionIDs returns a list of CGRIDs based on active sessions from agent
 func (ka *KamailioAgent) V1GetActiveSessionIDs(ignParam string, sessionIDs *[]*sessions.SessionID) (err error) {
-	for _, evapi := range ka.conns {
-		kamEv, _ := json.Marshal(map[string]string{utils.Event: CGR_DLG_LIST})
-		if err = evapi.Send(string(kamEv)); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> failed sending event, error %s",
-				utils.KamailioAgent, err.Error()))
-			return
+	kamEv := utils.ToJSON(map[string]string{utils.Event: CGR_DLG_LIST})
+	var sentDLG int
+	for i, evapi := range ka.conns {
+		if err := evapi.Send(kamEv); err != nil {
+			utils.Logger.Err(fmt.Sprintf("<%s> failed sending event to connIdx<%v>, error %s",
+				utils.KamailioAgent, i, err.Error()))
+			continue
 		}
+		sentDLG++
 	}
-	for range ka.conns {
+	if sentDLG == 0 {
+		return
+	}
+	tm := time.NewTimer(config.CgrConfig().GeneralCfg().ReplyTimeout)
+	for i := 0; i < sentDLG; i++ {
 		select {
 		case sIDs := <-ka.activeSessionIDs:
 			*sessionIDs = append(*sessionIDs, sIDs...)
-		case <-time.After(5 * time.Second):
+		case <-tm.C:
 			return errors.New("timeout executing dialog list")
 		}
 	}
+	if len(*sessionIDs) == 0 {
+		return utils.ErrNoActiveSession
+	}
+	tm.Stop()
 	return
 }
 
@@ -428,4 +433,80 @@ func (ka *KamailioAgent) V1GetActiveSessionIDs(ignParam string, sessionIDs *[]*s
 // only used on reload
 func (ka *KamailioAgent) Reload() {
 	ka.conns = make([]*kamevapi.KamEvapi, len(ka.cfg.EvapiConns))
+}
+
+// V1ReAuthorize is used to implement the sessions.BiRPClient interface
+func (*KamailioAgent) V1ReAuthorize(originID string, reply *string) (err error) {
+	return utils.ErrNotImplemented
+}
+
+// V1DisconnectPeer is used to implement the sessions.BiRPClient interface
+func (*KamailioAgent) V1DisconnectPeer(args *utils.DPRArgs, reply *string) (err error) {
+	return utils.ErrNotImplemented
+}
+
+// V1WarnDisconnect is used to implement the sessions.BiRPClient interface
+func (*KamailioAgent) V1WarnDisconnect(args map[string]any, reply *string) (err error) {
+	return utils.ErrNotImplemented
+}
+
+// CallBiRPC is part of utils.BiRPCServer interface to help internal connections do calls over rpcclient.ClientConnector interface
+func (ka *KamailioAgent) CallBiRPC(clnt rpcclient.ClientConnector, serviceMethod string, args any, reply any) error {
+	return utils.BiRPCCall(ka, clnt, serviceMethod, args, reply)
+}
+
+// BiRPCv1DisconnectSession is internal method to disconnect session in asterisk
+func (ka *KamailioAgent) BiRPCv1DisconnectSession(clnt rpcclient.ClientConnector, args utils.AttrDisconnectSession, reply *string) error {
+	return ka.V1DisconnectSession(args, reply)
+}
+
+// BiRPCv1GetActiveSessionIDs is internal method to  get all active sessions in asterisk
+func (ka *KamailioAgent) BiRPCv1GetActiveSessionIDs(clnt rpcclient.ClientConnector, ignParam string,
+	sessionIDs *[]*sessions.SessionID) error {
+	return ka.V1GetActiveSessionIDs(ignParam, sessionIDs)
+
+}
+
+// BiRPCv1ReAuthorize is used to implement the sessions.BiRPClient interface
+func (ka *KamailioAgent) BiRPCv1ReAuthorize(clnt rpcclient.ClientConnector, originID string, reply *string) (err error) {
+	return ka.V1ReAuthorize(originID, reply)
+}
+
+// BiRPCv1DisconnectPeer is used to implement the sessions.BiRPClient interface
+func (ka *KamailioAgent) BiRPCv1DisconnectPeer(clnt rpcclient.ClientConnector, args *utils.DPRArgs, reply *string) (err error) {
+	return ka.V1DisconnectPeer(args, reply)
+}
+
+// BiRPCv1WarnDisconnect is used to implement the sessions.BiRPClient interface
+func (ka *KamailioAgent) BiRPCv1WarnDisconnect(clnt rpcclient.ClientConnector, args map[string]any, reply *string) (err error) {
+	return ka.V1WarnDisconnect(args, reply)
+}
+
+// BiRPCv1CapsError is used to return error when the caps limit is hit
+func (ka *KamailioAgent) BiRPCv1CapsError(clnt rpcclient.ClientConnector, args any, reply *string) (err error) {
+	return utils.ErrMaxConcurrentRPCExceeded
+}
+
+// Handlers is used to implement the rpcclient.BiRPCConector interface
+func (ka *KamailioAgent) Handlers() map[string]any {
+	return map[string]any{
+		utils.SessionSv1DisconnectSession: func(clnt *rpc2.Client, args utils.AttrDisconnectSession, rply *string) error {
+			return ka.BiRPCv1DisconnectSession(clnt, args, rply)
+		},
+		utils.SessionSv1GetActiveSessionIDs: func(clnt *rpc2.Client, args string, rply *[]*sessions.SessionID) error {
+			return ka.BiRPCv1GetActiveSessionIDs(clnt, args, rply)
+		},
+		utils.SessionSv1ReAuthorize: func(clnt *rpc2.Client, args string, rply *string) (err error) {
+			return ka.BiRPCv1ReAuthorize(clnt, args, rply)
+		},
+		utils.SessionSv1DisconnectPeer: func(clnt *rpc2.Client, args *utils.DPRArgs, rply *string) (err error) {
+			return ka.BiRPCv1DisconnectPeer(clnt, args, rply)
+		},
+		utils.SessionSv1WarnDisconnect: func(clnt *rpc2.Client, args map[string]any, rply *string) (err error) {
+			return ka.BiRPCv1WarnDisconnect(clnt, args, rply)
+		},
+		utils.SessionSv1CapsError: func(clnt *rpc2.Client, args any, rply *string) (err error) {
+			return ka.BiRPCv1CapsError(clnt, args, rply)
+		},
+	}
 }

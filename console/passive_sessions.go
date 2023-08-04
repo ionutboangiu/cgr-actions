@@ -36,41 +36,41 @@ func init() {
 type CmdPassiveSessions struct {
 	name      string
 	rpcMethod string
-	rpcParams interface{}
+	rpcParams any
 	*CommandExecuter
 }
 
-func (self *CmdPassiveSessions) Name() string {
-	return self.name
+func (cmd *CmdPassiveSessions) Name() string {
+	return cmd.name
 }
 
-func (self *CmdPassiveSessions) RpcMethod() string {
-	return self.rpcMethod
+func (cmd *CmdPassiveSessions) RpcMethod() string {
+	return cmd.rpcMethod
 }
 
-func (self *CmdPassiveSessions) RpcParams(reset bool) interface{} {
-	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.SessionFilter{ArgDispatcher: new(utils.ArgDispatcher)}
+func (cmd *CmdPassiveSessions) RpcParams(reset bool) any {
+	if reset || cmd.rpcParams == nil {
+		cmd.rpcParams = &utils.SessionFilter{APIOpts: make(map[string]any)}
 	}
-	return self.rpcParams
+	return cmd.rpcParams
 }
 
-func (self *CmdPassiveSessions) PostprocessRpcParams() error {
-	param := self.rpcParams.(*utils.SessionFilter)
-	self.rpcParams = param
+func (cmd *CmdPassiveSessions) PostprocessRpcParams() error {
+	param := cmd.rpcParams.(*utils.SessionFilter)
+	cmd.rpcParams = param
 	return nil
 }
 
-func (self *CmdPassiveSessions) RpcResult() interface{} {
-	var sessions *[]*sessions.ExternalSession
+func (cmd *CmdPassiveSessions) RpcResult() any {
+	var sessions []*sessions.ExternalSession
 	return &sessions
 }
 
-func (self *CmdPassiveSessions) GetFormatedResult(result interface{}) string {
-	return GetFormatedSliceResult(result, map[string]struct{}{
-		"Usage":         {},
-		"DurationIndex": {},
-		"MaxRateUnit":   {},
-		"DebitInterval": {},
+func (cmd *CmdPassiveSessions) GetFormatedResult(result any) string {
+	return GetFormatedSliceResult(result, utils.StringSet{
+		utils.Usage:         {},
+		utils.DurationIndex: {},
+		utils.MaxRateUnit:   {},
+		utils.DebitInterval: {},
 	})
 }

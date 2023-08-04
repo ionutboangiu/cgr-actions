@@ -37,7 +37,6 @@ var (
 	tpActionCfgPath   string
 	tpActionCfg       *config.CGRConfig
 	tpActionRPC       *rpc.Client
-	tpActionDataDir   = "/usr/share/cgrates"
 	tpActions         *utils.TPActions
 	tpActionDelay     int
 	tpActionConfigDIR string //run tests for specific configuration
@@ -81,13 +80,11 @@ func TestTPActionsIT(t *testing.T) {
 
 func testTPActionsInitCfg(t *testing.T) {
 	var err error
-	tpActionCfgPath = path.Join(tpActionDataDir, "conf", "samples", tpActionConfigDIR)
+	tpActionCfgPath = path.Join(*dataDir, "conf", "samples", tpActionConfigDIR)
 	tpActionCfg, err = config.NewCGRConfigFromPath(tpActionCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpActionCfg.DataFolderPath = tpActionDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpActionCfg)
 	switch tpActionConfigDIR {
 	case "tutmongo": // Mongo needs more time to reset db, need to investigate
 		tpActionDelay = 2000
@@ -139,7 +136,7 @@ func testTPActionsSetTPAction(t *testing.T) {
 				BalanceType:     "*data",
 				Units:           "10",
 				ExpiryTime:      "*unlimited",
-				Filter:          "",
+				Filters:         "",
 				TimingTags:      "2014-01-14T00:00:00Z",
 				DestinationIds:  "DST_1002",
 				RatingSubject:   "SPECIAL_1002",
@@ -158,7 +155,7 @@ func testTPActionsSetTPAction(t *testing.T) {
 				BalanceType:     "*monetary",
 				Units:           "120",
 				ExpiryTime:      "*unlimited",
-				Filter:          "",
+				Filters:         "",
 				TimingTags:      "2014-01-14T00:00:00Z",
 				DestinationIds:  "*any",
 				RatingSubject:   "SPECIAL_1002",
@@ -214,7 +211,7 @@ func testTPActionsUpdateTPAction(t *testing.T) {
 			BalanceType:     "*data",
 			Units:           "10",
 			ExpiryTime:      "*unlimited",
-			Filter:          "",
+			Filters:         "",
 			TimingTags:      "2014-01-14T00:00:00Z",
 			DestinationIds:  "DST_1002",
 			RatingSubject:   "SPECIAL_1002",
@@ -233,7 +230,7 @@ func testTPActionsUpdateTPAction(t *testing.T) {
 			BalanceType:     "*monetary",
 			Units:           "120",
 			ExpiryTime:      "*unlimited",
-			Filter:          "",
+			Filters:         "",
 			TimingTags:      "2014-01-14T00:00:00Z",
 			DestinationIds:  "*any",
 			RatingSubject:   "SPECIAL_1002",
@@ -252,7 +249,7 @@ func testTPActionsUpdateTPAction(t *testing.T) {
 			BalanceType:     "*voice",
 			Units:           "102400",
 			ExpiryTime:      "*unlimited",
-			Filter:          "",
+			Filters:         "",
 			TimingTags:      "2014-01-14T00:00:00Z",
 			DestinationIds:  "*any",
 			RatingSubject:   "SPECIAL_1002",

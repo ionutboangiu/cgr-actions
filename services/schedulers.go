@@ -21,19 +21,21 @@ package services
 import (
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/scheduler"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewSchedulerService returns the Scheduler Service
 func NewSchedulerService(cfg *config.CGRConfig, dm *DataDBService,
 	cacheS *engine.CacheS, fltrSChan chan *engine.FilterS,
-	server *utils.Server, internalSchedulerrSChan chan birpc.ClientConnector,
-	connMgr *engine.ConnManager) *SchedulerService {
+	server *cores.Server, internalSchedulerrSChan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) *SchedulerService {
 	return &SchedulerService{
 		connChan:  internalSchedulerrSChan,
 		cfg:       cfg,
@@ -42,6 +44,8 @@ func NewSchedulerService(cfg *config.CGRConfig, dm *DataDBService,
 		fltrSChan: fltrSChan,
 		server:    server,
 		connMgr:   connMgr,
+		anz:       anz,
+		srvDep:    srvDep,
 	}
 }
 
@@ -52,12 +56,14 @@ type SchedulerService struct {
 	dm        *DataDBService
 	cacheS    *engine.CacheS
 	fltrSChan chan *engine.FilterS
-	server    *utils.Server
+	server    *cores.Server
 
 	schS     *scheduler.Scheduler
 	rpc      *v1.SchedulerSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
 	connMgr  *engine.ConnManager
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -80,11 +86,11 @@ func (schS *SchedulerService) Start() (err error) {
 	schS.schS = scheduler.NewScheduler(datadb, schS.cfg, fltrS)
 	go schS.schS.Loop()
 
-	schS.rpc = v1.NewSchedulerSv1(schS.cfg)
+	schS.rpc = v1.NewSchedulerSv1(schS.cfg, datadb, fltrS)
 	if !schS.cfg.DispatcherSCfg().Enabled {
 		schS.server.RpcRegister(schS.rpc)
 	}
-	schS.connChan <- schS.rpc
+	schS.connChan <- schS.anz.GetInternalCodec(schS.rpc, utils.SchedulerS)
 
 	return
 }

@@ -22,27 +22,28 @@ package services
 
 import (
 	"path"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 func TestRalsReload(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
+	cfg := config.NewDefaultCGRConfig()
+
+	utils.Logger, _ = utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
 	utils.Logger.SetLogLevel(7)
 	filterSChan := make(chan *engine.FilterS, 1)
 	filterSChan <- nil
-	engineShutdown := make(chan bool, 1)
-	chS := engine.NewCacheS(cfg, nil)
+	shdChan := utils.NewSyncedChan()
+	shdWg := new(sync.WaitGroup)
+	chS := engine.NewCacheS(cfg, nil, nil)
 	close(chS.GetPrecacheChannel(utils.CacheThresholdProfiles))
 	close(chS.GetPrecacheChannel(utils.CacheThresholds))
 	close(chS.GetPrecacheChannel(utils.CacheThresholdFilterIndexes))
@@ -59,34 +60,35 @@ func TestRalsReload(t *testing.T) {
 	close(chS.GetPrecacheChannel(utils.CacheTimings))
 
 	cfg.ThresholdSCfg().Enabled = true
-	server := utils.NewServer()
-	srvMngr := servmanager.NewServiceManager(cfg, engineShutdown)
-	db := NewDataDBService(cfg, nil)
+	server := cores.NewServer(nil)
+	srvMngr := servmanager.NewServiceManager(cfg, shdChan, shdWg, nil)
+	srvDep := map[string]*sync.WaitGroup{utils.DataDB: new(sync.WaitGroup)}
+	db := NewDataDBService(cfg, nil, srvDep)
 	cfg.StorDbCfg().Type = utils.MetaInternal
-	stordb := NewStorDBService(cfg)
-	schS := NewSchedulerService(cfg, db, chS, filterSChan, server, make(chan birpc.ClientConnector, 1), nil)
-	tS := NewThresholdService(cfg, db, chS, filterSChan, server, make(chan birpc.ClientConnector, 1))
+	anz := NewAnalyzerService(cfg, server, filterSChan, shdChan, make(chan rpcclient.ClientConnector, 1), srvDep)
+	stordb := NewStorDBService(cfg, srvDep)
+	schS := NewSchedulerService(cfg, db, chS, filterSChan, server, make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep)
+	tS := NewThresholdService(cfg, db, chS, filterSChan, server, make(chan rpcclient.ClientConnector, 1), anz, srvDep)
 	ralS := NewRalService(cfg, chS, server,
-		make(chan birpc.ClientConnector, 1),
-		make(chan birpc.ClientConnector, 1),
-		engineShutdown, nil)
+		make(chan rpcclient.ClientConnector, 1),
+		make(chan rpcclient.ClientConnector, 1),
+		shdChan, nil, anz, srvDep, filterSChan)
 	srvMngr.AddServices(ralS, schS, tS,
-		NewLoaderService(cfg, db, filterSChan, server, engineShutdown, make(chan birpc.ClientConnector, 1), nil), db, stordb)
-	if err = srvMngr.StartServices(); err != nil {
+		NewLoaderService(cfg, db, filterSChan, server, make(chan rpcclient.ClientConnector, 1), nil, anz, srvDep), db, stordb)
+	if err := srvMngr.StartServices(); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(10 * time.Millisecond)
 	if ralS.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-	if !db.IsRunning() {
-		t.Errorf("Expected service to be running")
+	if db.IsRunning() {
+		t.Errorf("Expected service to be down")
 	}
 	if stordb.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
 	var reply string
-	if err := cfg.V1ReloadConfigFromPath(&config.ConfigReloadWithArgDispatcher{
+	if err := cfg.V1ReloadConfig(&config.ReloadArgs{
 		Path:    path.Join("/usr", "share", "cgrates", "conf", "samples", "tutmongo"),
 		Section: config.RALS_JSN,
 	}, &reply); err != nil {
@@ -109,15 +111,66 @@ func TestRalsReload(t *testing.T) {
 	if !stordb.IsRunning() {
 		t.Errorf("Expected service to be running")
 	}
+	err := ralS.Start()
+	if err == nil || err != utils.ErrServiceAlreadyRunning {
+		t.Errorf("\nExpecting <%+v>,\n Received <%+v>", utils.ErrServiceAlreadyRunning, err)
+	}
+	err = ralS.Reload()
+	if err != nil {
+		t.Errorf("\nExpecting <nil>,\n Received <%+v>", err)
+	}
 	cfg.RalsCfg().Enabled = false
 	cfg.GetReloadChan(config.RALS_JSN) <- struct{}{}
 	time.Sleep(10 * time.Millisecond)
 	if ralS.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-
 	if resp := ralS.GetResponder(); resp.IsRunning() {
 		t.Errorf("Expected service to be down")
 	}
-	engineShutdown <- true
+	shdChan.CloseOnce()
+	time.Sleep(10 * time.Millisecond)
+}
+func TestRalsReload2(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+
+	utils.Logger, _ = utils.Newlogger(utils.MetaSysLog, cfg.GeneralCfg().NodeID)
+	utils.Logger.SetLogLevel(7)
+	filterSChan := make(chan *engine.FilterS, 1)
+	filterSChan <- nil
+	shdChan := utils.NewSyncedChan()
+	chS := engine.NewCacheS(cfg, nil, nil)
+	close(chS.GetPrecacheChannel(utils.CacheThresholdProfiles))
+	close(chS.GetPrecacheChannel(utils.CacheThresholds))
+	close(chS.GetPrecacheChannel(utils.CacheThresholdFilterIndexes))
+	close(chS.GetPrecacheChannel(utils.CacheDestinations))
+	close(chS.GetPrecacheChannel(utils.CacheReverseDestinations))
+	close(chS.GetPrecacheChannel(utils.CacheRatingPlans))
+	close(chS.GetPrecacheChannel(utils.CacheRatingProfiles))
+	close(chS.GetPrecacheChannel(utils.CacheActions))
+	close(chS.GetPrecacheChannel(utils.CacheActionPlans))
+	close(chS.GetPrecacheChannel(utils.CacheAccountActionPlans))
+	close(chS.GetPrecacheChannel(utils.CacheActionTriggers))
+	close(chS.GetPrecacheChannel(utils.CacheSharedGroups))
+	close(chS.GetPrecacheChannel(utils.CacheTimings))
+
+	cfg.ThresholdSCfg().Enabled = true
+	server := cores.NewServer(nil)
+	srvDep := map[string]*sync.WaitGroup{utils.DataDB: new(sync.WaitGroup)}
+	cfg.StorDbCfg().Type = utils.MetaInternal
+	anz := NewAnalyzerService(cfg, server, filterSChan, shdChan, make(chan rpcclient.ClientConnector, 1), srvDep)
+	ralS := NewRalService(cfg, chS, server,
+		make(chan rpcclient.ClientConnector, 1),
+		make(chan rpcclient.ClientConnector, 1),
+		shdChan, nil, anz, srvDep, filterSChan)
+	ralS.responder.resp = &engine.Responder{
+		ShdChan:          shdChan,
+		Timeout:          0,
+		Timezone:         "",
+		MaxComputedUsage: nil,
+	}
+	err := ralS.Start()
+	if err != nil {
+		t.Fatalf("\nExpecting <%+v>,\n Received <%+v>", nil, err)
+	}
 }

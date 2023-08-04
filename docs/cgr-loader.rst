@@ -55,8 +55,16 @@ Customisable through the use of :ref:`JSON configuration <configuration>` or com
     	The path to folder containing the data files (default "./")
   -recursive
     	Loads data from folder recursive.
-  -redis_sentinel string
+  -redisSentinel string
     	The name of redis sentinel
+  -redisCluster bool
+    	Is the redis datadb a cluster
+  -cluster_sync string
+    	The sync interval for the redis cluster
+  -cluster_ondown_delay string
+    	The delay before executing the commands if thredis cluster is in the CLUSTERDOWN state
+  -mongoQueryTimeout string
+    	The timeout for queries
   -remove
     	Will remove instead of adding data from DB
   -route_id string

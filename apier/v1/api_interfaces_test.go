@@ -39,9 +39,9 @@ func TestResourceSv1Interface(t *testing.T) {
 	_ = ResourceSv1Interface(NewResourceSv1(nil))
 }
 
-func TestSupplierSv1Interface(t *testing.T) {
-	_ = SupplierSv1Interface(NewDispatcherSupplierSv1(nil))
-	_ = SupplierSv1Interface(NewSupplierSv1(nil))
+func TestRouteSv1Interface(t *testing.T) {
+	_ = RouteSv1Interface(NewDispatcherRouteSv1(nil))
+	_ = RouteSv1Interface(NewRouteSv1(nil))
 }
 
 func TestAttributeSv1Interface(t *testing.T) {
@@ -76,7 +76,7 @@ func TestGuardianSv1Interface(t *testing.T) {
 
 func TestSchedulerSv1Interface(t *testing.T) {
 	_ = SchedulerSv1Interface(NewDispatcherSchedulerSv1(nil))
-	_ = SchedulerSv1Interface(NewSchedulerSv1(nil))
+	_ = SchedulerSv1Interface(NewSchedulerSv1(nil, nil, nil))
 }
 
 func TestCDRsV1Interface(t *testing.T) {
@@ -100,6 +100,10 @@ func TestConfigSv1Interface(t *testing.T) {
 }
 
 func TestCoreSv1Interface(t *testing.T) {
-	_ = CoreSv1Interface(NewDispatcherCoreSv1(nil))
 	_ = CoreSv1Interface(NewCoreSv1(nil))
+}
+
+func TestReplicatorSv1Interface(t *testing.T) {
+	_ = ReplicatorSv1Interface(NewDispatcherReplicatorSv1(nil))
+	_ = ReplicatorSv1Interface(NewReplicatorSv1(nil, nil))
 }

@@ -26,13 +26,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
-	"github.com/cgrates/birpc/context"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 var (
@@ -45,15 +44,15 @@ var (
 	resp    *engine.Responder
 )
 
-// this structure will iplement birpc.ClientConnector
+// this structure will iplement rpcclient.ClientConnector
 // and will read forever the Event map
 type raceConn struct{}
 
-func (_ raceConn) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) (err error) {
-	cgrev := args.(*engine.ArgsProcessEvent)
+func (_ raceConn) Call(serviceMethod string, args any, reply any) (err error) {
+	cgrev := args.(*utils.CGREvent)
 	for {
-		for k := range cgrev.CGREvent.Event {
-			if _, has := cgrev.CGREvent.Event[k]; !has {
+		for k := range cgrev.Event {
+			if _, has := cgrev.Event[k]; !has {
 				fmt.Println(1)
 			}
 		}
@@ -64,9 +63,7 @@ func (_ raceConn) Call(ctx *context.Context, serviceMethod string, args interfac
 func TestSessionSRace(t *testing.T) {
 	// config
 	var err error
-	if cfg, err = config.NewDefaultCGRConfig(); err != nil {
-		t.Fatal(err)
-	}
+	cfg = config.NewDefaultCGRConfig()
 	cfg.SessionSCfg().Enabled = true
 	cfg.SessionSCfg().ThreshSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)}
 	cfg.SessionSCfg().ChargerSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaChargers)}
@@ -74,17 +71,17 @@ func TestSessionSRace(t *testing.T) {
 	cfg.SessionSCfg().DebitInterval = 10
 	cfg.ChargerSCfg().Enabled = true
 
-	cfg.DataDbCfg().Items[utils.CacheChargerProfiles].Limit = -1
-	cfg.DataDbCfg().Items[utils.CacheAccounts].Limit = -1
+	cfg.CacheCfg().Partitions[utils.CacheChargerProfiles].Limit = -1
+	cfg.CacheCfg().Partitions[utils.CacheAccounts].Limit = -1
 	// cfg.GeneralCfg().ReplyTimeout = 30 * time.Second
 
 	utils.Logger.SetLogLevel(7)
 	// connManager
-	raceChan := make(chan birpc.ClientConnector, 1)
-	chargerSChan := make(chan birpc.ClientConnector, 1)
-	respChan := make(chan birpc.ClientConnector, 1)
+	raceChan := make(chan rpcclient.ClientConnector, 1)
+	chargerSChan := make(chan rpcclient.ClientConnector, 1)
+	respChan := make(chan rpcclient.ClientConnector, 1)
 	raceChan <- new(raceConn)
-	connMgr = engine.NewConnManager(cfg, map[string]chan birpc.ClientConnector{
+	connMgr = engine.NewConnManager(cfg, map[string]chan rpcclient.ClientConnector{
 		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds): raceChan,
 		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaChargers):   chargerSChan,
 		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResponder):  respChan,
@@ -97,7 +94,7 @@ func TestSessionSRace(t *testing.T) {
 
 	// resp
 	resp = &engine.Responder{
-		ExitChan:         make(chan bool, 1),
+		ShdChan:          utils.NewSyncedChan(),
 		MaxComputedUsage: cfg.RalsCfg().MaxComputedUsage,
 	}
 	respChan <- resp
@@ -106,9 +103,8 @@ func TestSessionSRace(t *testing.T) {
 	filterS = engine.NewFilterS(cfg, connMgr, dm)
 
 	// chargerS
-	if chrS, err = engine.NewChargerService(dm, filterS, cfg, connMgr); err != nil {
-		t.Fatal(err)
-	}
+	chrS = engine.NewChargerService(dm, filterS, cfg, connMgr)
+
 	chargerSChan <- v1.NewChargerSv1(chrS)
 
 	// addCharger
@@ -126,7 +122,7 @@ func TestSessionSRace(t *testing.T) {
 	if err = dm.SetAccount(&engine.Account{
 		ID: utils.ConcatenatedKey("cgrates.org", "1001"),
 		// AllowNegative: true,
-		BalanceMap: map[string]engine.Balances{utils.VOICE: {{Value: float64(0 * time.Second), Weight: 10}}}}); err != nil {
+		BalanceMap: map[string]engine.Balances{utils.MetaVoice: {{Value: float64(0 * time.Second), Weight: 10}}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,18 +137,18 @@ func TestSessionSRace(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testSSv1ItProcessEventInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testSSv1ItProcessEvent",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testSSv1ItProcessEvent",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
 				// utils.RatingSubject: "*zero1ms",
-				utils.CGRDebitInterval: 10,
-				utils.Destination:      "1002",
-				utils.SetupTime:        time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:       time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:            0,
+				// utils.CGRDebitInterval: 10,
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:       0,
 			},
 		},
 	}, rply); err != utils.ErrPartiallyExecuted {
@@ -166,18 +162,18 @@ func TestSessionSRace(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testSSv1ItProcessEventInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testSSv1ItProcessEvent",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testSSv1ItProcessEvent",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
 				// utils.RatingSubject: "*zero1ms",
-				utils.CGRDebitInterval: 10,
-				utils.Destination:      "1002",
-				utils.SetupTime:        time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:       time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:            0,
+				// utils.CGRDebitInterval: 10,
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:       0,
 			},
 		},
 	}, rply2); err != utils.ErrPartiallyExecuted {

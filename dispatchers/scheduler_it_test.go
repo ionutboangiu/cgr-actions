@@ -29,10 +29,10 @@ import (
 
 var sTestsDspSched = []func(t *testing.T){
 	testDspSchedPing,
-	testDspSchedPingEmptyCGREventWIthArgDispatcher,
 }
 
-// Test start here
+//Test start here
+
 func TestDspSchedulerS(t *testing.T) {
 	var config1, config2, config3 string
 	switch *dbType {
@@ -66,25 +66,15 @@ func testDspSchedPing(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := dispEngine.RPC.Call(utils.SchedulerSv1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("sched12345"),
+	if err := dispEngine.RPC.Call(utils.SchedulerSv1Ping, &utils.CGREvent{
+		Tenant: "cgrates.org",
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "sched12345",
 		},
 	}, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
-	}
-}
-
-func testDspSchedPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	var reply string
-	if err := dispEngine.RPC.Call(utils.SchedulerSv1Ping,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
 	}
 }

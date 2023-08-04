@@ -312,7 +312,7 @@ package general_tests
 // 		Account:     "1001",
 // 		Destination: "1007",
 // 		TimeStart:   tStart,
-// 		TimeEnd:     tStart.Add(time.Duration(50) * time.Second),
+// 		TimeEnd:     tStart.Add(50 * time.Second),
 // 	}
 // 	if err := tutLocalRpc.Call(utils.ResponderGetCost, cd, &cc); err != nil {
 // 		t.Error("Got error on Responder.GetCost: ", err.Error())
@@ -326,7 +326,7 @@ package general_tests
 // 		Account:     "1001",
 // 		Destination: "1007",
 // 		TimeStart:   tStart,
-// 		TimeEnd:     tStart.Add(time.Duration(70) * time.Second),
+// 		TimeEnd:     tStart.Add(70 * time.Second),
 // 	}
 // 	if err := tutLocalRpc.Call(utils.ResponderGetCost, cd, &cc); err != nil {
 // 		t.Error("Got error on Responder.GetCost: ", err.Error())
@@ -340,7 +340,7 @@ package general_tests
 // 		Account:     "1002",
 // 		Destination: "1007",
 // 		TimeStart:   tStart,
-// 		TimeEnd:     tStart.Add(time.Duration(50) * time.Second),
+// 		TimeEnd:     tStart.Add(50 * time.Second),
 // 	}
 // 	if err := tutLocalRpc.Call(utils.ResponderGetCost, cd, &cc); err != nil {
 // 		t.Error("Got error on Responder.GetCost: ", err.Error())
@@ -354,7 +354,7 @@ package general_tests
 // 		Account:     "1002",
 // 		Destination: "1007",
 // 		TimeStart:   tStart,
-// 		TimeEnd:     tStart.Add(time.Duration(70) * time.Second),
+// 		TimeEnd:     tStart.Add(70 * time.Second),
 // 	}
 // 	if err := tutLocalRpc.Call(utils.ResponderGetCost, cd, &cc); err != nil {
 // 		t.Error("Got error on Responder.GetCost: ", err.Error())
@@ -416,7 +416,7 @@ package general_tests
 // 		Destination:   "1002",
 // 		DurationIndex: 0,
 // 		TimeStart:     tStart,
-// 		TimeEnd:       tStart.Add(time.Duration(20) * time.Second),
+// 		TimeEnd:       tStart.Add(20 * time.Second),
 // 	}
 // 	var cc engine.CallCost
 // 	if err := tutLocalRpc.Call(utils.ResponderMaxDebit, cd, &cc); err != nil {
@@ -432,7 +432,7 @@ package general_tests
 // 		Destination:   "1003",
 // 		DurationIndex: 0,
 // 		TimeStart:     tStart,
-// 		TimeEnd:       tStart.Add(time.Duration(200) * time.Second),
+// 		TimeEnd:       tStart.Add(200 * time.Second),
 // 	}
 // 	if err := tutLocalRpc.Call(utils.ResponderMaxDebit, cd, &cc); err != nil {
 // 		t.Error("Got error on Responder.MaxDebit: ", err.Error())
@@ -447,7 +447,7 @@ package general_tests
 // 		Destination:   "1007",
 // 		DurationIndex: 0,
 // 		TimeStart:     tStart,
-// 		TimeEnd:       tStart.Add(time.Duration(120) * time.Second),
+// 		TimeEnd:       tStart.Add(120 * time.Second),
 // 	}
 // 	cd.CgrID = "1"
 // 	if err := tutLocalRpc.Call(utils.ResponderMaxDebit, cd, &cc); err != nil {
@@ -463,12 +463,12 @@ package general_tests
 // 		Destination:   "1007",
 // 		DurationIndex: 0,
 // 		TimeStart:     tStart,
-// 		TimeEnd:       tStart.Add(time.Duration(120) * time.Second),
+// 		TimeEnd:       tStart.Add(120 * time.Second),
 // 	}
 // 	cd.CgrID = "2"
 // 	if err := tutLocalRpc.Call(utils.ResponderMaxDebit, cd, &cc); err != nil {
 // 		t.Error("Got error on Responder.GetCost: ", err.Error())
-// 	} else if cc.GetDuration() != time.Duration(62)*time.Second { // We have as strategy *dsconnect
+// 	} else if cc.GetDuration() != 62*time.Second { // We have as strategy *dsconnect
 // 		t.Errorf("Calling Responder.MaxDebit got callcost: %v", cc.GetDuration())
 // 	}
 // 	var maxTime float64
@@ -495,7 +495,7 @@ package general_tests
 // 		Destination: "1007",
 // 		SetupTime:   tStart,
 // 		AnswerTime:  tStart,
-// 		Usage:       time.Duration(120) * time.Second,
+// 		Usage:       120 * time.Second,
 // 		Cost:        -1,
 // 	}
 // 	var maxTime float64
@@ -519,7 +519,7 @@ package general_tests
 // 	} else if maxTime != 1 {
 // 		t.Errorf("Calling APIerSv2.MaxUsage got maxTime: %f", maxTime)
 // 	}
-// 	setupReq = &engine.UsageRecord{ToR: utils.VOICE, RequestType: utils.META_RATED, Tenant: "cgrates.org", Category: "call",
+// 	setupReq = &engine.UsageRecord{ToR: utils.VOICE, RequestType: utils.MetaRated, Tenant: "cgrates.org", Category: "call",
 // 		Account: "test_max_usage", Destination: "1001",
 // 		SetupTime: "2014-08-04T13:00:00Z",
 // 	}
@@ -547,7 +547,7 @@ package general_tests
 // // Test CDR from external sources
 // func TestTutITProcessExternalCdr(t *testing.T) {
 // 	cdr := &engine.ExternalCDR{ToR: utils.VOICE,
-// 		OriginID: "testextcdr1", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.META_RATED,
+// 		OriginID: "testextcdr1", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1003", Subject: "1003", Destination: "1001",
 // 		SetupTime: "2014-08-04T13:00:00Z", AnswerTime: "2014-08-04T13:00:07Z",
 // 		Usage: "1", ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"},
@@ -577,7 +577,7 @@ package general_tests
 // 	time.Sleep(time.Duration(**waitRater) * time.Millisecond)
 // 	eCdr := &engine.ExternalCDR{CGRID: "63a8d2bfeca2cfb790826c3ec461696d6574cfde", OrderID: 2,
 // 		ToR:      utils.VOICE,
-// 		OriginID: "testextcdr2", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.META_RATED,
+// 		OriginID: "testextcdr2", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1004", Subject: "1004", Destination: "1001",
 // 		SetupTime:  time.Date(2014, 8, 4, 13, 0, 0, 0, time.UTC).Local().Format(time.RFC3339),
 // 		AnswerTime: time.Date(2014, 8, 4, 13, 0, 7, 0, time.UTC).Local().Format(time.RFC3339), Usage: "2s",
@@ -632,7 +632,7 @@ package general_tests
 
 // func TestTutITCostErrors(t *testing.T) {
 // 	cdr := &engine.ExternalCDR{ToR: utils.VOICE,
-// 		OriginID: "TestTutIT_1", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.META_RATED,
+// 		OriginID: "TestTutIT_1", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "fake", Account: "2001", Subject: "2001", Destination: "1001",
 // 		SetupTime: "2014-08-04T13:00:00Z", AnswerTime: "2014-08-04T13:00:07Z",
 // 		Usage: "1", ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"},
@@ -659,7 +659,7 @@ package general_tests
 // 		}
 // 	}
 // 	cdr2 := &engine.ExternalCDR{ToR: utils.VOICE,
-// 		OriginID: "TestTutIT_2", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.META_POSTPAID,
+// 		OriginID: "TestTutIT_2", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.MetaPostpaid ,
 // 		Tenant: "cgrates.org", Category: "fake", Account: "2002", Subject: "2002", Destination: "1001",
 // 		SetupTime: "2014-08-04T13:00:00Z", AnswerTime: "2014-08-04T13:00:07Z",
 // 		Usage: "1", ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"},
@@ -684,7 +684,7 @@ package general_tests
 // 		}
 // 	}
 // 	cdr3 := &engine.ExternalCDR{ToR: utils.VOICE,
-// 		OriginID: "TestTutIT_3", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.META_POSTPAID,
+// 		OriginID: "TestTutIT_3", OriginHost: "192.168.1.1", Source: utils.UNIT_TEST, RequestType: utils.MetaPostpaid ,
 // 		Tenant: "cgrates.org", Category: "fake", Account: "1001", Subject: "1001", Destination: "2002",
 // 		SetupTime: "2014-08-04T13:00:00Z", AnswerTime: "2014-08-04T13:00:07Z",
 // 		Usage: "1", ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"},
@@ -948,22 +948,22 @@ package general_tests
 // 	testCdr1 := &engine.CDR{CGRID: utils.Sha1("testcdr1",
 // 		time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC).String()),
 // 		ToR: utils.VOICE, OriginID: "testcdr1", OriginHost: "192.168.1.1",
-// 		Source: "TEST_QOS_LCR", RequestType: utils.META_RATED,
+// 		Source: "TEST_QOS_LCR", RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1001",
 // 		Subject: "1001", Destination: "1002",
 // 		SetupTime:   time.Date(2014, 12, 7, 8, 42, 24, 0, time.UTC),
 // 		AnswerTime:  time.Date(2014, 12, 7, 8, 42, 26, 0, time.UTC),
-// 		Usage:       time.Duration(2) * time.Minute,
+// 		Usage:       2 * time.Minute,
 // 		ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"}}
 // 	testCdr2 := &engine.CDR{CGRID: utils.Sha1("testcdr2",
 // 		time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC).String()),
 // 		ToR: utils.VOICE, OriginID: "testcdr2", OriginHost: "192.168.1.1",
-// 		Source: "TEST_QOS_LCR", RequestType: utils.META_RATED,
+// 		Source: "TEST_QOS_LCR", RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1002",
 // 		Subject: "1002", Destination: "1003",
 // 		SetupTime:   time.Date(2014, 12, 7, 8, 42, 24, 0, time.UTC),
 // 		AnswerTime:  time.Date(2014, 12, 7, 8, 42, 26, 0, time.UTC),
-// 		Usage:       time.Duration(90) * time.Second,
+// 		Usage:       90 * time.Second,
 // 		ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"}}
 // 	var reply string
 // 	for _, cdr := range []*engine.CDR{testCdr1, testCdr2} {
@@ -1001,10 +1001,10 @@ package general_tests
 // 		//	t.Errorf("Expecting: %+v, %+v, received: %+v, %+v", eStLcr.SupplierCosts[0], eStLcr.SupplierCosts[1], lcr.SupplierCosts[0], lcr.SupplierCosts[1])
 // 	}
 // 	testCdr3 := &engine.CDR{CGRID: utils.Sha1("testcdr3", time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC).String()),
-// 		ToR: utils.VOICE, OriginID: "testcdr3", OriginHost: "192.168.1.1", Source: "TEST_QOS_LCR", RequestType: utils.META_RATED,
+// 		ToR: utils.VOICE, OriginID: "testcdr3", OriginHost: "192.168.1.1", Source: "TEST_QOS_LCR", RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1003", Subject: "1003", Destination: "1004",
 // 		SetupTime: time.Date(2014, 12, 7, 8, 42, 24, 0, time.UTC), AnswerTime: time.Date(2014, 12, 7, 8, 42, 26, 0, time.UTC),
-// 		Usage: time.Duration(180) * time.Second}
+// 		Usage: 180 * time.Second}
 // 	if err := tutLocalRpc.Call(utils.CDRsV1ProcessCDR, testCdr3, &reply); err != nil {
 // 		t.Error("Unexpected error: ", err.Error())
 // 	} else if reply != utils.OK {
@@ -1063,10 +1063,10 @@ package general_tests
 // 		//	t.Errorf("Expecting: %+v, %+v received: %+v, %+v", eLcr.SupplierCosts[0], eLcr.SupplierCosts[1], lcr.SupplierCosts[0], lcr.SupplierCosts[1])
 // 	}
 // 	testCdr4 := &engine.CDR{CGRID: utils.Sha1("testcdr4", time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC).String()),
-// 		ToR: utils.VOICE, OriginID: "testcdr4", OriginHost: "192.168.1.1", Source: "TEST_QOS_LCR", RequestType: utils.META_RATED,
+// 		ToR: utils.VOICE, OriginID: "testcdr4", OriginHost: "192.168.1.1", Source: "TEST_QOS_LCR", RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1003", Subject: "1003", Destination: "1004",
 // 		SetupTime: time.Date(2014, 12, 7, 8, 42, 24, 0, time.UTC), AnswerTime: time.Date(2014, 12, 7, 8, 42, 26, 0, time.UTC),
-// 		Usage: time.Duration(60) * time.Second}
+// 		Usage: 60 * time.Second}
 // 	var reply string
 // 	if err := tutLocalRpc.Call(utils.CDRsV1ProcessCDR, testCdr4, &reply); err != nil { // Should drop ACD under the 2m required by threshold,  removing suppl2 from lcr
 // 		t.Error("Unexpected error: ", err.Error())
@@ -1127,10 +1127,10 @@ package general_tests
 // 		//	t.Errorf("Expecting: %+v, received: %+v", eLcr.SupplierCosts[1], lcr.SupplierCosts[1])
 // 	}
 // 	testCdr5 := &engine.CDR{CGRID: utils.Sha1("testcdr5", time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC).String()),
-// 		ToR: utils.VOICE, OriginID: "testcdr5", OriginHost: "192.168.1.1", Source: "TEST_QOS_LCR", RequestType: utils.META_RATED,
+// 		ToR: utils.VOICE, OriginID: "testcdr5", OriginHost: "192.168.1.1", Source: "TEST_QOS_LCR", RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1003", Subject: "1003", Destination: "1004",
 // 		SetupTime: time.Date(2014, 12, 7, 8, 42, 24, 0, time.UTC), AnswerTime: time.Date(2014, 12, 7, 8, 42, 26, 0, time.UTC),
-// 		Usage: time.Duration(1) * time.Second}
+// 		Usage:  time.Second}
 // 	if err := tutLocalRpc.Call(utils.CDRsV1ProcessCDR, testCdr5, &reply); err != nil { // Should drop ACD under the 1m required by threshold,  removing suppl2 from lcr
 // 		t.Error("Unexpected error: ", err.Error())
 // 	} else if reply != utils.OK {
@@ -1310,7 +1310,7 @@ package general_tests
 // 		Category: "call", Account: "1001", Subject: "1001", Destination: "1003",
 // 		SetupTime:   time.Date(2016, 4, 6, 13, 29, 24, 0, time.UTC),
 // 		AnswerTime:  time.Date(2016, 4, 6, 13, 30, 0, 0, time.UTC),
-// 		Usage:       time.Duration(90) * time.Second,
+// 		Usage:       90 * time.Second,
 // 		ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"}}
 
 // 	cc := &engine.CallCost{
@@ -1377,7 +1377,7 @@ package general_tests
 // 		ToR: utils.VOICE, OriginID: "testprepaid2", OriginHost: "192.168.1.1", Source: "TEST_PREPAID_CDR_NO_SMCOST1", RequestType: utils.META_PREPAID,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1001", Subject: "1001", Destination: "1003",
 // 		SetupTime: time.Date(2016, 4, 6, 13, 29, 24, 0, time.UTC), AnswerTime: time.Date(2016, 4, 6, 13, 30, 0, 0, time.UTC),
-// 		Usage:       time.Duration(90) * time.Second,
+// 		Usage:       90 * time.Second,
 // 		ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"}}
 // 	var reply string
 // 	if err := tutLocalRpc.Call(utils.CDRsV1ProcessCDR, cdr, &reply); err != nil {
@@ -1386,7 +1386,7 @@ package general_tests
 // 		t.Error("Unexpected reply received: ", reply)
 // 	}
 // 	/*
-// 		time.Sleep(time.Duration(7000) * time.Millisecond) // Give time for CDR to be processed
+// 		time.Sleep(7000 * time.Millisecond) // Give time for CDR to be processed
 // 		var cdrs []*engine.ExternalCDR
 // 		req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}, CGRIDs: []string{cdr.CGRID}}
 // 		if err := tutLocalRpc.Call(utils.APIerSv2GetCDRs, req, &cdrs); err != nil {
@@ -1405,10 +1405,10 @@ package general_tests
 // }
 
 // func TestTutITExportCDR(t *testing.T) {
-// 	cdr := &engine.CDR{ToR: utils.VOICE, OriginID: "testexportcdr1", OriginHost: "192.168.1.1", Source: "TestTutITExportCDR", RequestType: utils.META_RATED,
+// 	cdr := &engine.CDR{ToR: utils.VOICE, OriginID: "testexportcdr1", OriginHost: "192.168.1.1", Source: "TestTutITExportCDR", RequestType: utils.MetaRated,
 // 		Tenant: "cgrates.org", Category: "call", Account: "1001", Subject: "1001", Destination: "1003",
 // 		SetupTime: time.Date(2016, 11, 30, 17, 5, 24, 0, time.UTC), AnswerTime: time.Date(2016, 11, 30, 17, 6, 4, 0, time.UTC),
-// 		Usage:       time.Duration(98) * time.Second,
+// 		Usage:       98 * time.Second,
 // 		ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"}}
 // 	cdr.ComputeCGRID()
 // 	var reply string
@@ -1417,7 +1417,7 @@ package general_tests
 // 	} else if reply != utils.OK {
 // 		t.Error("Unexpected reply received: ", reply)
 // 	}
-// 	time.Sleep(time.Duration(50) * time.Millisecond) // Give time for CDR to be processed
+// 	time.Sleep(50 * time.Millisecond) // Give time for CDR to be processed
 // 	var cdrs []*engine.ExternalCDR
 // 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}, CGRIDs: []string{cdr.CGRID}}
 // 	if err := tutLocalRpc.Call(utils.APIerSv2GetCDRs, req, &cdrs); err != nil {

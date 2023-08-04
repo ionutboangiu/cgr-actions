@@ -44,22 +44,22 @@ var sTestsLoadIdsIT = []func(t *testing.T){
 }
 
 func TestLoadIDsMigrateITRedis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testLoadIdsStart("TestLoadIDsMigrateITRedis", inPath, inPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testLoadIdsStart("TestLoadIDsMigrateITRedis", t)
 }
 
 func TestLoadIDsMigrateITMongo(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	testLoadIdsStart("TestLoadIDsMigrateITMongo", inPath, inPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	testLoadIdsStart("TestLoadIDsMigrateITMongo", t)
 }
 
 func TestLoadIDsITMigrateMongo2Redis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testLoadIdsStart("TestLoadIDsITMigrateMongo2Redis", inPath, outPath, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testLoadIdsStart("TestLoadIDsITMigrateMongo2Redis", t)
 }
 
-func testLoadIdsStart(testName, inPath, outPath string, t *testing.T) {
+func testLoadIdsStart(testName string, t *testing.T) {
 	var err error
 	if loadCfgIn, err = config.NewCGRConfigFromPath(inPath); err != nil {
 		t.Fatal(err)
@@ -75,24 +75,29 @@ func testLoadIdsStart(testName, inPath, outPath string, t *testing.T) {
 }
 
 func testLoadIdsITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(loadCfgIn.DataDbCfg().DataDbType,
-		loadCfgIn.DataDbCfg().DataDbHost, loadCfgIn.DataDbCfg().DataDbPort,
-		loadCfgIn.DataDbCfg().DataDbName, loadCfgIn.DataDbCfg().DataDbUser,
-		loadCfgIn.DataDbCfg().DataDbPass, loadCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", loadCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(loadCfgIn.DataDbCfg().Type,
+		loadCfgIn.DataDbCfg().Host, loadCfgIn.DataDbCfg().Port,
+		loadCfgIn.DataDbCfg().Name, loadCfgIn.DataDbCfg().User,
+		loadCfgIn.DataDbCfg().Password, loadCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), loadCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(loadCfgOut.DataDbCfg().DataDbType,
-		loadCfgOut.DataDbCfg().DataDbHost, loadCfgOut.DataDbCfg().DataDbPort,
-		loadCfgOut.DataDbCfg().DataDbName, loadCfgOut.DataDbCfg().DataDbUser,
-		loadCfgOut.DataDbCfg().DataDbPass, loadCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", loadCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(loadCfgOut.DataDbCfg().Type,
+		loadCfgOut.DataDbCfg().Host, loadCfgOut.DataDbCfg().Port,
+		loadCfgOut.DataDbCfg().Name, loadCfgOut.DataDbCfg().User,
+		loadCfgOut.DataDbCfg().Password, loadCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), loadCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	loadMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil, false, false, false, false)
+	if inPath == outPath {
+		loadMigrator, err = NewMigrator(dataDBIn, dataDBOut,
+			nil, nil, false, true, false, false)
+	} else {
+		loadMigrator, err = NewMigrator(dataDBIn, dataDBOut,
+			nil, nil, false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -47,12 +47,12 @@ var (
 		testV1DataStartEngine,
 		testV1DataRpcConn,
 		testV1DataLoadTarrifPlans,
-		// testV1DataDataDebitUsageWith10Kilo,
-		// testV1DataGetCostWith10Kilo,
-		// testV1DataDebitBalanceWith10Kilo,
-		// testV1DataDataDebitUsage1G0,
-		// testV1DataGetCost1G0,
-		// testV1DataDebitBalance1G0,
+		testV1DataDataDebitUsageWith10Kilo,
+		testV1DataGetCostWith10Kilo,
+		testV1DataDebitBalanceWith10Kilo,
+		testV1DataDataDebitUsage1G0,
+		testV1DataGetCost1G0,
+		testV1DataDebitBalance1G0,
 		testV1DataInitSession,
 		testV1DataUpdateWith1Mo,
 		testV1DataUpdateWith1Go,
@@ -131,16 +131,16 @@ func testV1DataLoadTarrifPlans(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply returned", reply)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testV1DataDataDebitUsageWith10Kilo(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataDataCost",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       356000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.Categories:    "data",
 			utils.ID:            "testV1DataDataCost",
 			utils.RatingSubject: "*zero10000ns",
@@ -159,9 +159,9 @@ func testV1DataDataDebitUsageWith10Kilo(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDataCost"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -171,17 +171,17 @@ func testV1DataDataDebitUsageWith10Kilo(t *testing.T) {
 		Account:     "testV1DataDataCost",
 		Destination: "*any",
 		Usage:       "256000000",
-		ToR:         utils.DATA,
+		ToR:         utils.MetaData,
 		Category:    "data",
 		SetupTime:   time.Date(2013, 11, 7, 7, 42, 20, 0, time.UTC).String(),
 		AnswerTime:  time.Date(2013, 11, 7, 7, 42, 20, 0, time.UTC).String(),
 	}
 	tStart := time.Now()
 	if err := dataRpc.Call(utils.APIerSv1DebitUsage,
-		engine.UsageRecordWithArgDispatcher{UsageRecord: usageRecord}, &reply); err != nil {
+		&engine.UsageRecordWithAPIOpts{UsageRecord: usageRecord}, &reply); err != nil {
 		t.Error(err)
 	}
-	if time.Now().Sub(tStart) > time.Duration(50*time.Millisecond) {
+	if time.Now().Sub(tStart) > 50*time.Millisecond {
 		t.Error("Take's too long for GetDataCost")
 	}
 
@@ -190,9 +190,9 @@ func testV1DataDataDebitUsageWith10Kilo(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDataCost"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -203,12 +203,12 @@ func testV1DataGetCostWith10Kilo(t *testing.T) {
 		Subject: "10kilo", AnswerTime: "*now", Usage: 256000000}
 	var rply *engine.DataCost
 	tStart := time.Now()
-	if err := dataRpc.Call(utils.APIerSv1GetDataCost, attrs, &rply); err != nil {
+	if err := dataRpc.Call(utils.APIerSv1GetDataCost, &attrs, &rply); err != nil {
 		t.Error("Unexpected nil error received: ", err.Error())
 	} else if rply.Cost != 25600.000000 {
 		t.Errorf("Unexpected cost received: %f", rply.Cost)
 	}
-	if time.Now().Sub(tStart) > time.Duration(50*time.Millisecond) {
+	if time.Now().Sub(tStart) > 50*time.Millisecond {
 		t.Error("Take's too long for GetDataCost")
 	}
 }
@@ -217,9 +217,9 @@ func testV1DataDebitBalanceWith10Kilo(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataDebitBalance",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       356000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.Categories:    "data",
 			utils.ID:            "testV1DataDebitBalance",
 			utils.RatingSubject: "*zero10000ns",
@@ -238,9 +238,9 @@ func testV1DataDebitBalanceWith10Kilo(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDebitBalance"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -248,14 +248,14 @@ func testV1DataDebitBalanceWith10Kilo(t *testing.T) {
 	if err := dataRpc.Call(utils.APIerSv1DebitBalance, &v1.AttrAddBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataDebitBalance",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       256000000,
 	}, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	if time.Now().Sub(tStart) > time.Duration(50*time.Millisecond) {
+	if time.Now().Sub(tStart) > 50*time.Millisecond {
 		t.Error("Take's too long for GetDataCost")
 	}
 
@@ -264,9 +264,9 @@ func testV1DataDebitBalanceWith10Kilo(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDebitBalance"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -276,9 +276,9 @@ func testV1DataDataDebitUsage1G0(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataDataDebitUsage1G0",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       1100000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.Categories:    "data",
 			utils.ID:            "testV1DataDataDebitUsage1G0",
 			utils.RatingSubject: "*zero10000ns",
@@ -297,9 +297,9 @@ func testV1DataDataDebitUsage1G0(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDataDebitUsage1G0"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -309,17 +309,17 @@ func testV1DataDataDebitUsage1G0(t *testing.T) {
 		Account:     "testV1DataDataDebitUsage1G0",
 		Destination: "*any",
 		Usage:       "1000000000",
-		ToR:         utils.DATA,
+		ToR:         utils.MetaData,
 		Category:    "data",
 		SetupTime:   time.Date(2013, 11, 7, 7, 42, 20, 0, time.UTC).String(),
 		AnswerTime:  time.Date(2013, 11, 7, 7, 42, 20, 0, time.UTC).String(),
 	}
 	tStart := time.Now()
 	if err := dataRpc.Call(utils.APIerSv1DebitUsage,
-		engine.UsageRecordWithArgDispatcher{UsageRecord: usageRecord}, &reply); err != nil {
+		&engine.UsageRecordWithAPIOpts{UsageRecord: usageRecord}, &reply); err != nil {
 		t.Error(err)
 	}
-	if time.Now().Sub(tStart) > time.Duration(50*time.Millisecond) {
+	if time.Now().Sub(tStart) > 100*time.Millisecond {
 		t.Errorf("Take's too long for GetDataCost : %+v", time.Now().Sub(tStart))
 	}
 
@@ -328,9 +328,9 @@ func testV1DataDataDebitUsage1G0(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDataDebitUsage1G0"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -341,12 +341,12 @@ func testV1DataGetCost1G0(t *testing.T) {
 		Subject: "10kilo", AnswerTime: "*now", Usage: 1000000000}
 	var rply *engine.DataCost
 	tStart := time.Now()
-	if err := dataRpc.Call(utils.APIerSv1GetDataCost, attrs, &rply); err != nil {
+	if err := dataRpc.Call(utils.APIerSv1GetDataCost, &attrs, &rply); err != nil {
 		t.Error("Unexpected nil error received: ", err.Error())
 	} else if rply.Cost != 100000.000000 {
 		t.Errorf("Unexpected cost received: %f", rply.Cost)
 	}
-	if time.Now().Sub(tStart) > time.Duration(50*time.Millisecond) {
+	if time.Now().Sub(tStart) > 50*time.Millisecond {
 		t.Error("Take's too long for GetDataCost")
 	}
 }
@@ -355,9 +355,9 @@ func testV1DataDebitBalance1G0(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataDebitBalance1G0",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       1100000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.Categories:    "data",
 			utils.ID:            "testV1DataDebitBalance1G0",
 			utils.RatingSubject: "*zero10000ns",
@@ -376,9 +376,9 @@ func testV1DataDebitBalance1G0(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDebitBalance1G0"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -386,14 +386,14 @@ func testV1DataDebitBalance1G0(t *testing.T) {
 	if err := dataRpc.Call(utils.APIerSv1DebitBalance, &v1.AttrAddBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataDebitBalance1G0",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       1000000000,
 	}, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	if time.Now().Sub(tStart) > time.Duration(50*time.Millisecond) {
+	if time.Now().Sub(tStart) > 50*time.Millisecond {
 		t.Error("Take's too long for GetDataCost")
 	}
 
@@ -402,9 +402,9 @@ func testV1DataDebitBalance1G0(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataDebitBalance1G0"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -414,9 +414,9 @@ func testV1DataInitSession(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1DataInitSession",
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       1100000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.Categories:    "data",
 			utils.ID:            "testV1DataInitSession",
 			utils.RatingSubject: "*zero10000ns",
@@ -435,9 +435,9 @@ func testV1DataInitSession(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "testV1DataInitSession"},
 		&acc); err != nil {
 		t.Error(err)
-	} else if _, has := acc.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.DATA]))
-	} else if rply := acc.BalanceMap[utils.DATA].GetTotalValue(); rply != expected {
+	} else if _, has := acc.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(acc.BalanceMap[utils.MetaData]))
+	} else if rply := acc.BalanceMap[utils.MetaData].GetTotalValue(); rply != expected {
 		t.Errorf("Expecting: %v, received: %v",
 			expected, rply)
 	}
@@ -445,25 +445,28 @@ func testV1DataInitSession(t *testing.T) {
 	initUsage := 10000
 	args := &sessions.V1InitSessionArgs{
 		InitSession: true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testV1DataInitSession",
-			Event: map[string]interface{}{
-				utils.Tenant:         "cgrates.org",
-				utils.ToR:            utils.DATA,
-				utils.Category:       "data",
-				utils.OriginID:       "781512335",
-				utils.RequestType:    utils.META_PREPAID,
-				utils.Account:        "testV1DataInitSession",
-				utils.Subject:        "10kilo",
-				utils.Destination:    "*any",
-				utils.SetupTime:      time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:     time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:          initUsage,
-				"SessionTTL":         "300s",
-				"SessionTTLLastUsed": "0s",
-				"SessionTTLMaxDelay": "1800s",
-				"SessionTTLUsage":    "0s",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaData,
+				utils.Category:     "data",
+				utils.OriginID:     "781512335",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "testV1DataInitSession",
+				utils.Subject:      "10kilo",
+				utils.Destination:  "*any",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        initUsage,
+			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTL:         "300s",
+				utils.OptsSessionsTTLLastUsed: "0s",
+				utils.OptsSessionsTTLMaxDelay: "1800s",
+				utils.OptsSessionsTTLUsage:    "0s",
 			},
 		},
 	}
@@ -487,28 +490,30 @@ func testV1DataUpdateWith1Mo(t *testing.T) {
 	reqUsage := 1000000
 	args := &sessions.V1UpdateSessionArgs{
 		UpdateSession: true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testV1DataUpdateWith1Mo",
-			Event: map[string]interface{}{
-				utils.Tenant:         "cgrates.org",
-				utils.ToR:            utils.DATA,
-				utils.Category:       "data",
-				"InitialOriginID":    "781512335",
-				"LastUsed":           0,
-				"OriginID":           "781512335-11",
-				utils.RequestType:    utils.META_PREPAID,
-				utils.Account:        "testV1DataInitSession",
-				utils.Subject:        "10kilo",
-				utils.Destination:    "*any",
-				utils.SetupTime:      time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:     time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:          reqUsage,
-				"SessionTTL":         "28807s",
-				"SessionTTLLastUsed": "0s",
-				"SessionTTLMaxDelay": "1800s",
-				"SessionTTLUsage":    "0s",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaData,
+				utils.Category:     "data",
+				"InitialOriginID":  "781512335",
+				"LastUsed":         0,
+				"OriginID":         "781512335-11",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "testV1DataInitSession",
+				utils.Subject:      "10kilo",
+				utils.Destination:  "*any",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        reqUsage,
 			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTL:         "28807s",
+				utils.OptsSessionsTTLLastUsed: "0s",
+				utils.OptsSessionsTTLMaxDelay: "1800s",
+				utils.OptsSessionsTTLUsage:    "0s"},
 		},
 	}
 	var rply sessions.V1UpdateSessionReply
@@ -533,25 +538,26 @@ func testV1DataUpdateWith1Go(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testV1DataUpdateWith1Go",
-			Event: map[string]interface{}{
-				utils.Tenant:         "cgrates.org",
-				utils.ToR:            utils.DATA,
-				utils.Category:       "data",
-				"InitialOriginID":    "781512335",
-				"LastUsed":           946405,
-				"OriginID":           "781512335-11",
-				utils.RequestType:    utils.META_PREPAID,
-				utils.Account:        "testV1DataInitSession",
-				utils.Subject:        "10kilo",
-				utils.Destination:    "*any",
-				utils.SetupTime:      time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:     time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:          reqUsage,
-				"SessionTTL":         "28807s",
-				"SessionTTLLastUsed": "0s",
-				"SessionTTLMaxDelay": "1800s",
-				"SessionTTLUsage":    "0s",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaData,
+				utils.Category:     "data",
+				"InitialOriginID":  "781512335",
+				"LastUsed":         946405,
+				"OriginID":         "781512335-11",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "testV1DataInitSession",
+				utils.Subject:      "10kilo",
+				utils.Destination:  "*any",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        reqUsage,
 			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTL:         "28807s",
+				utils.OptsSessionsTTLLastUsed: "0s",
+				utils.OptsSessionsTTLMaxDelay: "1800s",
+				utils.OptsSessionsTTLUsage:    "0s"},
 		},
 	}
 	var rply sessions.V1UpdateSessionReply

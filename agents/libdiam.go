@@ -31,10 +31,10 @@ import (
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
-	"github.com/fiorix/go-diameter/diam"
-	"github.com/fiorix/go-diameter/diam/avp"
-	"github.com/fiorix/go-diameter/diam/datatype"
-	"github.com/fiorix/go-diameter/diam/dict"
+	"github.com/fiorix/go-diameter/v4/diam"
+	"github.com/fiorix/go-diameter/v4/diam/avp"
+	"github.com/fiorix/go-diameter/v4/diam/datatype"
+	"github.com/fiorix/go-diameter/v4/diam/dict"
 )
 
 func loadDictionaries(dictsDir, componentID string) error {
@@ -69,7 +69,7 @@ func loadDictionaries(dictsDir, componentID string) error {
 }
 
 // diamAVPValue will extract the go primary value out of diameter type value
-func diamAVPAsIface(dAVP *diam.AVP) (val interface{}, err error) {
+func diamAVPAsIface(dAVP *diam.AVP) (val any, err error) {
 	if dAVP == nil {
 		return nil, errors.New("nil AVP")
 	}
@@ -112,7 +112,7 @@ func diamAVPAsIface(dAVP *diam.AVP) (val interface{}, err error) {
 }
 
 func diamAVPAsString(dAVP *diam.AVP) (s string, err error) {
-	var iface interface{}
+	var iface any
 	if iface, err = diamAVPAsIface(dAVP); err != nil {
 		return
 	}
@@ -199,10 +199,10 @@ func headerLen(a *diam.AVP) int {
 	return 8
 }
 
-func updateAVPLenght(avps []*diam.AVP) (l int) {
+func updateAVPLength(avps []*diam.AVP) (l int) {
 	for _, avp := range avps {
 		if v, ok := (avp.Data).(*diam.GroupedAVP); ok {
-			avp.Length = headerLen(avp) + updateAVPLenght(v.AVP)
+			avp.Length = headerLen(avp) + updateAVPLength(v.AVP)
 		}
 		l += avp.Length
 	}
@@ -294,7 +294,7 @@ func newDADataProvider(c diam.Conn, m *diam.Message) utils.DataProvider {
 
 }
 
-// diameterDP implements engine.DataProvider, serving as diam.Message data decoder
+// diameterDP implements utils.DataProvider, serving as diam.Message data decoder
 // decoded data is only searched once and cached
 type diameterDP struct {
 	c     diam.Conn
@@ -302,15 +302,15 @@ type diameterDP struct {
 	cache utils.MapStorage
 }
 
-// String is part of engine.DataProvider interface
+// String is part of utils.DataProvider interface
 // when called, it will display the already parsed values out of cache
 func (dP *diameterDP) String() string {
 	return dP.m.String()
 }
 
-// FieldAsString is part of engine.DataProvider interface
+// FieldAsString is part of utils.DataProvider interface
 func (dP *diameterDP) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
+	var valIface any
 	valIface, err = dP.FieldAsInterface(fldPath)
 	if err != nil {
 		return
@@ -318,13 +318,8 @@ func (dP *diameterDP) FieldAsString(fldPath []string) (data string, err error) {
 	return utils.IfaceAsString(valIface), nil
 }
 
-// RemoteHost is part of engine.DataProvider interface
-func (dP *diameterDP) RemoteHost() net.Addr {
-	return utils.NewNetAddr(dP.c.RemoteAddr().Network(), dP.c.RemoteAddr().String())
-}
-
-// FieldAsInterface is part of engine.DataProvider interface
-func (dP *diameterDP) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+// FieldAsInterface is part of utils.DataProvider interface
+func (dP *diameterDP) FieldAsInterface(fldPath []string) (data any, err error) {
 	if data, err = dP.cache.FieldAsInterface(fldPath); err != nil {
 		if err != utils.ErrNotFound { // item found in cache
 			return nil, err
@@ -336,9 +331,9 @@ func (dP *diameterDP) FieldAsInterface(fldPath []string) (data interface{}, err 
 	// lastPath can contain selector inside
 	lastPath := fldPath[len(fldPath)-1]
 	var slctrStr string
-	if splt := strings.Split(lastPath, "["); len(splt) != 1 {
+	if splt := strings.Split(lastPath, utils.IdxStart); len(splt) != 1 {
 		lastPath = splt[0]
-		if splt[1][len(splt[1])-1:] != "]" {
+		if splt[1][len(splt[1])-1:] != utils.IdxEnd {
 			return nil, fmt.Errorf("filter rule <%s> needs to end in ]", splt[1])
 		}
 		slctrStr = splt[1][:len(splt[1])-1] // also strip the last ]
@@ -360,7 +355,20 @@ func (dP *diameterDP) FieldAsInterface(fldPath []string) (data interface{}, err 
 			selIndxs := make(map[int]int) // use it to find intersection of all matched filters
 			slctrStrs := strings.Split(slctrStr, utils.PipeSep)
 			for _, slctrStr := range slctrStrs {
-				slctr, err := config.NewRSRParser(slctrStr, true)
+				var fltrs utils.RSRFilters
+				if strings.HasSuffix(slctrStr, utils.FilterValEnd) { // Has filter, populate the var
+					fltrStart := strings.Index(slctrStr, utils.FilterValStart)
+					if fltrStart < 1 {
+						return nil, fmt.Errorf("invalid RSRFilter start rule in string: <%s>", slctrStr)
+					}
+					fltrVal := slctrStr[fltrStart+1 : len(slctrStr)-1]
+					if fltrs, err = utils.ParseRSRFilters(fltrVal, utils.ANDSep); err != nil {
+						return nil, fmt.Errorf("Invalid FilterValue in string: %s, err: %s", fltrVal, err.Error())
+					}
+					slctrStr = slctrStr[:fltrStart] // Take the filter part out before compiling further
+				}
+
+				slctr, err := config.NewRSRParser(slctrStr)
 				if err != nil {
 					return nil, err
 				}
@@ -380,12 +388,13 @@ func (dP *diameterDP) FieldAsInterface(fldPath []string) (data interface{}, err 
 				for k, fAVP := range fltrAVPs {
 					if dataAVP, err := diamAVPAsIface(fAVP); err != nil {
 						return nil, err
-					} else if _, err := slctr.ParseValue(dataAVP); err != nil {
-						if err != utils.ErrFilterNotPassingNoCaps {
-							return nil, err
+					} else if fld, err := slctr.ParseValue(dataAVP); err != nil {
+						if err == utils.ErrNotFound && fltrs.FilterRules() == "^$" {
+							selIndxs[k+1]++ // filter passing, index it with one higher to cover 0
+							continue        // filter not passing, not really error
 						}
-						continue // filter not passing, not really error
-					} else {
+						return nil, err
+					} else if fltrs.Pass(fld, true) {
 						selIndxs[k+1]++ // filter passing, index it with one higher to cover 0
 					}
 				}
@@ -417,22 +426,16 @@ func (dP *diameterDP) FieldAsInterface(fldPath []string) (data interface{}, err 
 func updateDiamMsgFromNavMap(m *diam.Message, navMp *utils.OrderedNavigableMap, tmz string) (err error) {
 	// write reply into message
 	for el := navMp.GetFirstElement(); el != nil; el = el.Next() {
-		val := el.Value
-		var nmIt utils.NMInterface
-		if nmIt, err = navMp.Field(val); err != nil {
-			return
-		}
-		itm, isNMItem := nmIt.(*config.NMItem)
-		if !isNMItem {
-			return fmt.Errorf("cannot encode reply value: %s, err: not NMItems", utils.ToJSON(val))
-		}
-		if itm == nil {
+		path := el.Value
+		nmIt, _ := navMp.Field(path)
+		if nmIt == nil {
 			continue // all attributes, not writable to diameter packet
 		}
-		newBranch := itm.Config != nil && itm.Config.NewBranch
-		if err = messageSetAVPsWithPath(m, itm.Path,
-			utils.IfaceAsString(itm.Data), newBranch, tmz); err != nil {
-			return fmt.Errorf("setting item with path: %+v got err: %s", itm.Path, err.Error())
+		path = path[:len(path)-1] // remove the last index
+		if err = messageSetAVPsWithPath(m,
+			path, nmIt.String(),
+			nmIt.NewBranch, tmz); err != nil {
+			return fmt.Errorf("setting item with path: %+v got err: %s", path, err.Error())
 		}
 	}
 	return
@@ -453,12 +456,13 @@ func diamAnswer(m *diam.Message, resCode uint32, errFlag bool,
 
 // negDiamAnswer is used to return the negative answer we need previous to
 func diamErr(m *diam.Message, resCode uint32,
-	reqVars utils.NavigableMap2,
+	reqVars *utils.DataNode,
 	tpl []*config.FCTemplate, tnt, tmz string,
 	filterS *engine.FilterS) (a *diam.Message, err error) {
 	aReq := NewAgentRequest(
 		newDADataProvider(nil, m), reqVars,
-		nil, nil, nil, tnt, tmz, filterS, nil, nil)
+		nil, nil, nil, nil,
+		tnt, tmz, filterS, nil)
 	if err = aReq.SetFields(tpl); err != nil {
 		return
 	}
@@ -476,7 +480,7 @@ func disectDiamListen(addrs string) (ipAddrs []net.IP) {
 	if ipPort[0] == "" {
 		return
 	}
-	ips := strings.Split(ipPort[0], utils.HDR_VAL_SEP)
+	ips := strings.Split(ipPort[0], utils.HDRValSep)
 	ipAddrs = make([]net.IP, len(ips))
 	for i, ip := range ips {
 		ipAddrs[i] = net.ParseIP(ip)
@@ -488,5 +492,5 @@ func disectDiamListen(addrs string) (ipAddrs []net.IP) {
 type diamMsgData struct {
 	c    diam.Conn
 	m    *diam.Message
-	vars utils.NavigableMap2
+	vars *utils.DataNode
 }

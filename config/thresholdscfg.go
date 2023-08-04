@@ -24,16 +24,36 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
+type ThresholdsOpts struct {
+	ProfileIDs           []string
+	ProfileIgnoreFilters bool
+}
+
+// ThresholdSCfg the threshold config section
 type ThresholdSCfg struct {
 	Enabled             bool
 	IndexedSelects      bool
 	StoreInterval       time.Duration // Dump regularly from cache into dataDB
 	StringIndexedFields *[]string
 	PrefixIndexedFields *[]string
+	SuffixIndexedFields *[]string
 	NestedFields        bool
+	Opts                *ThresholdsOpts
 }
 
-func (t *ThresholdSCfg) loadFromJsonCfg(jsnCfg *ThresholdSJsonCfg) (err error) {
+func (thdOpts *ThresholdsOpts) loadFromJSONCfg(jsnCfg *ThresholdsOptsJson) {
+	if jsnCfg == nil {
+		return
+	}
+	if jsnCfg.ProfileIDs != nil {
+		thdOpts.ProfileIDs = *jsnCfg.ProfileIDs
+	}
+	if jsnCfg.ProfileIgnoreFilters != nil {
+		thdOpts.ProfileIgnoreFilters = *jsnCfg.ProfileIgnoreFilters
+	}
+}
+
+func (t *ThresholdSCfg) loadFromJSONCfg(jsnCfg *ThresholdSJsonCfg) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
@@ -62,37 +82,100 @@ func (t *ThresholdSCfg) loadFromJsonCfg(jsnCfg *ThresholdSJsonCfg) (err error) {
 		}
 		t.PrefixIndexedFields = &pif
 	}
+	if jsnCfg.Suffix_indexed_fields != nil {
+		sif := make([]string, len(*jsnCfg.Suffix_indexed_fields))
+		for i, fID := range *jsnCfg.Suffix_indexed_fields {
+			sif[i] = fID
+		}
+		t.SuffixIndexedFields = &sif
+	}
 	if jsnCfg.Nested_fields != nil {
 		t.NestedFields = *jsnCfg.Nested_fields
+	}
+	if jsnCfg.Opts != nil {
+		t.Opts.loadFromJSONCfg(jsnCfg.Opts)
 	}
 	return nil
 }
 
-func (t *ThresholdSCfg) AsMapInterface() map[string]interface{} {
-	var storeInterval string = ""
-	if t.StoreInterval != 0 {
-		storeInterval = t.StoreInterval.String()
+// AsMapInterface returns the config as a map[string]any
+func (t *ThresholdSCfg) AsMapInterface() (initialMP map[string]any) {
+	opts := map[string]any{
+		utils.MetaProfileIDs:              t.Opts.ProfileIDs,
+		utils.MetaProfileIgnoreFiltersCfg: t.Opts.ProfileIgnoreFilters,
 	}
-	stringIndexedFields := []string{}
+	initialMP = map[string]any{
+		utils.EnabledCfg:        t.Enabled,
+		utils.IndexedSelectsCfg: t.IndexedSelects,
+		utils.NestedFieldsCfg:   t.NestedFields,
+		utils.StoreIntervalCfg:  utils.EmptyString,
+		utils.OptsCfg:           opts,
+	}
+	if t.StoreInterval != 0 {
+		initialMP[utils.StoreIntervalCfg] = t.StoreInterval.String()
+	}
+
 	if t.StringIndexedFields != nil {
-		stringIndexedFields = make([]string, len(*t.StringIndexedFields))
+		stringIndexedFields := make([]string, len(*t.StringIndexedFields))
 		for i, item := range *t.StringIndexedFields {
 			stringIndexedFields[i] = item
 		}
+		initialMP[utils.StringIndexedFieldsCfg] = stringIndexedFields
 	}
-	prefixIndexedFields := []string{}
 	if t.PrefixIndexedFields != nil {
-		prefixIndexedFields = make([]string, len(*t.PrefixIndexedFields))
+		prefixIndexedFields := make([]string, len(*t.PrefixIndexedFields))
 		for i, item := range *t.PrefixIndexedFields {
 			prefixIndexedFields[i] = item
 		}
+		initialMP[utils.PrefixIndexedFieldsCfg] = prefixIndexedFields
 	}
-	return map[string]interface{}{
-		utils.EnabledCfg:             t.Enabled,
-		utils.IndexedSelectsCfg:      t.IndexedSelects,
-		utils.StoreIntervalCfg:       storeInterval,
-		utils.StringIndexedFieldsCfg: stringIndexedFields,
-		utils.PrefixIndexedFieldsCfg: prefixIndexedFields,
-		utils.NestedFieldsCfg:        t.NestedFields,
+	if t.SuffixIndexedFields != nil {
+		suffixIndexedFields := make([]string, len(*t.SuffixIndexedFields))
+		for i, item := range *t.SuffixIndexedFields {
+			suffixIndexedFields[i] = item
+		}
+		initialMP[utils.SuffixIndexedFieldsCfg] = suffixIndexedFields
 	}
+	return
+}
+
+func (thdOpts *ThresholdsOpts) Clone() *ThresholdsOpts {
+	return &ThresholdsOpts{
+		ProfileIDs:           utils.CloneStringSlice(thdOpts.ProfileIDs),
+		ProfileIgnoreFilters: thdOpts.ProfileIgnoreFilters,
+	}
+}
+
+// Clone returns a deep copy of ThresholdSCfg
+func (t ThresholdSCfg) Clone() (cln *ThresholdSCfg) {
+	cln = &ThresholdSCfg{
+		Enabled:        t.Enabled,
+		IndexedSelects: t.IndexedSelects,
+		StoreInterval:  t.StoreInterval,
+		NestedFields:   t.NestedFields,
+		Opts:           t.Opts.Clone(),
+	}
+
+	if t.StringIndexedFields != nil {
+		idx := make([]string, len(*t.StringIndexedFields))
+		for i, dx := range *t.StringIndexedFields {
+			idx[i] = dx
+		}
+		cln.StringIndexedFields = &idx
+	}
+	if t.PrefixIndexedFields != nil {
+		idx := make([]string, len(*t.PrefixIndexedFields))
+		for i, dx := range *t.PrefixIndexedFields {
+			idx[i] = dx
+		}
+		cln.PrefixIndexedFields = &idx
+	}
+	if t.SuffixIndexedFields != nil {
+		idx := make([]string, len(*t.SuffixIndexedFields))
+		for i, dx := range *t.SuffixIndexedFields {
+			idx[i] = dx
+		}
+		cln.SuffixIndexedFields = &idx
+	}
+	return
 }

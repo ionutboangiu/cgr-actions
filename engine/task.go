@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"net"
 	"strings"
 
 	"github.com/cgrates/cgrates/utils"
@@ -32,12 +31,15 @@ type Task struct {
 	ActionsID string
 }
 
-func (t *Task) Execute() error {
-	return (&ActionTiming{
-		Uuid:       t.Uuid,
-		ActionsID:  t.ActionsID,
-		accountIDs: utils.StringMap{t.AccountID: true},
-	}).Execute(nil, nil)
+func (t *Task) Execute(fltrS *FilterS) error {
+	at := &ActionTiming{
+		Uuid:      t.Uuid,
+		ActionsID: t.ActionsID,
+	}
+	if len(t.AccountID) != 0 {
+		at.accountIDs = utils.StringMap{t.AccountID: true}
+	}
+	return at.Execute(fltrS)
 }
 
 // String implements utils.DataProvider
@@ -47,11 +49,11 @@ func (t *Task) String() string {
 
 // FieldAsInterface implements utils.DataProvider
 // ToDo: support Action fields
-func (t *Task) FieldAsInterface(fldPath []string) (iface interface{}, err error) {
+func (t *Task) FieldAsInterface(fldPath []string) (iface any, err error) {
 	return t.FieldAsString(fldPath)
 }
 
-// FieldAsInterface implements utils.DataProvider
+// FieldAsString implements utils.DataProvider
 // ToDo: support Action fields
 func (t *Task) FieldAsString(fldPath []string) (s string, err error) {
 	if len(fldPath) == 0 {
@@ -70,9 +72,4 @@ func (t *Task) FieldAsString(fldPath []string) (s string, err error) {
 	default:
 		return "", utils.ErrPrefixNotFound(strings.Join(fldPath, utils.NestingSep))
 	}
-}
-
-// RemoteHost implements utils.DataProvider
-func (t *Task) RemoteHost() (rh net.Addr) {
-	return
 }

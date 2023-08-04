@@ -97,7 +97,7 @@ func TestNewDataConverter(t *testing.T) {
 	if !reflect.DeepEqual(a, b) {
 		t.Error("Error reflect")
 	}
-	if a, err = NewDataConverter(MetaMultiply); err == nil || err != ErrMandatoryIeMissingNoCaps {
+	if _, err = NewDataConverter(MetaMultiply); err == nil || err != ErrMandatoryIeMissingNoCaps {
 		t.Error(err)
 	}
 	a, err = NewDataConverter("*multiply:3.3")
@@ -111,7 +111,7 @@ func TestNewDataConverter(t *testing.T) {
 	if !reflect.DeepEqual(a, b) {
 		t.Error("Error reflect")
 	}
-	if a, err = NewDataConverter(MetaDivide); err == nil || err != ErrMandatoryIeMissingNoCaps {
+	if _, err = NewDataConverter(MetaDivide); err == nil || err != ErrMandatoryIeMissingNoCaps {
 		t.Error(err)
 	}
 	a, err = NewDataConverter("*divide:3.3")
@@ -125,7 +125,7 @@ func TestNewDataConverter(t *testing.T) {
 	if !reflect.DeepEqual(a, b) {
 		t.Error("Error reflect")
 	}
-	if a, err = NewDataConverter(MetaLibPhoneNumber); err == nil || err.Error() != "unsupported *libphonenumber converter parameters: <>" {
+	if _, err = NewDataConverter(MetaLibPhoneNumber); err == nil || err.Error() != "unsupported *libphonenumber converter parameters: <>" {
 		t.Error(err)
 	}
 	a, err = NewDataConverter("*libphonenumber:US")
@@ -139,7 +139,8 @@ func TestNewDataConverter(t *testing.T) {
 	if !reflect.DeepEqual(a, b) {
 		t.Error("Error reflect")
 	}
-	if _, err := NewDataConverter("unsupported"); err == nil || err.Error() != "unsupported converter definition: <unsupported>" {
+	if _, err = NewDataConverter("unsupported"); err == nil || err.Error() != "unsupported converter definition: <unsupported>" {
+		t.Error(err)
 	}
 
 	hex, err := NewDataConverter(MetaString2Hex)
@@ -149,6 +150,24 @@ func TestNewDataConverter(t *testing.T) {
 	exp := new(String2HexConverter)
 	if !reflect.DeepEqual(hex, exp) {
 		t.Errorf("Expected %+v received: %+v", exp, hex)
+	}
+
+	tm, err := NewDataConverter(MetaTimeString)
+	if err != nil {
+		t.Error(err)
+	}
+	expTime := NewTimeStringConverter(time.RFC3339)
+	if !reflect.DeepEqual(tm, expTime) {
+		t.Errorf("Expected %+v received: %+v", expTime, tm)
+	}
+
+	tm, err = NewDataConverter("*time_string:020106150400")
+	if err != nil {
+		t.Error(err)
+	}
+	expTime = NewTimeStringConverter("020106150400")
+	if !reflect.DeepEqual(tm, expTime) {
+		t.Errorf("Expected %+v received: %+v", expTime, tm)
 	}
 }
 
@@ -192,7 +211,7 @@ func TestNewRoundConverter(t *testing.T) {
 		t.Error(err)
 	}
 	eOut := &RoundConverter{
-		Method: ROUNDING_MIDDLE,
+		Method: MetaRoundingMiddle,
 	}
 	if rcv, err := NewRoundConverter(EmptyString); err != nil {
 		t.Error(err)
@@ -201,7 +220,7 @@ func TestNewRoundConverter(t *testing.T) {
 	}
 	eOut = &RoundConverter{
 		Decimals: 12,
-		Method:   ROUNDING_UP,
+		Method:   MetaRoundingUp,
 	}
 	if rcv, err := NewRoundConverter("12:*up"); err != nil {
 		t.Error(err)
@@ -210,7 +229,7 @@ func TestNewRoundConverter(t *testing.T) {
 	}
 	eOut = &RoundConverter{
 		Decimals: 12,
-		Method:   ROUNDING_DOWN,
+		Method:   MetaRoundingDown,
 	}
 	if rcv, err := NewRoundConverter("12:*down"); err != nil {
 		t.Error(err)
@@ -219,14 +238,13 @@ func TestNewRoundConverter(t *testing.T) {
 	}
 	eOut = &RoundConverter{
 		Decimals: 12,
-		Method:   ROUNDING_MIDDLE,
+		Method:   MetaRoundingMiddle,
 	}
 	if rcv, err := NewRoundConverter("12:*middle"); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(rcv, eOut) {
 		t.Errorf("Expected %+v received: %+v", eOut, rcv)
 	}
-	eOut = &RoundConverter{}
 	if rcv, err := NewRoundConverter("12:*middle:wrong_length"); err == nil || err.Error() != "unsupported *round converter parameters: <12:*middle:wrong_length>" {
 		t.Error(err)
 	} else if !reflect.DeepEqual(rcv, nil) {
@@ -286,13 +304,6 @@ func TestMultiplyConverterConvert(t *testing.T) {
 	} else if !reflect.DeepEqual(rcv, 0.0) {
 		t.Errorf("Expected %+v received: %+v", 0, rcv)
 	}
-
-	m.Value = 2
-	if rcv, err := m.Convert(3); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(rcv, 6.0) {
-		t.Errorf("Expected %+v received: %+v", 0, rcv)
-	}
 }
 
 func TestNewDivideConverter(t *testing.T) {
@@ -344,13 +355,13 @@ func TestDivideConverterConvert(t *testing.T) {
 
 func TestNewDurationConverter(t *testing.T) {
 	nS := &DurationConverter{}
-	eOut := time.Duration(0 * time.Second)
+	eOut := time.Duration(0)
 	if rcv, err := nS.Convert(EmptyString); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(eOut, rcv) {
 		t.Errorf("Expected %+v received: %+v", eOut, rcv)
 	}
-	eOut = time.Duration(7 * time.Nanosecond)
+	eOut = 7 * time.Nanosecond
 	if rcv, err := nS.Convert(7); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(eOut, rcv) {
@@ -363,7 +374,7 @@ func TestConvertFloatToSeconds(t *testing.T) {
 	if err != nil {
 		t.Error(err.Error())
 	}
-	a, err := b.Convert(time.Duration(10*time.Second + 300*time.Millisecond))
+	a, err := b.Convert(10*time.Second + 300*time.Millisecond)
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -379,7 +390,7 @@ func TestConvertDurNanoseconds(t *testing.T) {
 		t.Error(err.Error())
 	}
 	expVal := int64(102)
-	if i, err := d.Convert(time.Duration(102)); err != nil {
+	if i, err := d.Convert(102); err != nil {
 		t.Error(err.Error())
 	} else if expVal != i {
 		t.Errorf("expecting: %d, received: %d", expVal, i)
@@ -393,7 +404,7 @@ func TestRoundConverterFloat64(t *testing.T) {
 	}
 	expData := &RoundConverter{
 		Decimals: 2,
-		Method:   ROUNDING_MIDDLE,
+		Method:   MetaRoundingMiddle,
 	}
 	if !reflect.DeepEqual(b, expData) {
 		t.Errorf("Expected %+v received: %+v", expData, b)
@@ -417,7 +428,7 @@ func TestRoundConverterString(t *testing.T) {
 	}
 	expData := &RoundConverter{
 		Decimals: 2,
-		Method:   ROUNDING_MIDDLE,
+		Method:   MetaRoundingMiddle,
 	}
 	if !reflect.DeepEqual(b, expData) {
 		t.Errorf("Expected %+v received: %+v", expData, b)
@@ -439,7 +450,7 @@ func TestRoundConverterInt64(t *testing.T) {
 	}
 	expData := &RoundConverter{
 		Decimals: 2,
-		Method:   ROUNDING_MIDDLE,
+		Method:   MetaRoundingMiddle,
 	}
 	if !reflect.DeepEqual(b, expData) {
 		t.Errorf("Expected %+v received: %+v", expData, b)
@@ -461,12 +472,12 @@ func TestRoundConverterTime(t *testing.T) {
 	}
 	expData := &RoundConverter{
 		Decimals: 2,
-		Method:   ROUNDING_MIDDLE,
+		Method:   MetaRoundingMiddle,
 	}
 	if !reflect.DeepEqual(b, expData) {
 		t.Errorf("Expected %+v received: %+v", expData, b)
 	}
-	val, err := b.Convert(time.Duration(123 * time.Nanosecond))
+	val, err := b.Convert(123 * time.Nanosecond)
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -485,7 +496,7 @@ func TestMultiplyConverter(t *testing.T) {
 		t.Errorf("expecting: %+v, received: %+v", eMpl, m)
 	}
 	expOut := 2048.0
-	if out, err := m.Convert(time.Duration(2)); err != nil {
+	if out, err := m.Convert(2); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expOut, out) {
 		t.Errorf("expecting: %+v, received: %+v", expOut, out)
@@ -507,7 +518,7 @@ func TestDivideConverter(t *testing.T) {
 		t.Errorf("expecting: %+v, received: %+v", eDvd, d)
 	}
 	expOut := 2.0
-	if out, err := d.Convert(time.Duration(2048)); err != nil {
+	if out, err := d.Convert(2048); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expOut, out) {
 		t.Errorf("expecting: %+v, received: %+v", expOut, out)
@@ -528,7 +539,7 @@ func TestDurationConverter(t *testing.T) {
 	if err != nil {
 		t.Error(err.Error())
 	}
-	expVal := time.Duration(10 * time.Second)
+	expVal := 10 * time.Second
 	if i, err := d.Convert(10000000000.0); err != nil {
 		t.Error(err.Error())
 	} else if expVal != i {
@@ -539,7 +550,7 @@ func TestDurationConverter(t *testing.T) {
 	} else if expVal != i {
 		t.Errorf("expecting: %d, received: %d", expVal, i)
 	}
-	if i, err := d.Convert(time.Duration(10 * time.Second)); err != nil {
+	if i, err := d.Convert(10 * time.Second); err != nil {
 		t.Error(err.Error())
 	} else if expVal != i {
 		t.Errorf("expecting: %d, received: %d", expVal, i)
@@ -629,7 +640,7 @@ func TestPhoneNumberConverter(t *testing.T) {
 }
 
 func TestHexConvertor(t *testing.T) {
-	hx := IP2HexConverter{}
+	hx := new(IP2HexConverter)
 	val := "127.0.0.1"
 	expected := "0x7f000001"
 	if rpl, err := hx.Convert(val); err != nil {
@@ -665,6 +676,138 @@ func TestHexConvertor(t *testing.T) {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expected, rpl) {
 		t.Errorf("expecting: %+v, received: %+v", expected, rpl)
+	}
+}
+
+type testMockConverter struct{}
+
+// Convert function to implement DataConverter
+func (*testMockConverter) Convert(any) (any, error) { return nil, ErrNotFound }
+func TestDataConvertersConvertString2(t *testing.T) {
+	hex, err := NewDataConverter(MetaIP2Hex)
+	if err != nil {
+		t.Error(err)
+	}
+
+	host, err := NewDataConverter(MetaSIPURIHost)
+	if err != nil {
+		t.Error(err)
+	}
+	user, err := NewDataConverter(MetaSIPURIUser)
+	if err != nil {
+		t.Error(err)
+	}
+	method, err := NewDataConverter(MetaSIPURIMethod)
+	if err != nil {
+		t.Error(err)
+	}
+
+	dc := DataConverters{new(testMockConverter), hex, host, user, method}
+	if _, err := dc.ConvertString(""); err != ErrNotFound {
+		t.Errorf("Expected error %s ,received %v", ErrNotFound, err)
+	}
+}
+
+func TestSIPURIConverter(t *testing.T) {
+	host := new(SIPURIHostConverter)
+	val := "INVITE sip:1002@192.168.58.203 SIP/2.0"
+	expected := "192.168.58.203"
+	if rply, err := host.Convert(val); err != nil {
+		t.Error(err)
+	} else if rply != expected {
+		t.Errorf("Expected %q, received: %q", rply, expected)
+	}
+
+	method := new(SIPURIMethodConverter)
+	expected = "INVITE"
+	if rply, err := method.Convert(val); err != nil {
+		t.Error(err)
+	} else if rply != expected {
+		t.Errorf("Expected %q, received: %q", rply, expected)
+	}
+
+	user := new(SIPURIUserConverter)
+	expected = "1002"
+	if rply, err := user.Convert(val); err != nil {
+		t.Error(err)
+	} else if rply != expected {
+		t.Errorf("Expected %q, received: %q", rply, expected)
+	}
+
+}
+
+func TestNewDataConverterMustCompile2(t *testing.T) {
+	defer func() {
+		expectedMessage := "parsing: <*multiply>, error: mandatory information missing"
+		if r := recover(); r != expectedMessage {
+			t.Errorf("Expected %q, received: %q", expectedMessage, r)
+		}
+	}()
+	NewDataConverterMustCompile(MetaMultiply)
+}
+
+func TestNewTimeStringConverter(t *testing.T) {
+	//empty
+	eOut := &TimeStringConverter{Layout: EmptyString}
+	if rcv := NewTimeStringConverter(EmptyString); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+
+	//default
+	eOut = &TimeStringConverter{Layout: time.RFC3339}
+	var rcv DataConverter
+	if rcv = NewTimeStringConverter(time.RFC3339); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+	exp := "2015-07-07T14:52:08Z"
+	if rcv, err := rcv.Convert("1436280728"); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("Expecting: %+v, received: %+v", exp, rcv)
+	}
+	exp = "2013-07-30T19:33:10Z"
+	if rcv, err := rcv.Convert("1375212790"); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("Expecting: %+v, received: %+v", exp, rcv)
+	}
+
+	//other
+	eOut = &TimeStringConverter{"020106150400"}
+	if rcv = NewTimeStringConverter("020106150400"); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+	exp = "070715145200"
+	if rcv, err := rcv.Convert("1436280728"); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("Expecting: %+v, received: %+v", exp, rcv)
+	}
+	exp = "290720175900"
+	if rcv, err := rcv.Convert("2020-07-29T17:59:59Z"); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("Expecting: %+v, received: %+v", exp, rcv)
+	}
+
+	//wrong cases
+	eOut = &TimeStringConverter{"not really a good time"}
+	if rcv = NewTimeStringConverter("not really a good time"); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+	exp = "not really a good time"
+	if rcv, err := rcv.Convert(EmptyString); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("Expecting: %+v, received: %+v", exp, rcv)
+	}
+	if rcv, err := rcv.Convert("1375212790"); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("Expecting: %+v, received: %+v", exp, rcv)
+	}
+	if _, err := rcv.Convert("137521s2790"); err == nil {
+		t.Errorf("Expected error received: %v:", err)
 	}
 }
 
@@ -707,5 +850,438 @@ func TestStringHexConvertor(t *testing.T) {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expected, rpl) {
 		t.Errorf("expecting: %+v, received: %+v", expected, rpl)
+	}
+}
+
+func TestUnixTimeConverter(t *testing.T) {
+	exp := new(UnixTimeConverter)
+	cnv, err := NewDataConverter(MetaUnixTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	expected := int64(1436280728)
+	if rcv, err := cnv.Convert("2015-07-07T14:52:08Z"); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if _, err := cnv.Convert("NotAValidTime"); err == nil {
+		t.Errorf("Expected error received %v", err)
+	}
+}
+
+func TestRandomConverter(t *testing.T) {
+	exp := new(RandomConverter)
+	if cnv, err := NewRandomConverter(EmptyString); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	if rcv, err := exp.Convert(nil); err != nil {
+		t.Error(err)
+	} else if rcv == 0 {
+		t.Errorf("Expecting different than 0, received: %+v", rcv)
+	}
+	exp.begin = 10
+	if rcv, err := exp.Convert(nil); err != nil {
+		t.Error(err)
+	} else if rcv.(int) < 10 {
+		t.Errorf("Expecting bigger than 10, received: %+v", rcv)
+	}
+	exp.end = 20
+	if rcv, err := exp.Convert(nil); err != nil {
+		t.Error(err)
+	} else if rcv.(int) < 10 || rcv.(int) > 20 {
+		t.Errorf("Expecting bigger than 10 and smaller than 20, received: %+v", rcv)
+	}
+}
+
+func TestDCNewDataConverterRandomPrefixEmpty(t *testing.T) {
+
+	a, err := NewDataConverter(MetaRandom)
+	if err != nil {
+		t.Error(err)
+	}
+	b, err := NewRandomConverter(EmptyString)
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Error("Error reflect")
+	}
+
+}
+
+func TestDCNewDataConverterRandomPrefix(t *testing.T) {
+	params := "*random:1:2"
+	a, err := NewDataConverter(params)
+	if err != nil {
+		t.Error(err)
+	}
+
+	b, err := NewRandomConverter(params[len(MetaRandom)+1:])
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Error("Error reflect")
+	}
+}
+
+func TestDCNewRandomConverterCase2Begin(t *testing.T) {
+	params := "test:15"
+
+	_, err := NewRandomConverter(params)
+	expected := "strconv.Atoi: parsing \"test\": invalid syntax"
+
+	if err == nil || err.Error() != expected {
+		t.Errorf("\nExpected: <%+v>, \nReceived: <%+v>", expected, err.Error())
+	}
+}
+
+func TestDCNewRandomConverterCase2End(t *testing.T) {
+	params := "15:test"
+
+	_, err := NewRandomConverter(params)
+	expected := "strconv.Atoi: parsing \"test\": invalid syntax"
+
+	if err == nil || err.Error() != expected {
+		t.Errorf("\nExpected: <%+v>, \nReceived: <%+v>", expected, err.Error())
+	}
+}
+
+func TestDCNewRandomConverterCase1Begin(t *testing.T) {
+	params := "test"
+
+	_, err := NewRandomConverter(params)
+	expected := "strconv.Atoi: parsing \"test\": invalid syntax"
+
+	if err == nil || err.Error() != expected {
+		t.Errorf("\nExpected: <%+v>, \nReceived: <%+v>", expected, err.Error())
+	}
+}
+
+func TestDCrCConvert(t *testing.T) {
+	randConv := &RandomConverter{
+		begin: 0,
+		end:   2,
+	}
+
+	received, err := randConv.Convert(randConv.begin)
+	if err != nil {
+		t.Error(err)
+	}
+	receivedAsInt, err := IfaceAsInt64(received)
+	if err != nil {
+		t.Error(err)
+	}
+	if receivedAsInt != 0 && receivedAsInt != 1 {
+		t.Errorf("\nExpected 0 or 1, \nReceived: <%+v>", received)
+	}
+}
+func TestLenTimeConverter(t *testing.T) {
+	exp := new(LengthConverter)
+	cnv, err := NewDataConverter(MetaLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	expected := 20
+	if rcv, err := cnv.Convert("2015-07-07T14:52:08Z"); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+}
+
+func TestLenTimeConverter2(t *testing.T) {
+	exp := new(LengthConverter)
+	cnv, err := NewDataConverter(MetaLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	expected := 7
+	if rcv, err := cnv.Convert("[slice]"); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+}
+
+func TestLenTimeConverter3(t *testing.T) {
+	exp := new(LengthConverter)
+	cnv, err := NewDataConverter(MetaLen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	expected := 2
+	if rcv, err := cnv.Convert([]int{0, 0}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert("[]"); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	expected = 0
+	if rcv, err := cnv.Convert([]string{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]any{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]bool{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]int{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]int8{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]int16{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]int32{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]int64{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]uint{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]uint8{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]uint16{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]uint32{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]uint64{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]uintptr{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]float32{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]float64{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]complex64{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert([]complex128{}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	if rcv, err := cnv.Convert(nil); err != nil {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+}
+
+func TestFloat64Converter(t *testing.T) {
+	exp := new(Float64Converter)
+	cnv, err := NewDataConverter(MetaFloat64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	expected := 21.7
+	if rcv, err := cnv.Convert("21.7"); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+
+	expected2 := "strconv.ParseFloat: parsing \"invalid_input\": invalid syntax"
+	if _, err := cnv.Convert("invalid_input"); err == nil {
+		t.Error("Expected error")
+	} else if !reflect.DeepEqual(expected2, err.Error()) {
+		t.Errorf("Expecting: %+v, received: %+v", expected2, err.Error())
+	}
+}
+
+func TestSliceConverter(t *testing.T) {
+	exp := new(SliceConverter)
+	cnv, err := NewDataConverter(MetaSlice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+	expected := []string{"A", "B"}
+	if rcv, err := cnv.Convert([]string{"A", "B"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+	expected2 := []any{"A", "B"}
+	if rcv, err := cnv.Convert(`["A","B"]`); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected2, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
+
+	if _, err := cnv.Convert(`test`); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestE164FromNAPTRConverter(t *testing.T) {
+	exp := new(e164Converter)
+	cnv, err := NewDataConverter(E164Converter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+	if _, err := cnv.Convert("8.7.6.5.4.3.2.1"); err == nil {
+		t.Error("Error")
+	}
+	if e164, err := cnv.Convert("8.7.6.5.4.3.2.1.0.1.6.e164.arpa."); err != nil {
+		t.Error(err)
+	} else if e164 != "61012345678" {
+		t.Errorf("received: <%s>", e164)
+	}
+}
+
+func TestDomainNameFromNAPTRConverter(t *testing.T) {
+	exp := new(e164DomainConverter)
+	cnv, err := NewDataConverter(E164DomainConverter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(exp, cnv) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, cnv)
+	}
+
+	if dName, err := cnv.Convert("8.7.6.5.4.3.2.1.0.1.6.e164.arpa."); err != nil {
+		t.Fatal(err)
+	} else if dName != "e164.arpa" {
+		t.Errorf("received: <%s>", dName)
+	}
+	if dName, err := cnv.Convert("8.7.6.5.4.3.2.1.0.1.6.e164.itsyscom.com."); err != nil {
+		t.Fatal(err)
+	} else if dName != "e164.itsyscom.com" {
+		t.Errorf("received: <%s>", dName)
+	}
+	if dName, err := cnv.Convert("8.7.6.5.4.3.2.1.0.1.6.itsyscom.com."); err != nil {
+		t.Fatal(err)
+	} else if dName != "8.7.6.5.4.3.2.1.0.1.6.itsyscom.com" {
+		t.Errorf("received: <%s>", dName)
+	}
+}
+
+type structWithFuncField struct {
+	ID       string
+	Function func(int) bool
+}
+
+func TestDataConverterConvertJSONErrUnsupportedType(t *testing.T) {
+	dc, err := NewDataConverter(MetaJSON)
+	if err != nil {
+		t.Error(err)
+	}
+
+	obj := structWithFuncField{
+		ID: "testStruct",
+		Function: func(i int) bool {
+			return i != 0
+		},
+	}
+
+	experr := `json: unsupported type: func(int) bool`
+	if rcv, err := dc.Convert(obj); err == nil || err.Error() != experr {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", experr, err)
+	} else if rcv != EmptyString {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", EmptyString, rcv)
+	}
+}
+
+func TestDataConverterConvertJSONOK(t *testing.T) {
+	dc, err := NewDataConverter(MetaJSON)
+	if err != nil {
+		t.Error(err)
+	}
+
+	obj := &CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "TestCGREv",
+		Event: map[string]any{
+			AccountField: "1001",
+		},
+		APIOpts: map[string]any{
+			"opt": "value",
+		},
+	}
+
+	exp := ToJSON(obj)
+	if rcv, err := dc.Convert(obj); err != nil {
+		t.Error(err)
+	} else if rcv.(string) != exp {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
 	}
 }

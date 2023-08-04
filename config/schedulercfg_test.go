@@ -25,59 +25,104 @@ import (
 )
 
 func TestSchedulerCfgloadFromJsonCfg(t *testing.T) {
-	var schdcfg, expected SchedulerCfg
-	if err := schdcfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(schdcfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, schdcfg)
+	cfgJSONS := &SchedulerJsonCfg{
+		Enabled:                 utils.BoolPointer(true),
+		Cdrs_conns:              &[]string{utils.MetaInternal, "*conn1"},
+		Thresholds_conns:        &[]string{utils.MetaInternal, "*conn1"},
+		Stats_conns:             &[]string{utils.MetaInternal, "*conn1"},
+		Filters:                 &[]string{"randomFilter"},
+		Dynaprepaid_actionplans: &[]string{"randomPlan"},
 	}
-	if err := schdcfg.loadFromJsonCfg(new(SchedulerJsonCfg)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(schdcfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, schdcfg)
+	expected := &SchedulerCfg{
+		Enabled:                true,
+		CDRsConns:              []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCDRs), "*conn1"},
+		ThreshSConns:           []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds), "*conn1"},
+		StatSConns:             []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats), "*conn1"},
+		Filters:                []string{"randomFilter"},
+		DynaprepaidActionPlans: []string{"randomPlan"},
 	}
-	cfgJSONStr := `{
-"schedulers": {
-	"enabled": true,				// start Scheduler service: <true|false>
-	"cdrs_conns": [],				// address where to reach CDR Server, empty to disable CDR capturing <*internal|x.y.z.y:1234>
-	},
-}`
-	expected = SchedulerCfg{
-		Enabled:   true,
-		CDRsConns: []string{},
-	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	jsonCfg := NewDefaultCGRConfig()
+	if err = jsonCfg.schedulerCfg.loadFromJSONCfg(cfgJSONS); err != nil {
 		t.Error(err)
-	} else if jsnSchCfg, err := jsnCfg.SchedulerJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = schdcfg.loadFromJsonCfg(jsnSchCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, schdcfg) {
-		t.Errorf("Expected: %+v , recived: %+v", expected, schdcfg)
+	} else if !reflect.DeepEqual(expected, jsonCfg.schedulerCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(jsonCfg.schedulerCfg))
 	}
 }
 
 func TestSchedulerCfgAsMapInterface(t *testing.T) {
-	var schdcfg SchedulerCfg
+	cfgJSONStr := `{
+	"schedulers": {},
+}`
+	eMap := map[string]any{
+		utils.EnabledCfg:                false,
+		utils.CDRsConnsCfg:              []string{},
+		utils.ThreshSConnsCfg:           []string{},
+		utils.StatSConnsCfg:             []string{},
+		utils.FiltersCfg:                []string{},
+		utils.DynaprepaidActionplansCfg: []string{},
+	}
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
+		t.Error(err)
+	} else if rcv := cgrCfg.schedulerCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+
+}
+
+func TestSchedulerCfgAsMapInterface1(t *testing.T) {
 	cfgJSONStr := `{
 	"schedulers": {
-		"enabled": true,				
-		"cdrs_conns": [],				
-		"filters": [],
-	},
+       "enabled": true,
+	   "cdrs_conns": ["*internal", "*conn1"],
+	   "thresholds_conns": ["*internal", "*conn1"],
+	   "stats_conns": ["*internal", "*conn1"],
+       "filters": ["randomFilter"],
+		"dynaprepaid_actionplans":["randomPlan"],
+    },
 }`
-	eMap := map[string]interface{}{
-		"enabled":    true,
-		"cdrs_conns": []string{},
-		"filters":    []string{},
+	eMap := map[string]any{
+		utils.EnabledCfg:                true,
+		utils.CDRsConnsCfg:              []string{utils.MetaInternal, "*conn1"},
+		utils.ThreshSConnsCfg:           []string{utils.MetaInternal, "*conn1"},
+		utils.StatSConnsCfg:             []string{utils.MetaInternal, "*conn1"},
+		utils.FiltersCfg:                []string{"randomFilter"},
+		utils.DynaprepaidActionplansCfg: []string{"randomPlan"},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnSchCfg, err := jsnCfg.SchedulerJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = schdcfg.loadFromJsonCfg(jsnSchCfg); err != nil {
-		t.Error(err)
-	} else if rcv := schdcfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.schedulerCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+
+}
+
+func TestSchedulerCfgClone(t *testing.T) {
+	ban := &SchedulerCfg{
+		Enabled:                true,
+		CDRsConns:              []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCDRs), "*conn1"},
+		ThreshSConns:           []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds), "*conn1"},
+		StatSConns:             []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats), "*conn1"},
+		Filters:                []string{"randomFilter"},
+		DynaprepaidActionPlans: []string{"plan"},
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if rcv.CDRsConns[1] = ""; ban.CDRsConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.ThreshSConns[1] = ""; ban.ThreshSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.StatSConns[1] = ""; ban.StatSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.Filters[0] = ""; ban.Filters[0] != "randomFilter" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+
+	if rcv.DynaprepaidActionPlans[0] = ""; ban.DynaprepaidActionPlans[0] != "plan" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

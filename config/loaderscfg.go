@@ -19,12 +19,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
-	"strings"
+	"os"
+	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
+// NewDfltLoaderSCfg returns the first cached default value for a LoaderSCfg connection
 func NewDfltLoaderSCfg() *LoaderSCfg {
 	if dfltLoaderConfig == nil {
 		return new(LoaderSCfg)
@@ -36,6 +39,15 @@ func NewDfltLoaderSCfg() *LoaderSCfg {
 // LoaderSCfgs to export some methods for LoaderS profiles
 type LoaderSCfgs []*LoaderSCfg
 
+// AsMapInterface returns the config as a map[string]any
+func (ldrs LoaderSCfgs) AsMapInterface(separator string) (loaderCfg []map[string]any) {
+	loaderCfg = make([]map[string]any, len(ldrs))
+	for i, item := range ldrs {
+		loaderCfg[i] = item.AsMapInterface(separator)
+	}
+	return
+}
+
 // Enabled returns true if Loader Service is enabled
 func (ldrs LoaderSCfgs) Enabled() bool {
 	for _, ldr := range ldrs {
@@ -46,13 +58,23 @@ func (ldrs LoaderSCfgs) Enabled() bool {
 	return false
 }
 
+// Clone itself into a new LoaderSCfgs
+func (ldrs LoaderSCfgs) Clone() (cln LoaderSCfgs) {
+	cln = make(LoaderSCfgs, len(ldrs))
+	for i, ldr := range ldrs {
+		cln[i] = ldr.Clone()
+	}
+	return
+}
+
+// LoaderSCfg the config for a loader
 type LoaderSCfg struct {
-	Id             string
+	ID             string
 	Enabled        bool
-	Tenant         RSRParsers
+	Tenant         string
 	DryRun         bool
 	RunDelay       time.Duration
-	LockFileName   string
+	LockFilePath   string
 	CacheSConns    []string
 	FieldSeparator string
 	TpInDir        string
@@ -60,178 +82,196 @@ type LoaderSCfg struct {
 	Data           []*LoaderDataType
 }
 
-func NewDfltLoaderDataTypeConfig() *LoaderDataType {
-	if dfltLoaderDataTypeConfig == nil {
-		return new(LoaderDataType) // No defaults, most probably we are building the defaults now
-	}
-	dfltVal := *dfltLoaderDataTypeConfig // Copy the value instead of it's pointer
-	return &dfltVal
-}
-
-type LoaderDataType struct { //rename to LoaderDataType
+// LoaderDataType the template for profile loading
+type LoaderDataType struct {
 	Type     string
 	Filename string
+	Flags    utils.FlagsWithParams
 	Fields   []*FCTemplate
 }
 
-func (self *LoaderDataType) loadFromJsonCfg(jsnCfg *LoaderJsonDataType, separator string) (err error) {
+func (lData *LoaderDataType) loadFromJSONCfg(jsnCfg *LoaderJsonDataType, msgTemplates map[string][]*FCTemplate, separator string) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
 	if jsnCfg.Type != nil {
-		self.Type = *jsnCfg.Type
+		lData.Type = *jsnCfg.Type
 	}
 	if jsnCfg.File_name != nil {
-		self.Filename = *jsnCfg.File_name
+		lData.Filename = *jsnCfg.File_name
+	}
+	if jsnCfg.Flags != nil {
+		lData.Flags = utils.FlagsWithParamsFromSlice(*jsnCfg.Flags)
 	}
 	if jsnCfg.Fields != nil {
-		if self.Fields, err = FCTemplatesFromFCTemplatesJsonCfg(*jsnCfg.Fields, separator); err != nil {
+		if lData.Fields, err = FCTemplatesFromFCTemplatesJSONCfg(*jsnCfg.Fields, separator); err != nil {
 			return
+		}
+		if tpls, err := InflateTemplates(lData.Fields, msgTemplates); err != nil {
+			return err
+		} else if tpls != nil {
+			lData.Fields = tpls
 		}
 	}
 	return nil
 }
 
-func (self *LoaderSCfg) loadFromJsonCfg(jsnCfg *LoaderJsonCfg, separator string) (err error) {
+func (l *LoaderSCfg) loadFromJSONCfg(jsnCfg *LoaderJsonCfg, msgTemplates map[string][]*FCTemplate, separator string) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
 	if jsnCfg.ID != nil {
-		self.Id = *jsnCfg.ID
+		l.ID = *jsnCfg.ID
 	}
 	if jsnCfg.Enabled != nil {
-		self.Enabled = *jsnCfg.Enabled
+		l.Enabled = *jsnCfg.Enabled
 	}
 	if jsnCfg.Tenant != nil {
-		if self.Tenant, err = NewRSRParsers(*jsnCfg.Tenant, true, separator); err != nil {
-			return err
-		}
+		l.Tenant = *jsnCfg.Tenant
 	}
 	if jsnCfg.Dry_run != nil {
-		self.DryRun = *jsnCfg.Dry_run
+		l.DryRun = *jsnCfg.Dry_run
 	}
 	if jsnCfg.Run_delay != nil {
-		self.RunDelay = time.Duration(*jsnCfg.Run_delay) * time.Second
-	}
-	if jsnCfg.Lock_filename != nil {
-		self.LockFileName = *jsnCfg.Lock_filename
+		if l.RunDelay, err = utils.ParseDurationWithNanosecs(*jsnCfg.Run_delay); err != nil {
+			return
+		}
 	}
 	if jsnCfg.Caches_conns != nil {
-		self.CacheSConns = make([]string, len(*jsnCfg.Caches_conns))
+		l.CacheSConns = make([]string, len(*jsnCfg.Caches_conns))
 		for idx, connID := range *jsnCfg.Caches_conns {
 			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
 			if connID == utils.MetaInternal {
-				self.CacheSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCaches)
+				l.CacheSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCaches)
 			} else {
-				self.CacheSConns[idx] = connID
+				l.CacheSConns[idx] = connID
 			}
 		}
 	}
 	if jsnCfg.Field_separator != nil {
-		self.FieldSeparator = *jsnCfg.Field_separator
+		l.FieldSeparator = *jsnCfg.Field_separator
 	}
 	if jsnCfg.Tp_in_dir != nil {
-		self.TpInDir = *jsnCfg.Tp_in_dir
+		l.TpInDir = *jsnCfg.Tp_in_dir
 	}
 	if jsnCfg.Tp_out_dir != nil {
-		self.TpOutDir = *jsnCfg.Tp_out_dir
+		l.TpOutDir = *jsnCfg.Tp_out_dir
+	}
+	if jsnCfg.Lockfile_path != nil {
+		l.LockFilePath = *jsnCfg.Lockfile_path
 	}
 	if jsnCfg.Data != nil {
 		data := make([]*LoaderDataType, len(*jsnCfg.Data))
 		for idx, jsnLoCfg := range *jsnCfg.Data {
-			data[idx] = NewDfltLoaderDataTypeConfig()
-			data[idx].loadFromJsonCfg(jsnLoCfg, separator)
+			data[idx] = new(LoaderDataType)
+			if err := data[idx].loadFromJSONCfg(jsnLoCfg, msgTemplates, separator); err != nil {
+				return err
+			}
 		}
-		self.Data = data
+		l.Data = data
 	}
 
 	return nil
 }
 
+func (l LoaderSCfg) GetLockFilePath() (pathL string) {
+	pathL = l.LockFilePath
+	if !filepath.IsAbs(pathL) {
+		pathL = path.Join(l.TpInDir, pathL)
+	}
+
+	if file, err := os.Stat(pathL); err == nil && file.IsDir() {
+		pathL = path.Join(pathL, l.ID+".lck")
+	}
+	return
+}
+
 // Clone itself into a new LoaderDataType
-func (self *LoaderDataType) Clone() *LoaderDataType {
-	cln := new(LoaderDataType)
-	cln.Type = self.Type
-	cln.Filename = self.Filename
-	cln.Fields = make([]*FCTemplate, len(self.Fields))
-	for idx, val := range self.Fields {
+func (lData LoaderDataType) Clone() (cln *LoaderDataType) {
+	cln = &LoaderDataType{
+		Type:     lData.Type,
+		Filename: lData.Filename,
+		Flags:    lData.Flags.Clone(),
+		Fields:   make([]*FCTemplate, len(lData.Fields)),
+	}
+	for idx, val := range lData.Fields {
 		cln.Fields[idx] = val.Clone()
 	}
-	return cln
+	return
 }
 
 // Clone itself into a new LoadersConfig
-func (self *LoaderSCfg) Clone() *LoaderSCfg {
-	clnLoader := new(LoaderSCfg)
-	clnLoader.Id = self.Id
-	clnLoader.Enabled = self.Enabled
-	clnLoader.Tenant = self.Tenant
-	clnLoader.DryRun = self.DryRun
-	clnLoader.RunDelay = self.RunDelay
-	clnLoader.LockFileName = self.LockFileName
-	clnLoader.CacheSConns = make([]string, len(self.CacheSConns))
-	for idx, connID := range self.CacheSConns {
-		clnLoader.CacheSConns[idx] = connID
+func (l LoaderSCfg) Clone() (cln *LoaderSCfg) {
+	cln = &LoaderSCfg{
+		ID:             l.ID,
+		Enabled:        l.Enabled,
+		Tenant:         l.Tenant,
+		DryRun:         l.DryRun,
+		RunDelay:       l.RunDelay,
+		LockFilePath:   l.LockFilePath,
+		CacheSConns:    make([]string, len(l.CacheSConns)),
+		FieldSeparator: l.FieldSeparator,
+		TpInDir:        l.TpInDir,
+		TpOutDir:       l.TpOutDir,
+		Data:           make([]*LoaderDataType, len(l.Data)),
 	}
-	clnLoader.FieldSeparator = self.FieldSeparator
-	clnLoader.TpInDir = self.TpInDir
-	clnLoader.TpOutDir = self.TpOutDir
-	clnLoader.Data = make([]*LoaderDataType, len(self.Data))
-	for idx, fld := range self.Data {
-		clnLoader.Data[idx] = fld.Clone()
+	for idx, connID := range l.CacheSConns {
+		cln.CacheSConns[idx] = connID
 	}
-	return clnLoader
+	for idx, fld := range l.Data {
+		cln.Data[idx] = fld.Clone()
+	}
+	return
 }
 
-func (lData *LoaderDataType) AsMapInterface(separator string) map[string]interface{} {
-	fields := make([]map[string]interface{}, len(lData.Fields))
+// AsMapInterface returns the config as a map[string]any
+func (lData *LoaderDataType) AsMapInterface(separator string) (initialMP map[string]any) {
+	initialMP = map[string]any{
+		utils.TypeCf:      lData.Type,
+		utils.FilenameCfg: lData.Filename,
+		utils.FlagsCfg:    lData.Flags.SliceFlags(),
+	}
+
+	fields := make([]map[string]any, len(lData.Fields))
 	for i, item := range lData.Fields {
 		fields[i] = item.AsMapInterface(separator)
 	}
-
-	return map[string]interface{}{
-		utils.TypeCf:      lData.Type,
-		utils.FilenameCfg: lData.Filename,
-		utils.FieldsCfg:   fields,
-	}
+	initialMP[utils.FieldsCfg] = fields
+	return
 }
 
-func (l *LoaderSCfg) AsMapInterface(separator string) map[string]interface{} {
-	tenant := make([]string, len(l.Tenant))
-	for i, item := range l.Tenant {
-		tenant[i] = item.Rules
+// AsMapInterface returns the config as a map[string]any
+func (l *LoaderSCfg) AsMapInterface(separator string) (initialMP map[string]any) {
+	initialMP = map[string]any{
+		utils.IDCfg:           l.ID,
+		utils.TenantCfg:       l.Tenant,
+		utils.EnabledCfg:      l.Enabled,
+		utils.DryRunCfg:       l.DryRun,
+		utils.LockFilePathCfg: l.LockFilePath,
+		utils.FieldSepCfg:     l.FieldSeparator,
+		utils.TpInDirCfg:      l.TpInDir,
+		utils.TpOutDirCfg:     l.TpOutDir,
+		utils.RunDelayCfg:     "0",
 	}
-	strings.Join(tenant, utils.EmptyString)
-
-	data := make([]map[string]interface{}, len(l.Data))
-	for i, item := range l.Data {
-		data[i] = item.AsMapInterface(separator)
-	}
-	var runDelay string = "0"
-	if l.RunDelay != 0 {
-		runDelay = l.RunDelay.String()
-	}
-	cacheSConns := make([]string, len(l.CacheSConns))
-	for i, item := range l.CacheSConns {
-		buf := utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCaches)
-		if item == buf {
-			cacheSConns[i] = strings.ReplaceAll(item, ":*caches", utils.EmptyString)
-		} else {
-			cacheSConns[i] = item
+	if l.Data != nil {
+		data := make([]map[string]any, len(l.Data))
+		for i, item := range l.Data {
+			data[i] = item.AsMapInterface(separator)
 		}
+		initialMP[utils.DataCfg] = data
 	}
-
-	return map[string]interface{}{
-		utils.IdCfg:             l.Id,
-		utils.EnabledCfg:        l.Enabled,
-		utils.TenantCfg:         strings.Join(tenant, utils.EmptyString),
-		utils.DryRunCfg:         l.DryRun,
-		utils.RunDelayCfg:       runDelay,
-		utils.LockFileNameCfg:   l.LockFileName,
-		utils.CacheSConnsCfg:    cacheSConns,
-		utils.FieldSeparatorCfg: l.FieldSeparator,
-		utils.TpInDirCfg:        l.TpInDir,
-		utils.TpOutDirCfg:       l.TpOutDir,
-		utils.DataCfg:           data,
+	if l.RunDelay != 0 {
+		initialMP[utils.RunDelayCfg] = l.RunDelay.String()
 	}
+	if l.CacheSConns != nil {
+		cacheSConns := make([]string, len(l.CacheSConns))
+		for i, item := range l.CacheSConns {
+			cacheSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCaches) {
+				cacheSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.CachesConnsCfg] = cacheSConns
+	}
+	return
 }

@@ -19,7 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package ers
 
 import (
+	"database/sql"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -30,31 +32,30 @@ import (
 	"github.com/cgrates/cgrates/utils"
 
 	// libs for sql DBs
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/jinzhu/gorm"
-	_ "github.com/lib/pq"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 const (
-	dbName         = "db_name"
-	tableName      = "table_name"
-	sslMode        = "sslmode"
-	defaultSSLMode = "disable"
-	defaultDBName  = "cgrates"
+	createdAt = "created_at"
+	updatedAt = "updated_at"
+	deletedAt = "deleted_at"
 )
 
-// NewSQLEventReader return a new kafka event reader
+// NewSQLEventReader return a new sql event reader
 func NewSQLEventReader(cfg *config.CGRConfig, cfgIdx int,
-	rdrEvents chan *erEvent, rdrErr chan error,
+	rdrEvents, partialEvents chan *erEvent, rdrErr chan error,
 	fltrS *engine.FilterS, rdrExit chan struct{}) (er EventReader, err error) {
 
 	rdr := &SQLEventReader{
-		cgrCfg:    cfg,
-		cfgIdx:    cfgIdx,
-		fltrS:     fltrS,
-		rdrEvents: rdrEvents,
-		rdrExit:   rdrExit,
-		rdrErr:    rdrErr,
+		cgrCfg:        cfg,
+		cfgIdx:        cfgIdx,
+		fltrS:         fltrS,
+		rdrEvents:     rdrEvents,
+		partialEvents: partialEvents,
+		rdrExit:       rdrExit,
+		rdrErr:        rdrErr,
 	}
 	if concReq := rdr.Config().ConcurrentReqs; concReq != -1 {
 		rdr.cap = make(chan struct{}, concReq)
@@ -62,7 +63,7 @@ func NewSQLEventReader(cfg *config.CGRConfig, cfgIdx int,
 			rdr.cap <- struct{}{}
 		}
 	}
-	if err = rdr.setURL(rdr.Config().SourcePath, rdr.Config().ProcessedPath); err != nil {
+	if err = rdr.setURL(rdr.Config().SourcePath, rdr.Config().ProcessedPath, rdr.Config().Opts); err != nil {
 		return
 	}
 	er = rdr
@@ -85,10 +86,11 @@ type SQLEventReader struct {
 	expConnType   string
 	expTableName  string
 
-	rdrEvents chan *erEvent // channel to dispatch the events created to
-	rdrExit   chan struct{}
-	rdrErr    chan error
-	cap       chan struct{}
+	rdrEvents     chan *erEvent // channel to dispatch the events created to
+	partialEvents chan *erEvent // channel to dispatch the partial events created to
+	rdrExit       chan struct{}
+	rdrErr        chan error
+	cap           chan struct{}
 }
 
 // Config returns the curent configuration
@@ -96,29 +98,43 @@ func (rdr *SQLEventReader) Config() *config.EventReaderCfg {
 	return rdr.cgrCfg.ERsCfg().Readers[rdr.cfgIdx]
 }
 
-// Serve will start the gorutines needed to watch the kafka topic
-func (rdr *SQLEventReader) Serve() (err error) {
+func (rdr *SQLEventReader) openDB(dialect gorm.Dialector) (err error) {
 	var db *gorm.DB
-	if db, err = gorm.Open(rdr.connType, rdr.connString); err != nil {
+	if db, err = gorm.Open(dialect, &gorm.Config{AllowGlobalUpdate: true}); err != nil {
 		return
 	}
-	if err = db.DB().Ping(); err != nil {
+	var sqlDB *sql.DB
+	if sqlDB, err = db.DB(); err != nil {
 		return
 	}
+	sqlDB.SetMaxOpenConns(10)
 	if rdr.Config().RunDelay == time.Duration(0) { // 0 disables the automatic read, maybe done per API
 		return
 	}
-	go rdr.readLoop(db) // read until the connection is closed
+	go rdr.readLoop(db, sqlDB) // read until the connection is closed
 	return
 }
 
-func (rdr *SQLEventReader) readLoop(db *gorm.DB) {
+// Serve will start the gorutines needed to watch the sql topic
+func (rdr *SQLEventReader) Serve() (err error) {
+	var dialect gorm.Dialector
+	switch rdr.connType {
+	case utils.MySQL:
+		dialect = mysql.Open(rdr.connString)
+	case utils.Postgres:
+		dialect = postgres.Open(rdr.connString)
+	default:
+		return fmt.Errorf("db type <%s> not supported", rdr.connType)
+	}
+	err = rdr.openDB(dialect)
+	return
+}
+
+func (rdr *SQLEventReader) readLoop(db *gorm.DB, sqlDB io.Closer) {
+	defer sqlDB.Close()
+	tm := time.NewTimer(0)
 	for {
-		if db = db.Table(rdr.tableName).Select("*"); db.Error != nil {
-			rdr.rdrErr <- db.Error
-			return
-		}
-		rows, err := db.Rows()
+		rows, err := db.Table(rdr.tableName).Select(utils.Meta).Rows()
 		if err != nil {
 			rdr.rdrErr <- err
 			return
@@ -126,6 +142,7 @@ func (rdr *SQLEventReader) readLoop(db *gorm.DB) {
 		colNames, err := rows.Columns()
 		if err != nil {
 			rdr.rdrErr <- err
+			rows.Close()
 			return
 		}
 		for rows.Next() {
@@ -134,37 +151,63 @@ func (rdr *SQLEventReader) readLoop(db *gorm.DB) {
 				utils.Logger.Info(
 					fmt.Sprintf("<%s> stop monitoring sql DB <%s>",
 						utils.ERs, rdr.Config().SourcePath))
-				db.Close()
+				rows.Close()
 				return
 			default:
 			}
 			if err := rows.Err(); err != nil {
 				rdr.rdrErr <- err
+				rows.Close()
 				return
 			}
 			if rdr.Config().ConcurrentReqs != -1 {
 				<-rdr.cap // do not try to read if the limit is reached
 			}
-			columns := make([]interface{}, len(colNames))
-			columnPointers := make([]interface{}, len(colNames))
+			columns := make([]any, len(colNames))
+			columnPointers := make([]any, len(colNames))
 			for i := range columns {
 				columnPointers[i] = &columns[i]
 			}
 			if err = rows.Scan(columnPointers...); err != nil {
 				rdr.rdrErr <- err
+				rows.Close()
 				return
 			}
-			go func(columns []interface{}, colNames []string) {
-				msg := make(map[string]interface{})
-				for i, colName := range colNames {
-					msg[colName] = columns[i]
+			msg := make(map[string]any)
+			fltr := make(map[string]string)
+			for i, colName := range colNames {
+				msg[colName] = columns[i]
+				if colName != createdAt && colName != updatedAt && colName != deletedAt { // ignore the sql colums for filter only
+					switch tm := columns[i].(type) { // also ignore the values that are zero for time
+					case time.Time:
+						if tm.IsZero() {
+							continue
+						}
+					case *time.Time:
+						if tm == nil || tm.IsZero() {
+							continue
+						}
+					case nil:
+						continue
+					}
+					fltr[colName] = utils.IfaceAsString(columns[i])
 				}
+			}
+			if err = db.Table(rdr.tableName).Delete(nil, fltr).Error; err != nil { // to ensure we don't read it again
+				utils.Logger.Warning(
+					fmt.Sprintf("<%s> deleting message %s error: %s",
+						utils.ERs, utils.ToJSON(msg), err.Error()))
+				rdr.rdrErr <- err
+				rows.Close()
+				return
+			}
+
+			go func(msg map[string]any) {
 				if err := rdr.processMessage(msg); err != nil {
 					utils.Logger.Warning(
 						fmt.Sprintf("<%s> processing message %s error: %s",
 							utils.ERs, utils.ToJSON(msg), err.Error()))
 				}
-				db = db.Delete(msg) // to ensure we don't read it again
 				if rdr.Config().ProcessedPath != utils.EmptyString {
 					if err = rdr.postCDR(columns); err != nil {
 						utils.Logger.Warning(
@@ -175,23 +218,33 @@ func (rdr *SQLEventReader) readLoop(db *gorm.DB) {
 				if rdr.Config().ConcurrentReqs != -1 {
 					rdr.cap <- struct{}{}
 				}
-			}(columns, colNames)
+			}(msg)
 		}
+		rows.Close()
 		if rdr.Config().RunDelay < 0 {
 			return
 		}
-		time.Sleep(rdr.Config().RunDelay)
+		tm.Reset(rdr.Config().RunDelay)
+		select {
+		case <-rdr.rdrExit:
+			tm.Stop()
+			utils.Logger.Info(
+				fmt.Sprintf("<%s> stop monitoring sql DB <%s>",
+					utils.ERs, rdr.Config().SourcePath))
+			return
+		case <-tm.C:
+		}
 	}
 }
 
-func (rdr *SQLEventReader) processMessage(msg map[string]interface{}) (err error) {
+func (rdr *SQLEventReader) processMessage(msg map[string]any) (err error) {
 	agReq := agents.NewAgentRequest(
 		utils.MapStorage(msg), nil,
-		nil, nil, rdr.Config().Tenant,
+		nil, nil, nil, rdr.Config().Tenant,
 		rdr.cgrCfg.GeneralCfg().DefaultTenant,
 		utils.FirstNonEmpty(rdr.Config().Timezone,
 			rdr.cgrCfg.GeneralCfg().DefaultTimezone),
-		rdr.fltrS, nil, nil) // create an AgentRequest
+		rdr.fltrS, nil) // create an AgentRequest
 	var pass bool
 	if pass, err = rdr.fltrS.Pass(agReq.Tenant, rdr.Config().Filters,
 		agReq); err != nil || !pass {
@@ -200,61 +253,68 @@ func (rdr *SQLEventReader) processMessage(msg map[string]interface{}) (err error
 	if err = agReq.SetFields(rdr.Config().Fields); err != nil {
 		return
 	}
-	rdr.rdrEvents <- &erEvent{
-		cgrEvent: config.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep),
+	cgrEv := utils.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep, agReq.Opts)
+	rdrEv := rdr.rdrEvents
+	if _, isPartial := cgrEv.APIOpts[utils.PartialOpt]; isPartial {
+		rdrEv = rdr.partialEvents
+	}
+	rdrEv <- &erEvent{
+		cgrEvent: cgrEv,
 		rdrCfg:   rdr.Config(),
 	}
 	return
 }
 
-func (rdr *SQLEventReader) setURL(inURL, outURL string) (err error) {
+func (rdr *SQLEventReader) setURL(inURL, outURL string, opts *config.EventReaderOpts) (err error) {
 	inURL = strings.TrimPrefix(inURL, utils.Meta)
 	var u *url.URL
 	if u, err = url.Parse(inURL); err != nil {
 		return
 	}
 	password, _ := u.User.Password()
-	qry := u.Query()
 	rdr.connType = u.Scheme
 
-	dbname := defaultDBName
-	if vals, has := qry[dbName]; has && len(vals) != 0 {
-		dbname = vals[0]
-	}
-	ssl := defaultSSLMode
-	if vals, has := qry[sslMode]; has && len(vals) != 0 {
-		ssl = vals[0]
-	}
+	dbname := utils.SQLDefaultDBName
+	ssl := utils.SQLDefaultSSLMode
+	if sqlOpts := opts.SQLOpts; sqlOpts != nil {
+		if sqlOpts.SQLDBName != nil {
+			dbname = *sqlOpts.SQLDBName
+		}
 
-	rdr.tableName = utils.CDRsTBL
-	if vals, has := qry[tableName]; has && len(vals) != 0 {
-		rdr.tableName = vals[0]
+		if sqlOpts.PgSSLMode != nil {
+			ssl = *sqlOpts.PgSSLMode
+		}
+
+		rdr.tableName = utils.CDRsTBL
+		if sqlOpts.SQLTableName != nil {
+			rdr.tableName = *sqlOpts.SQLTableName
+		}
 	}
 	switch rdr.connType {
-	case utils.MYSQL:
+	case utils.MySQL:
 		rdr.connString = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8&loc=Local&parseTime=true&sql_mode='ALLOW_INVALID_DATES'",
 			u.User.Username(), password, u.Hostname(), u.Port(), dbname)
-	case utils.POSTGRES:
+	case utils.Postgres:
 		rdr.connString = fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s", u.Hostname(), u.Port(), dbname, u.User.Username(), password, ssl)
 	default:
 		return fmt.Errorf("unknown db_type %s", rdr.connType)
 	}
 
 	// outURL
-	if len(outURL) == 0 {
-		return
+	processedOpt := getProcessOptions(opts)
+	if processedOpt == nil {
+		if len(outURL) == 0 {
+			return
+		}
+		processedOpt = new(config.EventExporterOpts)
 	}
 	var outUser, outPassword, outDBname, outSSL, outHost, outPort string
-	var oqry url.Values
-	if !strings.HasPrefix(outURL, utils.Meta) {
+	if len(outURL) == 0 {
 		rdr.expConnType = rdr.connType
 		outUser = u.User.Username()
 		outPassword = password
 		outHost = u.Hostname()
 		outPort = u.Port()
-		if oqry, err = url.ParseQuery(outURL); err != nil {
-			return
-		}
 	} else {
 		outURL = strings.TrimPrefix(outURL, utils.Meta)
 		var oURL *url.URL
@@ -266,27 +326,27 @@ func (rdr *SQLEventReader) setURL(inURL, outURL string) (err error) {
 		outUser = oURL.User.Username()
 		outHost = oURL.Hostname()
 		outPort = oURL.Port()
-		oqry = oURL.Query()
 	}
 
-	outDBname = defaultDBName
-	if vals, has := oqry[dbName]; has && len(vals) != 0 {
-		outDBname = vals[0]
+	if processedSql := processedOpt.SQL; processedSql != nil {
+		outDBname = utils.SQLDefaultDBName
+		if processedSql.DBName != nil {
+			outDBname = *processedSql.DBName
+		}
+		outSSL = utils.SQLDefaultSSLMode
+		if processedSql.PgSSLMode != nil {
+			outSSL = *processedSql.PgSSLMode
+		}
+		rdr.expTableName = utils.CDRsTBL
+		if processedSql.TableName != nil {
+			rdr.expTableName = *processedSql.TableName
+		}
 	}
-	outSSL = defaultSSLMode
-	if vals, has := oqry[sslMode]; has && len(vals) != 0 {
-		outSSL = vals[0]
-	}
-	rdr.expTableName = utils.CDRsTBL
-	if vals, has := oqry[tableName]; has && len(vals) != 0 {
-		rdr.expTableName = vals[0]
-	}
-
 	switch rdr.expConnType {
-	case utils.MYSQL:
+	case utils.MySQL:
 		rdr.expConnString = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8&loc=Local&parseTime=true&sql_mode='ALLOW_INVALID_DATES'",
 			outUser, outPassword, outHost, outPort, outDBname)
-	case utils.POSTGRES:
+	case utils.Postgres:
 		rdr.expConnString = fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s",
 			outHost, outPort, outDBname, outUser, outPassword, outSSL)
 	default:
@@ -295,22 +355,36 @@ func (rdr *SQLEventReader) setURL(inURL, outURL string) (err error) {
 	return
 }
 
-func (rdr *SQLEventReader) postCDR(in []interface{}) (err error) {
+func (rdr *SQLEventReader) postCDR(in []any) (err error) {
 	sqlValues := make([]string, len(in))
 	for i := range in {
 		sqlValues[i] = "?"
 	}
 	sqlStatement := fmt.Sprintf("INSERT INTO %s VALUES (%s); ", rdr.expTableName, strings.Join(sqlValues, ","))
+	var dialect gorm.Dialector
+	switch rdr.expConnType {
+	case utils.MySQL:
+		dialect = mysql.Open(rdr.expConnString)
+	case utils.Postgres:
+		dialect = postgres.Open(rdr.expConnString)
+	default:
+		return fmt.Errorf("db type <%s> not supported", rdr.expConnType)
+	}
 	var db *gorm.DB
-	if db, err = gorm.Open(rdr.expConnType, rdr.expConnString); err != nil {
+	if db, err = gorm.Open(dialect, &gorm.Config{AllowGlobalUpdate: true}); err != nil {
 		return
 	}
-	if err = db.DB().Ping(); err != nil {
+	var sqlDB *sql.DB
+	if sqlDB, err = db.DB(); err != nil {
+		return
+	}
+	defer sqlDB.Close()
+	// sqlDB.SetMaxOpenConns(10)
+	if err = sqlDB.Ping(); err != nil {
 		return
 	}
 	tx := db.Begin()
-	_, err = db.DB().Exec(sqlStatement, in...)
-	if err != nil {
+	if err = tx.Exec(sqlStatement, in...).Error; err != nil {
 		tx.Rollback()
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "duplicate key") { // returns 1062/pq when key is duplicated
 			return utils.ErrExists

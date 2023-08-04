@@ -148,7 +148,7 @@ CREATE TABLE `tp_actions` (
   `tag` varchar(64) NOT NULL,
   `action` varchar(24) NOT NULL,
   `extra_parameters` varchar(256) NOT NULL,
-  `filter` varchar(256) NOT NULL,
+  `filters` varchar(256) NOT NULL,
   `balance_tag` varchar(64) NOT NULL,
   `balance_type` varchar(24) NOT NULL,
   `categories` varchar(32) NOT NULL,
@@ -340,12 +340,12 @@ CREATE TABLE tp_filters (
 );
 
 --
--- Table structure for table `tp_suppliers`
+-- Table structure for table `tp_routes`
 --
 
 
-DROP TABLE IF EXISTS tp_suppliers;
-CREATE TABLE tp_suppliers (
+DROP TABLE IF EXISTS tp_routes;
+CREATE TABLE tp_routes (
   `pk` int(11) NOT NULL AUTO_INCREMENT,
   `tpid` varchar(64) NOT NULL,
   `tenant` varchar(64) NOT NULL,
@@ -367,7 +367,7 @@ CREATE TABLE tp_suppliers (
   `created_at` TIMESTAMP,
   PRIMARY KEY (`pk`),
   KEY `tpid` (`tpid`),
-  UNIQUE KEY `unique_tp_suppliers` (`tpid`,`tenant`,
+  UNIQUE KEY `unique_tp_routes` (`tpid`,`tenant`,
     `id`,`filter_ids`,`supplier_id`,`supplier_filter_ids`,`supplier_account_ids`,
     `supplier_ratingplan_ids`,`supplier_resource_ids`,`supplier_stat_ids` )
 );
@@ -460,7 +460,15 @@ CREATE TABLE tp_dispatcher_hosts (
   `id` varchar(64) NOT NULL,
   `address` varchar(64) NOT NULL,
   `transport` varchar(64) NOT NULL,
+  'synchronous' BOOLEAN NOT NULL,
+  'connect_attempts' int(11) NOT NULL,
+  'reconnects' int(11) NOT NULL,
+  'connect_timeout' varchar(64) NOT NULL,
+  'reply_timeout' varchar(64) NOT NULL,
   `tls` BOOLEAN NOT NULL,
+  'client_key' varchar(64) NOT NULL,
+  'client_certificate', varchar(64) NOT NULL,
+  'ca_certificate' varchar(64) NOT NULL,
   `created_at` TIMESTAMP,
   PRIMARY KEY (`pk`),
   KEY `tpid` (`tpid`),

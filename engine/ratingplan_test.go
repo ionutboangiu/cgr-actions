@@ -178,13 +178,13 @@ func TestApAddIntervalIfNotPresent(t *testing.T) {
 
 func TestApAddRateIntervalGroups(t *testing.T) {
 	i1 := &RateInterval{
-		Rating: &RIRate{Rates: RateGroups{&Rate{0, 1, 1 * time.Second, 1 * time.Second}}},
+		Rating: &RIRate{Rates: RateGroups{&RGRate{0, 1, time.Second, time.Second}}},
 	}
 	i2 := &RateInterval{
-		Rating: &RIRate{Rates: RateGroups{&Rate{30 * time.Second, 2, 1 * time.Second, 1 * time.Second}}},
+		Rating: &RIRate{Rates: RateGroups{&RGRate{30 * time.Second, 2, time.Second, time.Second}}},
 	}
 	i3 := &RateInterval{
-		Rating: &RIRate{Rates: RateGroups{&Rate{30 * time.Second, 2, 1 * time.Second, 1 * time.Second}}},
+		Rating: &RIRate{Rates: RateGroups{&RGRate{30 * time.Second, 2, time.Second, time.Second}}},
 	}
 	ap := &RatingPlan{}
 	ap.AddRateInterval("NAT", i1)
@@ -330,12 +330,12 @@ func TestRatingPlanSaneRatingsEqual(t *testing.T) {
 			"one": {
 				tag: "first",
 				Rates: RateGroups{
-					&Rate{
-						GroupIntervalStart: 0 * time.Second,
+					&RGRate{
+						GroupIntervalStart: 0,
 						RateIncrement:      30 * time.Second,
 					},
-					&Rate{
-						GroupIntervalStart: 0 * time.Second,
+					&RGRate{
+						GroupIntervalStart: 0,
 						RateIncrement:      30 * time.Second,
 					},
 				},
@@ -353,11 +353,11 @@ func TestRatingPlanSaneRatingsNotMultiple(t *testing.T) {
 			"one": {
 				tag: "first",
 				Rates: RateGroups{
-					&Rate{
-						GroupIntervalStart: 0 * time.Second,
+					&RGRate{
+						GroupIntervalStart: 0,
 						RateIncrement:      30 * time.Second,
 					},
-					&Rate{
+					&RGRate{
 						GroupIntervalStart: 15 * time.Second,
 						RateIncrement:      30 * time.Second,
 					},
@@ -376,15 +376,15 @@ func TestRatingPlanSaneRatingsGoot(t *testing.T) {
 			"one": {
 				tag: "first",
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						GroupIntervalStart: 60 * time.Second,
 						RateIncrement:      30 * time.Second,
-						RateUnit:           1 * time.Second,
+						RateUnit:           time.Second,
 					},
-					&Rate{
-						GroupIntervalStart: 0 * time.Second,
+					&RGRate{
+						GroupIntervalStart: 0,
 						RateIncrement:      30 * time.Second,
-						RateUnit:           1 * time.Second,
+						RateUnit:           time.Second,
 					},
 				},
 			},
@@ -445,7 +445,7 @@ func BenchmarkRatingPlanRestore(b *testing.B) {
 			EndTime:   "15:00:00"}}
 	rp := &RatingPlan{Id: "test"}
 	rp.AddRateInterval("NAT", i)
-	dm.SetRatingPlan(rp, utils.NonTransactional)
+	dm.SetRatingPlan(rp)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		dm.GetRatingPlan(rp.Id, true, utils.NonTransactional)

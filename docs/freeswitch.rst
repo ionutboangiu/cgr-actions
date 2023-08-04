@@ -1,4 +1,4 @@
-.. _FreeSWITCH: https://freeswitch.com
+.. _FreeSWITCH: https://freeswitch.com/
 
 
 FreeSWITCH integration

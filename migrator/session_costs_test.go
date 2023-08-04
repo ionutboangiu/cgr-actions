@@ -29,7 +29,7 @@ import (
 
 func TestV2toV3Cost(t *testing.T) {
 	cc := &engine.CallCost{
-		Category:    utils.CALL,
+		Category:    utils.Call,
 		Tenant:      "cgrates.org",
 		Subject:     "1001",
 		Account:     "1001",
@@ -44,7 +44,7 @@ func TestV2toV3Cost(t *testing.T) {
 				RateInterval: &engine.RateInterval{
 					Rating: &engine.RIRate{
 						Rates: engine.RateGroups{
-							&engine.Rate{
+							&engine.RGRate{
 								GroupIntervalStart: 0,
 								Value:              100,
 								RateIncrement:      10 * time.Second,
@@ -63,7 +63,7 @@ func TestV2toV3Cost(t *testing.T) {
 				{
 					UUID:  "UUID",
 					ID:    "First",
-					Type:  utils.MONETARY,
+					Type:  utils.MetaMonetary,
 					Value: 10,
 				},
 			},

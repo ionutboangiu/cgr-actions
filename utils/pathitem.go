@@ -34,89 +34,18 @@ func stripIdxFromLastPathElm(path string) string {
 	return path[:lastIdxStart]
 }
 
+// NewFullPath is a constructor for FullPath out of string
+func NewFullPath(path string) *FullPath {
+	return &FullPath{
+		Path:      path,
+		PathSlice: CompilePath(path),
+	}
+}
+
 // FullPath is the path to the item with all the needed fields
 type FullPath struct {
-	PathItems PathItems
+	PathSlice []string
 	Path      string
-}
-
-// NewPathItems returns the computed PathItems out of slice one
-func NewPathItems(path []string) (pItms PathItems) {
-	pItms = make(PathItems, len(path))
-	for i, v := range path {
-		field, indx := GetPathIndex(v)
-		pItms[i] = PathItem{
-			Field: field,
-			Index: indx,
-		}
-	}
-	return
-}
-
-// PathItems a list of PathItem used to describe the path to an item from a NavigableMap
-type PathItems []PathItem
-
-// Clone creates a copy
-func (path PathItems) Clone() (c PathItems) {
-	if path == nil {
-		return
-	}
-	c = make(PathItems, len(path))
-	for i, v := range path {
-		c[i] = v.Clone()
-	}
-	return
-}
-
-func (path PathItems) String() (out string) {
-	for _, v := range path {
-		out += NestingSep + v.String()
-	}
-	if out == "" {
-		return
-	}
-	return out[1:]
-
-}
-
-// PathItem used by the NM interface to store the path information
-type PathItem struct {
-	Field string
-	Index *int
-}
-
-// Equal returns true if p==p2
-func (p PathItem) Equal(p2 PathItem) bool {
-	if p.Field != p2.Field {
-		return false
-	}
-	if p.Index == nil && p2.Index == nil {
-		return true
-	}
-	if p.Index != nil && p2.Index != nil {
-		return *p.Index == *p2.Index
-	}
-	return false
-}
-
-func (p PathItem) String() (out string) {
-	out = p.Field
-	if p.Index != nil {
-		out += IdxStart + strconv.Itoa(*p.Index) + IdxEnd
-	}
-	return
-}
-
-// Clone creates a copy
-func (p PathItem) Clone() (c PathItem) {
-	// if p == nil {
-	// 	return
-	// }
-	c.Field = p.Field
-	if p.Index != nil {
-		c.Index = IntPointer(*p.Index)
-	}
-	return
 }
 
 // GetPathIndex returns the path and index if index present
@@ -139,11 +68,15 @@ func GetPathIndex(spath string) (opath string, idx *int) {
 	return opath, &idxVal
 }
 
-func GetPathWithoutIndex(spath string) (opath string) {
-	idxStart := strings.LastIndex(spath, IdxStart)
+// GetPathIndexString returns the path and index as string if index present
+// path[index]=>path,index
+// path=>path,nil
+func GetPathIndexString(spath string) (opath string, idx *string) {
+	idxStart := strings.Index(spath, IdxStart)
 	if idxStart == -1 || !strings.HasSuffix(spath, IdxEnd) {
-		return spath
+		return spath, nil
 	}
+	idxVal := spath[idxStart+1 : len(spath)-1]
 	opath = spath[:idxStart]
-	return
+	return opath, &idxVal
 }

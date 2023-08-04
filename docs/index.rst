@@ -17,7 +17,8 @@ Welcome to `CGRateS`_'s documentation!
    configuration
    administration
    advanced
-   tutorials
+   tutorial
+   troubleshooting
    miscellaneous
 
 

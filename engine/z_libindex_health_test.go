@@ -19,21 +19,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/utils"
-	"github.com/cgrates/ltcache"
 	"reflect"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/ltcache"
 )
 
 func TestHealthAccountAction(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -61,10 +59,7 @@ func TestHealthAccountAction(t *testing.T) {
 
 func TestHealthAccountAction2(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -92,10 +87,7 @@ func TestHealthAccountAction2(t *testing.T) {
 
 func TestHealthAccountAction3(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -130,10 +122,7 @@ func TestHealthAccountAction3(t *testing.T) {
 
 func TestHealthAccountAction4(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -171,17 +160,14 @@ func TestHealthAccountAction4(t *testing.T) {
 
 func TestHealthReverseDestination(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
-	if err := dm.SetReverseDestination(&Destination{Id: "DST1", Prefixes: []string{"1001", "1002"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST1", []string{"1001", "1002"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
-	if err := dm.SetReverseDestination(&Destination{Id: "DST2", Prefixes: []string{"1001"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST2", []string{"1001"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
 	if err := dm.SetDestination(&Destination{
@@ -204,17 +190,14 @@ func TestHealthReverseDestination(t *testing.T) {
 
 func TestHealthReverseDestination2(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
-	if err := dm.SetReverseDestination(&Destination{Id: "DST1", Prefixes: []string{"1001"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST1", []string{"1001"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
-	if err := dm.SetReverseDestination(&Destination{Id: "DST2", Prefixes: []string{"1001"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST2", []string{"1001"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
 	if err := dm.SetDestination(&Destination{
@@ -237,14 +220,11 @@ func TestHealthReverseDestination2(t *testing.T) {
 
 func TestHealthReverseDestination3(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
-	if err := dm.SetReverseDestination(&Destination{Id: "DST1", Prefixes: []string{"1002"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST1", []string{"1002"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
 	if err := dm.SetDestination(&Destination{
@@ -273,17 +253,14 @@ func TestHealthReverseDestination3(t *testing.T) {
 
 func TestHealthReverseDestination4(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
-	if err := dm.SetReverseDestination(&Destination{Id: "DST1", Prefixes: []string{"1002"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST1", []string{"1002"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
-	if err := dm.SetReverseDestination(&Destination{Id: "DST2", Prefixes: []string{"1001", "1002"}}, utils.NonTransactional); err != nil {
+	if err := dm.SetReverseDestination("DST2", []string{"1001", "1002"}, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
 	if err := dm.SetDestination(&Destination{
@@ -312,36 +289,36 @@ func TestHealthReverseDestination4(t *testing.T) {
 
 func TestHealthFilterAttributes(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
 	if err := dm.SetAttributeProfile(&AttributeProfile{
 		Tenant:    "cgrates.org",
 		ID:        "ATTR1",
-		Contexts:  []string{utils.META_ANY},
+		Contexts:  []string{utils.MetaAny},
 		FilterIDs: []string{"*string:~*req.Account:1001", "Fltr1"},
 	}, false); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := dm.SetFilterIndexes(utils.CacheAttributeFilterIndexes, "cgrates.org:*any",
-		map[string]utils.StringMap{"*string:~*req.Account:1002": {"ATTR1": true, "ATTR2": true}},
+	if err := dm.SetIndexes(utils.CacheAttributeFilterIndexes, "cgrates.org:*any",
+		map[string]utils.StringSet{"*string:*req.Account:1002": {
+			"ATTR1": {},
+			"ATTR2": {},
+		}},
 		true, utils.NonTransactional); err != nil {
 		t.Fatal(err)
 	}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*any:*string:~*req.Account:1001": {"ATTR1"},
+			"cgrates.org:*any:*string:*req.Account:1001": {"ATTR1"},
 		},
 		BrokenIndexes: map[string][]string{
-			"cgrates.org:*string:~*req.Account:1002": {"ATTR1"},
+			"cgrates.org:*string:*req.Account:1002": {"ATTR1"},
 		},
 		MissingFilters: map[string][]string{
-			"Fltr1": {"ATTR1"},
+			"cgrates.org:Fltr1": {"ATTR1"},
 		},
 		MissingObjects: []string{"cgrates.org:ATTR2"},
 	}
@@ -357,36 +334,87 @@ func TestHealthFilterAttributes(t *testing.T) {
 	}
 }
 
+func TestHealthReverseFilter(t *testing.T) {
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+
+	if err := dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR1",
+		Contexts:  []string{utils.MetaAny},
+		FilterIDs: []string{"*string:~*req.Account:1001", "Fltr1"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dm.SetIndexes(utils.CacheReverseFilterIndexes, "cgrates.org:Fltr2",
+		map[string]utils.StringSet{utils.CacheAttributeFilterIndexes: {"ATTR1:*cdrs": {}, "ATTR2:*any": {}}},
+		true, utils.NonTransactional); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dm.SetIndexes(utils.CacheReverseFilterIndexes, "cgrates.org:Fltr1",
+		map[string]utils.StringSet{utils.CacheAttributeFilterIndexes: {"ATTR1:*cdrs": {}}},
+		true, utils.NonTransactional); err != nil {
+		t.Fatal(err)
+	}
+	exp := map[string]*ReverseFilterIHReply{
+		utils.CacheAttributeFilterIndexes: {
+			MissingReverseIndexes: map[string][]string{
+				// "cgrates.org:ATTR1": {"Fltr1:*any"}, ??
+			},
+			MissingFilters: map[string][]string{"cgrates.org:Fltr1": {"ATTR1"}},
+			BrokenReverseIndexes: map[string][]string{
+				"cgrates.org:ATTR1:*cdrs": {"Fltr1", "Fltr2"},
+			},
+			MissingObjects: []string{"cgrates.org:ATTR2"},
+		},
+	}
+
+	objCaches := make(map[string]*ltcache.Cache)
+	for indxType := range utils.CacheIndexesToPrefix {
+		objCaches[indxType] = ltcache.NewCache(-1, 0, false, nil)
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else {
+		sort.Strings(rply[utils.CacheAttributeFilterIndexes].BrokenReverseIndexes["cgrates.org:ATTR1:*cdrs"])
+		if !reflect.DeepEqual(exp, rply) {
+			t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+		}
+	}
+}
+
 func TestHealthIndexThreshold(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
 	// we will set this threshold but without indexing
-	thPrf := &ThresholdProfile{
-		Tenant: "cgrates.org",
-		ID:     "TestHealthIndexThreshold",
-		FilterIDs: []string{"*string:~*opts.*eventType:AccountUpdate",
-			"*string:~*asm.ID:1002",
-			"*prefix:StaticValue:AlwaysTrue",
+	thPrf := &ThresholdProfileWithAPIOpts{
+		ThresholdProfile: &ThresholdProfile{
+			Tenant: "cgrates.org",
+			ID:     "TestHealthIndexThreshold",
+			FilterIDs: []string{"*string:~*opts.*eventType:AccountUpdate",
+				"*string:~*asm.ID:1002",         // *asm will not be indexing
+				"*suffix:BrokenFilter:Invalid"}, // static value, won't index
+			MaxHits: 1,
 		},
-		MaxHits: 1,
 	}
-
-	if err := dm.SetThresholdProfile(thPrf, false); err != nil {
+	if err := dm.SetThresholdProfile(thPrf.ThresholdProfile, false); err != nil {
 		t.Error(err)
 	}
 
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*eventType:AccountUpdate": {"TestHealthIndexThreshold"},
-			"cgrates.org:*string:~*asm.ID:1002":                   {"TestHealthIndexThreshold"},
-			"cgrates.org:*prefix:StaticValue:AlwaysTrue":          {"TestHealthIndexThreshold"},
+			"cgrates.org:*string:*opts.*eventType:AccountUpdate": {"TestHealthIndexThreshold"},
 		},
 		BrokenIndexes:  map[string][]string{},
 		MissingFilters: map[string][]string{},
@@ -402,26 +430,24 @@ func TestHealthIndexThreshold(t *testing.T) {
 		t.Errorf("Expected %+v, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
 	}
 
-	indexes := map[string]utils.StringMap{
+	indexes := map[string]utils.StringSet{
 		"*prefix:req.InvalidIdx:10": { // obj exist but the index don't
-			"TestHealthIndexThreshold": true,
+			"TestHealthIndexThreshold": {},
 		},
 		"*string:*req.Destination:123": { // index is valid but the obj does not exist
-			"InexistingThreshold": true,
+			"InexistingThreshold": {},
 		},
 	}
 
 	// we will set manually some indexes that points to an nil object or index is valid but the obj is missing
-	if err := dm.SetFilterIndexes(utils.CacheThresholdFilterIndexes, "cgrates.org",
+	if err := dm.SetIndexes(utils.CacheThresholdFilterIndexes, "cgrates.org",
 		indexes, true, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
 	exp = &FilterIHReply{
 		MissingObjects: []string{"cgrates.org:InexistingThreshold"},
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*eventType:AccountUpdate": {"TestHealthIndexThreshold"},
-			"cgrates.org:*string:~*asm.ID:1002":                   {"TestHealthIndexThreshold"},
-			"cgrates.org:*prefix:StaticValue:AlwaysTrue":          {"TestHealthIndexThreshold"},
+			"cgrates.org:*string:*opts.*eventType:AccountUpdate": {"TestHealthIndexThreshold"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*prefix:req.InvalidIdx:10": {"TestHealthIndexThreshold"},
@@ -439,29 +465,29 @@ func TestHealthIndexThreshold(t *testing.T) {
 	}
 
 	//we will use an inexisting Filter(not inline) for the same ThresholdProfile
-	thPrf = &ThresholdProfile{
-		Tenant: "cgrates.org",
-		ID:     "TestHealthIndexThreshold",
-		FilterIDs: []string{"*string:~*opts.*eventType:AccountUpdate",
-			"*string:~*asm.ID:1002",
-			"FLTR_1_DOES_NOT_EXIST",
+	thPrf = &ThresholdProfileWithAPIOpts{
+		ThresholdProfile: &ThresholdProfile{
+			Tenant: "cgrates.org",
+			ID:     "TestHealthIndexThreshold",
+			FilterIDs: []string{"*string:~*opts.*eventType:AccountUpdate",
+				"*string:~*asm.ID:1002",
+				"FLTR_1_DOES_NOT_EXIST"},
+			MaxHits: 1,
 		},
-		MaxHits: 1,
 	}
-	if err := dm.SetThresholdProfile(thPrf, false); err != nil {
+	if err := dm.SetThresholdProfile(thPrf.ThresholdProfile, false); err != nil {
 		t.Error(err)
 	}
 	exp = &FilterIHReply{
 		MissingObjects: []string{"cgrates.org:InexistingThreshold"},
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*eventType:AccountUpdate": {"TestHealthIndexThreshold"},
-			"cgrates.org:*string:~*asm.ID:1002":                   {"TestHealthIndexThreshold"},
+			"cgrates.org:*string:*opts.*eventType:AccountUpdate": {"TestHealthIndexThreshold"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*prefix:req.InvalidIdx:10": {"TestHealthIndexThreshold"},
 		},
 		MissingFilters: map[string][]string{
-			"FLTR_1_DOES_NOT_EXIST": {"TestHealthIndexThreshold"},
+			"cgrates.org:FLTR_1_DOES_NOT_EXIST": {"TestHealthIndexThreshold"},
 		},
 	}
 	if rply, err := GetFltrIdxHealth(dm,
@@ -477,10 +503,7 @@ func TestHealthIndexThreshold(t *testing.T) {
 
 func TestHealthIndexCharger(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -491,8 +514,8 @@ func TestHealthIndexCharger(t *testing.T) {
 		FilterIDs: []string{
 			"*string:~*opts.*eventType:ChargerAccountUpdate",
 			"*string:~*req.*Account:1234",
-			"*string:~*asm.ID:1002",
-			"*suffix:BrokenIndex:Invalid"}, // suffix is not indexed
+			"*string:~*asm.ID:1002", // *asm will not be indexing
+			"*suffix:BrokenFilter:Invalid"},
 		RunID:        "raw",
 		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
 		Weight:       20,
@@ -504,9 +527,8 @@ func TestHealthIndexCharger(t *testing.T) {
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*eventType:ChargerAccountUpdate": {"Raw"},
-			"cgrates.org:*string:~*req.*Account:1234":                    {"Raw"},
-			"cgrates.org:*string:~*asm.ID:1002":                          {"Raw"},
+			"cgrates.org:*string:*opts.*eventType:ChargerAccountUpdate": {"Raw"},
+			"cgrates.org:*string:*req.*Account:1234":                    {"Raw"},
 		},
 		BrokenIndexes:  map[string][]string{},
 		MissingFilters: map[string][]string{},
@@ -522,26 +544,25 @@ func TestHealthIndexCharger(t *testing.T) {
 		t.Errorf("Expected %+v, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
 	}
 
-	indexes := map[string]utils.StringMap{
+	indexes := map[string]utils.StringSet{
 		"*prefix:req.Destination:+10": { // obj exist but the index don't
-			"Raw": true,
+			"Raw": {},
 		},
 		"*string:*req.Destination:123": { // index is valid but the obj does not exist
-			"InexistingCharger": true,
+			"InexistingCharger": {},
 		},
 	}
 
 	// we will set manually some indexes that points to an nil object or index is valid but the obj is missing
-	if err := dm.SetFilterIndexes(utils.CacheChargerFilterIndexes, "cgrates.org",
+	if err := dm.SetIndexes(utils.CacheChargerFilterIndexes, "cgrates.org",
 		indexes, true, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
 	exp = &FilterIHReply{
 		MissingObjects: []string{"cgrates.org:InexistingCharger"},
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*eventType:ChargerAccountUpdate": {"Raw"},
-			"cgrates.org:*string:~*req.*Account:1234":                    {"Raw"},
-			"cgrates.org:*string:~*asm.ID:1002":                          {"Raw"},
+			"cgrates.org:*string:*opts.*eventType:ChargerAccountUpdate": {"Raw"},
+			"cgrates.org:*string:*req.*Account:1234":                    {"Raw"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*prefix:req.Destination:+10": {"Raw"},
@@ -565,10 +586,9 @@ func TestHealthIndexCharger(t *testing.T) {
 		FilterIDs: []string{
 			"*string:~*opts.*eventType:ChargerAccountUpdate",
 			"*string:~*req.*Account:1234",
-			"*string:~*asm.ID:1002",
+			"*string:~*asm.ID:1002", // *asm will not be indexing
 			"*suffix:BrokenFilter:Invalid",
-			"FLTR_1_DOES_NOT_EXIST_CHRGR",
-		},
+			"FLTR_1_DOES_NOT_EXIST_CHRGR"},
 		RunID:        "raw",
 		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
 		Weight:       20,
@@ -579,15 +599,14 @@ func TestHealthIndexCharger(t *testing.T) {
 	exp = &FilterIHReply{
 		MissingObjects: []string{"cgrates.org:InexistingCharger"},
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*eventType:ChargerAccountUpdate": {"Raw"},
-			"cgrates.org:*string:~*req.*Account:1234":                    {"Raw"},
-			"cgrates.org:*string:~*asm.ID:1002":                          {"Raw"},
+			"cgrates.org:*string:*opts.*eventType:ChargerAccountUpdate": {"Raw"},
+			"cgrates.org:*string:*req.*Account:1234":                    {"Raw"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*prefix:req.Destination:+10": {"Raw"},
 		},
 		MissingFilters: map[string][]string{
-			"FLTR_1_DOES_NOT_EXIST_CHRGR": {"Raw"},
+			"cgrates.org:FLTR_1_DOES_NOT_EXIST_CHRGR": {"Raw"},
 		},
 	}
 	if rply, err := GetFltrIdxHealth(dm,
@@ -603,10 +622,7 @@ func TestHealthIndexCharger(t *testing.T) {
 
 func TestHealthIndexResources(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -617,7 +633,7 @@ func TestHealthIndexResources(t *testing.T) {
 		FilterIDs: []string{
 			"*string:~*opts.*eventType:ResourceAccountUpdate",
 			"*string:~*req.RequestType:*rated",
-			"*prefix:~*accounts.RES_GRP1.Available:10",
+			"*prefix:~*accounts.RES_GRP1.Available:10", // *accounts will not be indexing
 			"*suffix:BrokenFilter:Invalid",
 		},
 		UsageTTL:          10 * time.Microsecond,
@@ -634,9 +650,8 @@ func TestHealthIndexResources(t *testing.T) {
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"tenant.custom:*string:~*opts.*eventType:ResourceAccountUpdate": {"RES_GRP1"},
-			"tenant.custom:*string:~*req.RequestType:*rated":                {"RES_GRP1"},
-			"tenant.custom:*prefix:~*accounts.RES_GRP1.Available:10":        {"RES_GRP1"},
+			"tenant.custom:*string:*opts.*eventType:ResourceAccountUpdate": {"RES_GRP1"},
+			"tenant.custom:*string:*req.RequestType:*rated":                {"RES_GRP1"},
 		},
 		BrokenIndexes:  map[string][]string{},
 		MissingFilters: map[string][]string{},
@@ -652,26 +667,25 @@ func TestHealthIndexResources(t *testing.T) {
 		t.Errorf("Expected %+v, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
 	}
 
-	indexes := map[string]utils.StringMap{
+	indexes := map[string]utils.StringSet{
 		"*suffix:*req.Destination:+10": { // obj exist but the index don't
-			"RES_GRP1": true,
+			"RES_GRP1": {},
 		},
 		"*string:*req.CGRID:not_an_id": { // index is valid but the obj does not exist
-			"InexistingResource": true,
+			"InexistingResource": {},
 		},
 	}
 
 	// we will set manually some indexes that points to an nil object or index is valid but the obj is missing
-	if err := dm.SetFilterIndexes(utils.CacheResourceFilterIndexes, "tenant.custom",
+	if err := dm.SetIndexes(utils.CacheResourceFilterIndexes, "tenant.custom",
 		indexes, true, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
 	exp = &FilterIHReply{
 		MissingObjects: []string{"tenant.custom:InexistingResource"},
 		MissingIndexes: map[string][]string{
-			"tenant.custom:*string:~*opts.*eventType:ResourceAccountUpdate": {"RES_GRP1"},
-			"tenant.custom:*string:~*req.RequestType:*rated":                {"RES_GRP1"},
-			"tenant.custom:*prefix:~*accounts.RES_GRP1.Available:10":        {"RES_GRP1"},
+			"tenant.custom:*string:*opts.*eventType:ResourceAccountUpdate": {"RES_GRP1"},
+			"tenant.custom:*string:*req.RequestType:*rated":                {"RES_GRP1"},
 		},
 		BrokenIndexes: map[string][]string{
 			"tenant.custom:*suffix:*req.Destination:+10": {"RES_GRP1"},
@@ -695,8 +709,8 @@ func TestHealthIndexResources(t *testing.T) {
 		FilterIDs: []string{
 			"*string:~*opts.*eventType:ResourceAccountUpdate",
 			"*string:~*req.RequestType:*rated",
-			"*prefix:~*accounts.RES_GRP1.Available:10",
-			"*suffix:BrokenFilter:Invalid", // suffix will not be indexed
+			"*prefix:~*accounts.RES_GRP1.Available:10", // *asm will not be indexing
+			"*suffix:BrokenFilter:Invalid",
 			"FLTR_1_NOT_EXIST",
 		},
 		UsageTTL:          10 * time.Microsecond,
@@ -712,15 +726,14 @@ func TestHealthIndexResources(t *testing.T) {
 	exp = &FilterIHReply{
 		MissingObjects: []string{"tenant.custom:InexistingResource"},
 		MissingIndexes: map[string][]string{
-			"tenant.custom:*string:~*opts.*eventType:ResourceAccountUpdate": {"RES_GRP1"},
-			"tenant.custom:*string:~*req.RequestType:*rated":                {"RES_GRP1"},
-			"tenant.custom:*prefix:~*accounts.RES_GRP1.Available:10":        {"RES_GRP1"},
+			"tenant.custom:*string:*opts.*eventType:ResourceAccountUpdate": {"RES_GRP1"},
+			"tenant.custom:*string:*req.RequestType:*rated":                {"RES_GRP1"},
 		},
 		BrokenIndexes: map[string][]string{
 			"tenant.custom:*suffix:*req.Destination:+10": {"RES_GRP1"},
 		},
 		MissingFilters: map[string][]string{
-			"FLTR_1_NOT_EXIST": {"RES_GRP1"},
+			"tenant.custom:FLTR_1_NOT_EXIST": {"RES_GRP1"},
 		},
 	}
 	if rply, err := GetFltrIdxHealth(dm,
@@ -736,10 +749,7 @@ func TestHealthIndexResources(t *testing.T) {
 
 func TestHealthIndexStats(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -750,8 +760,8 @@ func TestHealthIndexStats(t *testing.T) {
 		FilterIDs: []string{
 			"*string:~*opts.*apikey:sts1234",
 			"*string:~*req.RequestType:*postpaid",
-			"*prefix:~*resources.RES_GRP1.Available:10",
-			"*suffix:BrokenFilter:Invalid", // suffix will not be indexed
+			"*prefix:~*resources.RES_GRP1.Available:10", // *resources will not be indexing
+			"*suffix:BrokenFilter:Invalid",
 		},
 		Weight:      30,
 		QueueLength: 100,
@@ -769,7 +779,7 @@ func TestHealthIndexStats(t *testing.T) {
 			},
 		},
 		Blocker:      true,
-		ThresholdIDs: []string{utils.META_NONE},
+		ThresholdIDs: []string{utils.MetaNone},
 	}
 	if err := dm.SetStatQueueProfile(sqPrf, false); err != nil {
 		t.Error(err)
@@ -778,9 +788,8 @@ func TestHealthIndexStats(t *testing.T) {
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*apikey:sts1234":            {"Stat_1"},
-			"cgrates.org:*string:~*req.RequestType:*postpaid":       {"Stat_1"},
-			"cgrates.org:*prefix:~*resources.RES_GRP1.Available:10": {"Stat_1"},
+			"cgrates.org:*string:*opts.*apikey:sts1234":      {"Stat_1"},
+			"cgrates.org:*string:*req.RequestType:*postpaid": {"Stat_1"},
 		},
 		BrokenIndexes:  map[string][]string{},
 		MissingFilters: map[string][]string{},
@@ -796,26 +805,25 @@ func TestHealthIndexStats(t *testing.T) {
 		t.Errorf("Expected %+v, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
 	}
 
-	indexes := map[string]utils.StringMap{
+	indexes := map[string]utils.StringSet{
 		"*suffix:*req.Destination:+60": { // obj exist but the index don't
-			"Stat_1": true,
+			"Stat_1": {},
 		},
 		"*string:*req.ExtraField:Usage": { // index is valid but the obj does not exist
-			"InexistingStats": true,
+			"InexistingStats": {},
 		},
 	}
 
 	// we will set manually some indexes that points to an nil object or index is valid but the obj is missing
-	if err := dm.SetFilterIndexes(utils.CacheStatFilterIndexes, "cgrates.org",
+	if err := dm.SetIndexes(utils.CacheStatFilterIndexes, "cgrates.org",
 		indexes, true, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
 	exp = &FilterIHReply{
 		MissingObjects: []string{"cgrates.org:InexistingStats"},
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*apikey:sts1234":            {"Stat_1"},
-			"cgrates.org:*string:~*req.RequestType:*postpaid":       {"Stat_1"},
-			"cgrates.org:*prefix:~*resources.RES_GRP1.Available:10": {"Stat_1"},
+			"cgrates.org:*string:*opts.*apikey:sts1234":      {"Stat_1"},
+			"cgrates.org:*string:*req.RequestType:*postpaid": {"Stat_1"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*suffix:*req.Destination:+60": {"Stat_1"},
@@ -859,7 +867,7 @@ func TestHealthIndexStats(t *testing.T) {
 			},
 		},
 		Blocker:      true,
-		ThresholdIDs: []string{utils.META_NONE},
+		ThresholdIDs: []string{utils.MetaNone},
 	}
 	if err := dm.SetStatQueueProfile(sqPrf, false); err != nil {
 		t.Error(err)
@@ -867,15 +875,14 @@ func TestHealthIndexStats(t *testing.T) {
 	exp = &FilterIHReply{
 		MissingObjects: []string{"cgrates.org:InexistingStats"},
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*opts.*apikey:sts1234":            {"Stat_1"},
-			"cgrates.org:*string:~*req.RequestType:*postpaid":       {"Stat_1"},
-			"cgrates.org:*prefix:~*resources.RES_GRP1.Available:10": {"Stat_1"},
+			"cgrates.org:*string:*opts.*apikey:sts1234":      {"Stat_1"},
+			"cgrates.org:*string:*req.RequestType:*postpaid": {"Stat_1"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*suffix:*req.Destination:+60": {"Stat_1"},
 		},
 		MissingFilters: map[string][]string{
-			"FLTR_1_NOT_EXIST": {"Stat_1"},
+			"cgrates.org:FLTR_1_NOT_EXIST": {"Stat_1"},
 		},
 	}
 	if rply, err := GetFltrIdxHealth(dm,
@@ -889,32 +896,29 @@ func TestHealthIndexStats(t *testing.T) {
 	}
 }
 
-func TestHealthIndexSupplier(t *testing.T) {
+func TestHealthIndexRoutes(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
 	// we will set this routes but without indexing
-	rtPrf := &SupplierProfile{
+	rtPrf := &RouteProfile{
 		Tenant: "routes.com",
 		ID:     "ROUTE_ACNT_1001",
 		FilterIDs: []string{"*string:~*opts.*apikey:rts1234",
 			"*string:~*req.Usage:160s",
-			"*string:~*stats.STATS_VENDOR_2.*acd:1m",
+			"*string:~*stats.STATS_VENDOR_2.*acd:1m", // *stats will not be indexing
 			"*string:~*nothing.Denied:true",
-			"*suffix:BrokenFilter:Invalid", // suffix will not be indexes
-		},
+			"*suffix:BrokenFilter:Invalid"},
 		Sorting:           utils.MetaLC,
 		SortingParameters: []string{},
-		Suppliers: []*Supplier{
+		Routes: []*Route{
 			{
-				ID:      "route1",
-				Weight:  10,
-				Blocker: false,
+				ID:              "route1",
+				Weight:          10,
+				Blocker:         false,
+				RouteParameters: "",
 			},
 			{
 				ID:            "route2",
@@ -925,17 +929,16 @@ func TestHealthIndexSupplier(t *testing.T) {
 		},
 		Weight: 10,
 	}
-	if err := dm.SetSupplierProfile(rtPrf, false); err != nil {
+	if err := dm.SetRouteProfile(rtPrf, false); err != nil {
 		t.Error(err)
 	}
 
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"routes.com:*string:~*opts.*apikey:rts1234":         {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*req.Usage:160s":               {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*nothing.Denied:true":          {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*stats.STATS_VENDOR_2.*acd:1m": {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*opts.*apikey:rts1234": {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*req.Usage:160s":       {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*nothing.Denied:true":  {"ROUTE_ACNT_1001"},
 		},
 		BrokenIndexes:  map[string][]string{},
 		MissingFilters: map[string][]string{},
@@ -945,31 +948,31 @@ func TestHealthIndexSupplier(t *testing.T) {
 		ltcache.NewCache(args.FilterCacheLimit, args.FilterCacheTTL, args.FilterCacheStaticTTL, nil),
 		ltcache.NewCache(args.IndexCacheLimit, args.IndexCacheTTL, args.IndexCacheStaticTTL, nil),
 		ltcache.NewCache(args.ObjectCacheLimit, args.ObjectCacheTTL, args.ObjectCacheStaticTTL, nil),
-		utils.CacheSupplierFilterIndexes); err != nil {
+		utils.CacheRouteFilterIndexes); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(exp, rply) {
 		t.Errorf("Expected %+v, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
 	}
 
-	indexes := map[string]utils.StringMap{
+	indexes := map[string]utils.StringSet{
 		"*string:*req.RequestType:*rated": { // obj exist but the index don't
-			"ROUTE_ACNT_1001": true,
+			"ROUTE_ACNT_1001": {},
 		},
 		"*suffix:*req.Destination:+222": {
-			"ROUTE_ACNT_1001": true,
-			"ROUTE_ACNT_1002": true,
+			"ROUTE_ACNT_1001": {},
+			"ROUTE_ACNT_1002": {},
 		},
 		"*suffix:*req.Destination:+333": {
-			"ROUTE_ACNT_1001": true,
-			"ROUTE_ACNT_1002": true,
+			"ROUTE_ACNT_1001": {},
+			"ROUTE_ACNT_1002": {},
 		},
 		"*string:*req.ExtraField:Usage": { // index is valid but the obj does not exist
-			"InexistingRoute": true,
+			"InexistingRoute": {},
 		},
 	}
 
 	// we will set manually some indexes that points to an nil object or index is valid but the obj is missing
-	if err := dm.SetFilterIndexes(utils.CacheSupplierFilterIndexes, "routes.com",
+	if err := dm.SetIndexes(utils.CacheRouteFilterIndexes, "routes.com",
 		indexes, true, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
@@ -979,10 +982,9 @@ func TestHealthIndexSupplier(t *testing.T) {
 			"routes.com:ROUTE_ACNT_1002",
 		},
 		MissingIndexes: map[string][]string{
-			"routes.com:*string:~*opts.*apikey:rts1234":         {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*req.Usage:160s":               {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*nothing.Denied:true":          {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*stats.STATS_VENDOR_2.*acd:1m": {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*opts.*apikey:rts1234": {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*req.Usage:160s":       {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*nothing.Denied:true":  {"ROUTE_ACNT_1001"},
 		},
 		BrokenIndexes: map[string][]string{
 			"routes.com:*suffix:*req.Destination:+222":   {"ROUTE_ACNT_1001"},
@@ -995,7 +997,7 @@ func TestHealthIndexSupplier(t *testing.T) {
 		ltcache.NewCache(args.FilterCacheLimit, args.FilterCacheTTL, args.FilterCacheStaticTTL, nil),
 		ltcache.NewCache(args.IndexCacheLimit, args.IndexCacheTTL, args.IndexCacheStaticTTL, nil),
 		ltcache.NewCache(args.ObjectCacheLimit, args.ObjectCacheTTL, args.ObjectCacheStaticTTL, nil),
-		utils.CacheSupplierFilterIndexes); err != nil {
+		utils.CacheRouteFilterIndexes); err != nil {
 		t.Error(err)
 	} else {
 		sort.Strings(rply.MissingObjects)
@@ -1006,7 +1008,7 @@ func TestHealthIndexSupplier(t *testing.T) {
 	}
 
 	//we will use an inexisting Filter(not inline) for the same RouteProfile
-	rtPrf = &SupplierProfile{
+	rtPrf = &RouteProfile{
 		Tenant: "routes.com",
 		ID:     "ROUTE_ACNT_1001",
 		FilterIDs: []string{"*string:~*opts.*apikey:rts1234",
@@ -1018,11 +1020,12 @@ func TestHealthIndexSupplier(t *testing.T) {
 		},
 		Sorting:           utils.MetaLC,
 		SortingParameters: []string{},
-		Suppliers: []*Supplier{
+		Routes: []*Route{
 			{
-				ID:      "route1",
-				Weight:  10,
-				Blocker: false,
+				ID:              "route1",
+				Weight:          10,
+				Blocker:         false,
+				RouteParameters: "",
 			},
 			{
 				ID:            "route2",
@@ -1033,7 +1036,7 @@ func TestHealthIndexSupplier(t *testing.T) {
 		},
 		Weight: 10,
 	}
-	if err := dm.SetSupplierProfile(rtPrf, false); err != nil {
+	if err := dm.SetRouteProfile(rtPrf, false); err != nil {
 		t.Error(err)
 	}
 	exp = &FilterIHReply{
@@ -1042,10 +1045,9 @@ func TestHealthIndexSupplier(t *testing.T) {
 			"routes.com:ROUTE_ACNT_1002",
 		},
 		MissingIndexes: map[string][]string{
-			"routes.com:*string:~*opts.*apikey:rts1234":         {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*req.Usage:160s":               {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*nothing.Denied:true":          {"ROUTE_ACNT_1001"},
-			"routes.com:*string:~*stats.STATS_VENDOR_2.*acd:1m": {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*opts.*apikey:rts1234": {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*req.Usage:160s":       {"ROUTE_ACNT_1001"},
+			"routes.com:*string:*nothing.Denied:true":  {"ROUTE_ACNT_1001"},
 		},
 		BrokenIndexes: map[string][]string{
 			"routes.com:*suffix:*req.Destination:+222":   {"ROUTE_ACNT_1001"},
@@ -1053,14 +1055,14 @@ func TestHealthIndexSupplier(t *testing.T) {
 			"routes.com:*string:*req.RequestType:*rated": {"ROUTE_ACNT_1001"},
 		},
 		MissingFilters: map[string][]string{
-			"FLTR_1_NOT_EXIST": {"ROUTE_ACNT_1001"},
+			"routes.com:FLTR_1_NOT_EXIST": {"ROUTE_ACNT_1001"},
 		},
 	}
 	if rply, err := GetFltrIdxHealth(dm,
 		ltcache.NewCache(args.FilterCacheLimit, args.FilterCacheTTL, args.FilterCacheStaticTTL, nil),
 		ltcache.NewCache(args.IndexCacheLimit, args.IndexCacheTTL, args.IndexCacheStaticTTL, nil),
 		ltcache.NewCache(args.ObjectCacheLimit, args.ObjectCacheTTL, args.ObjectCacheStaticTTL, nil),
-		utils.CacheSupplierFilterIndexes); err != nil {
+		utils.CacheRouteFilterIndexes); err != nil {
 		t.Error(err)
 	} else {
 		sort.Strings(rply.MissingObjects)
@@ -1073,10 +1075,7 @@ func TestHealthIndexSupplier(t *testing.T) {
 
 func TestHealthIndexDispatchers(t *testing.T) {
 	Cache.Clear(nil)
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -1084,12 +1083,12 @@ func TestHealthIndexDispatchers(t *testing.T) {
 	dspPrf := &DispatcherProfile{
 		Tenant:     "cgrates.org",
 		ID:         "Dsp1",
-		Subsystems: []string{utils.META_ANY, utils.MetaSessionS},
+		Subsystems: []string{utils.MetaAny, utils.MetaSessionS},
 		FilterIDs: []string{
-			"*string:~*opts.*apikey:dps1234;dsp9876",
+			"*string:~*opts.*apikey:dps1234|dsp9876",
 			"*string:~*req.AnswerTime:2013-11-07T08:42:26Z",
-			"*string:~*libphonenumber.<~*req.Destination>:+443234566",
-			"*suffix:BrokenFilter:Invalid", // suffix will not be indexing
+			"*string:~*libphonenumber.<~*req.Destination>:+443234566", // *libphonenumber will not be indexing
+			"*suffix:BrokenFilter:Invalid",
 		},
 		Strategy: utils.MetaRandom,
 		Weight:   20,
@@ -1106,14 +1105,12 @@ func TestHealthIndexDispatchers(t *testing.T) {
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*any:*string:~*opts.*apikey:dps1234":                               {"Dsp1"},
-			"cgrates.org:*any:*string:~*opts.*apikey:dsp9876":                               {"Dsp1"},
-			"cgrates.org:*any:*string:~*req.AnswerTime:2013-11-07T08:42:26Z":                {"Dsp1"},
-			"cgrates.org:*any:*string:~*libphonenumber.<~*req.Destination>:+443234566":      {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*opts.*apikey:dps1234":                          {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*opts.*apikey:dsp9876":                          {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*req.AnswerTime:2013-11-07T08:42:26Z":           {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*libphonenumber.<~*req.Destination>:+443234566": {"Dsp1"},
+			"cgrates.org:*any:*string:*opts.*apikey:dps1234":                     {"Dsp1"},
+			"cgrates.org:*any:*string:*opts.*apikey:dsp9876":                     {"Dsp1"},
+			"cgrates.org:*any:*string:*req.AnswerTime:2013-11-07T08:42:26Z":      {"Dsp1"},
+			"cgrates.org:*sessions:*string:*opts.*apikey:dps1234":                {"Dsp1"},
+			"cgrates.org:*sessions:*string:*opts.*apikey:dsp9876":                {"Dsp1"},
+			"cgrates.org:*sessions:*string:*req.AnswerTime:2013-11-07T08:42:26Z": {"Dsp1"},
 		},
 		BrokenIndexes:  map[string][]string{},
 		MissingFilters: map[string][]string{},
@@ -1131,21 +1128,21 @@ func TestHealthIndexDispatchers(t *testing.T) {
 	}
 
 	// we will set manually some indexes that points to an nil object or index is valid but the obj is missing
-	indexes := map[string]utils.StringMap{
+	indexes := map[string]utils.StringSet{
 		"*string:*req.RequestType:*rated": { // obj exist but the index don't
-			"Dsp1": true,
-			"Dsp2": true,
+			"Dsp1": {},
+			"Dsp2": {},
 		},
 		"*suffix:*opts.Destination:+100": { // obj exist but the index don't
-			"Dsp1": true,
-			"Dsp2": true,
+			"Dsp1": {},
+			"Dsp2": {},
 		},
 		"*string:*req.ExtraField:Usage": { // index is valid but the obj does not exist
-			"InexistingDispatcher":  true,
-			"InexistingDispatcher2": true,
+			"InexistingDispatcher":  {},
+			"InexistingDispatcher2": {},
 		},
 	}
-	if err := dm.SetFilterIndexes(utils.CacheDispatcherFilterIndexes, "cgrates.org",
+	if err := dm.SetIndexes(utils.CacheDispatcherFilterIndexes, "cgrates.org",
 		indexes, true, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
@@ -1153,14 +1150,12 @@ func TestHealthIndexDispatchers(t *testing.T) {
 	//get the newIdxHealth for dispatchersProfile
 	exp = &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*any:*string:~*opts.*apikey:dps1234":                               {"Dsp1"},
-			"cgrates.org:*any:*string:~*opts.*apikey:dsp9876":                               {"Dsp1"},
-			"cgrates.org:*any:*string:~*req.AnswerTime:2013-11-07T08:42:26Z":                {"Dsp1"},
-			"cgrates.org:*any:*string:~*libphonenumber.<~*req.Destination>:+443234566":      {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*opts.*apikey:dps1234":                          {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*opts.*apikey:dsp9876":                          {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*req.AnswerTime:2013-11-07T08:42:26Z":           {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*libphonenumber.<~*req.Destination>:+443234566": {"Dsp1"},
+			"cgrates.org:*any:*string:*opts.*apikey:dps1234":                     {"Dsp1"},
+			"cgrates.org:*any:*string:*opts.*apikey:dsp9876":                     {"Dsp1"},
+			"cgrates.org:*any:*string:*req.AnswerTime:2013-11-07T08:42:26Z":      {"Dsp1"},
+			"cgrates.org:*sessions:*string:*opts.*apikey:dps1234":                {"Dsp1"},
+			"cgrates.org:*sessions:*string:*opts.*apikey:dsp9876":                {"Dsp1"},
+			"cgrates.org:*sessions:*string:*req.AnswerTime:2013-11-07T08:42:26Z": {"Dsp1"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*suffix:*opts.Destination:+100":  {"Dsp1"},
@@ -1192,12 +1187,12 @@ func TestHealthIndexDispatchers(t *testing.T) {
 	dspPrf = &DispatcherProfile{
 		Tenant:     "cgrates.org",
 		ID:         "Dsp1",
-		Subsystems: []string{utils.META_ANY, utils.MetaSessionS},
+		Subsystems: []string{utils.MetaAny, utils.MetaSessionS},
 		FilterIDs: []string{
-			"*string:~*opts.*apikey:dps1234;dsp9876",
+			"*string:~*opts.*apikey:dps1234|dsp9876",
 			"*string:~*req.AnswerTime:2013-11-07T08:42:26Z",
-			"*string:~*libphonenumber.<~*req.Destination>:+443234566",
-			"*suffix:BrokenFilter:Invalid", // suffix will not be indexing
+			"*string:~*libphonenumber.<~*req.Destination>:+443234566", // *libphonenumber will not be indexing
+			"*suffix:BrokenFilter:Invalid",
 			"FLTR_1_NOT_EXIST",
 		},
 		Strategy: utils.MetaRandom,
@@ -1215,21 +1210,19 @@ func TestHealthIndexDispatchers(t *testing.T) {
 	//get the newIdxHealth for dispatchersProfile
 	exp = &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*any:*string:~*opts.*apikey:dps1234":                               {"Dsp1"},
-			"cgrates.org:*any:*string:~*opts.*apikey:dsp9876":                               {"Dsp1"},
-			"cgrates.org:*any:*string:~*req.AnswerTime:2013-11-07T08:42:26Z":                {"Dsp1"},
-			"cgrates.org:*any:*string:~*libphonenumber.<~*req.Destination>:+443234566":      {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*opts.*apikey:dps1234":                          {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*opts.*apikey:dsp9876":                          {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*req.AnswerTime:2013-11-07T08:42:26Z":           {"Dsp1"},
-			"cgrates.org:*sessions:*string:~*libphonenumber.<~*req.Destination>:+443234566": {"Dsp1"},
+			"cgrates.org:*any:*string:*opts.*apikey:dps1234":                     {"Dsp1"},
+			"cgrates.org:*any:*string:*opts.*apikey:dsp9876":                     {"Dsp1"},
+			"cgrates.org:*any:*string:*req.AnswerTime:2013-11-07T08:42:26Z":      {"Dsp1"},
+			"cgrates.org:*sessions:*string:*opts.*apikey:dps1234":                {"Dsp1"},
+			"cgrates.org:*sessions:*string:*opts.*apikey:dsp9876":                {"Dsp1"},
+			"cgrates.org:*sessions:*string:*req.AnswerTime:2013-11-07T08:42:26Z": {"Dsp1"},
 		},
 		BrokenIndexes: map[string][]string{
 			"cgrates.org:*suffix:*opts.Destination:+100":  {"Dsp1"},
 			"cgrates.org:*string:*req.RequestType:*rated": {"Dsp1"},
 		},
 		MissingFilters: map[string][]string{
-			"FLTR_1_NOT_EXIST": {"Dsp1"},
+			"cgrates.org:FLTR_1_NOT_EXIST": {"Dsp1"},
 		},
 		MissingObjects: []string{
 			"cgrates.org:Dsp2",
@@ -1253,10 +1246,8 @@ func TestHealthIndexDispatchers(t *testing.T) {
 }
 
 func TestIndexHealthMultipleProfiles(t *testing.T) {
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Error(err)
-	}
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
 	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := NewDataManager(db, cfg.CacheCfg(), nil)
 
@@ -1267,8 +1258,8 @@ func TestIndexHealthMultipleProfiles(t *testing.T) {
 		FilterIDs: []string{
 			"*string:~*opts.*eventType:ChargerAccountUpdate",
 			"*string:~*req.Account:1234",
-			"*string:~*asm.ID:1002",
-			"*suffix:BrokenFilter:Invalid"}, // suffix will not be indexing
+			"*string:~*asm.ID:1002", // *asm will not be indexing
+			"*suffix:BrokenFilter:Invalid"},
 		RunID:        "raw",
 		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
 		Weight:       20,
@@ -1278,8 +1269,8 @@ func TestIndexHealthMultipleProfiles(t *testing.T) {
 		ID:     "Default",
 		FilterIDs: []string{
 			"*string:~*opts.*eventType:ChargerAccountUpdate",
-			"*prefix:~*req.Destination:+2234;~*req.CGRID",
-			"*prefix:~*req.Usage:10",
+			"*prefix:~*req.Destination:+2234|~*req.CGRID",
+			"*suffix:~*req.Usage:10",
 			"*string:~*req.Account:1234",
 			"FLTR_1_NOT_EXIST2",
 		},
@@ -1313,18 +1304,15 @@ func TestIndexHealthMultipleProfiles(t *testing.T) {
 	args := &IndexHealthArgsWith3Ch{}
 	exp := &FilterIHReply{
 		MissingIndexes: map[string][]string{
-			"cgrates.org:*string:~*asm.ID:1002":                          {"Raw"},
-			"cgrates.org:*string:~*opts.*eventType:ChargerAccountUpdate": {"Default", "Raw"},
-			"cgrates.org:*string:~*req.Account:1234":                     {"Call_Attr1", "Default", "Raw"},
-			"cgrates.org:*prefix:~*req.Destination:+2234":                {"Default"},
-			"cgrates.org:*prefix:~*req.Destination:~*req.CGRID":          {"Default"},
-			"cgrates.org:*prefix:~*req.Usage:10":                         {"Default"},
-			"cgrates.org:*string:*broken:index":                          {"Call_Attr1"},
+			"cgrates.org:*string:*opts.*eventType:ChargerAccountUpdate": {"Raw", "Default"},
+			"cgrates.org:*string:*req.Account:1234":                     {"Raw", "Default", "Call_Attr1"},
+			"cgrates.org:*prefix:*req.Destination:+2234":                {"Default"},
+			"cgrates.org:*suffix:*req.Usage:10":                         {"Default"},
 		},
 		BrokenIndexes: map[string][]string{},
 		MissingFilters: map[string][]string{
-			"FLTR_1_NOT_EXIST2": {"Call_Attr1", "Default"},
-			"FLTR_1_NOT_EXIST":  {"Call_Attr1"},
+			"cgrates.org:FLTR_1_NOT_EXIST2": {"Default", "Call_Attr1"},
+			"cgrates.org:FLTR_1_NOT_EXIST":  {"Call_Attr1"},
 		},
 		MissingObjects: []string{},
 	}
@@ -1335,17 +1323,321 @@ func TestIndexHealthMultipleProfiles(t *testing.T) {
 		utils.CacheChargerFilterIndexes); err != nil {
 		t.Error(err)
 	} else {
-		for _, slice := range rply.MissingIndexes {
-			sort.Strings(slice)
-		}
-		for _, slice := range rply.MissingFilters {
-			sort.Strings(slice)
-		}
-		for _, slice := range rply.BrokenIndexes {
-			sort.Strings(slice)
-		}
+		sort.Strings(exp.MissingIndexes["cgrates.org:*string:*opts.*eventType:ChargerAccountUpdate"])
+		sort.Strings(exp.MissingIndexes["cgrates.org:*string:*req.Account:1234"])
+		sort.Strings(exp.MissingFilters["cgrates.org:FLTR_1_NOT_EXIST2"])
+		sort.Strings(rply.MissingIndexes["cgrates.org:*string:*opts.*eventType:ChargerAccountUpdate"])
+		sort.Strings(rply.MissingIndexes["cgrates.org:*string:*req.Account:1234"])
+		sort.Strings(rply.MissingFilters["cgrates.org:FLTR_1_NOT_EXIST2"])
 		if !reflect.DeepEqual(exp, rply) {
-			t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+			t.Errorf("Expected %+v, received %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+		}
+	}
+}
+
+func TestIndexHealthReverseChecking(t *testing.T) {
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+
+	// we will set this multiple chargers but without indexing(same and different indexes)
+	chPrf1 := &ChargerProfile{
+		Tenant: "cgrates.org",
+		ID:     "Raw",
+		FilterIDs: []string{
+			"*string:~*req.Account:1234",
+			"FLTR_1",
+			"FLTR_2",
+		},
+		RunID:        "raw",
+		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
+		Weight:       20,
+	}
+	if err := dm.SetChargerProfile(chPrf1, false); err != nil {
+		t.Error(err)
+	}
+	// get cachePrefix for every subsystem
+	objCaches := make(map[string]*ltcache.Cache)
+	for indxType := range utils.CacheIndexesToPrefix {
+		objCaches[indxType] = ltcache.NewCache(-1, 0, false, nil)
+	}
+
+	// reverse indexes for charger
+	exp := map[string]*ReverseFilterIHReply{
+		utils.CacheChargerFilterIndexes: {
+			MissingFilters: map[string][]string{
+				"cgrates.org:FLTR_1": {"Raw"},
+				"cgrates.org:FLTR_2": {"Raw"},
+			},
+			BrokenReverseIndexes:  map[string][]string{},
+			MissingReverseIndexes: map[string][]string{},
+		},
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(exp, rply) {
+		t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+	}
+
+	// set reverse indexes for Raw that is already set and 2 that does not exist
+	indexes := map[string]utils.StringSet{
+		utils.CacheChargerFilterIndexes: {
+			"Raw":        {},
+			"Default":    {},
+			"Call_Attr1": {},
+		},
+	}
+	if err := dm.SetIndexes(utils.CacheReverseFilterIndexes, "cgrates.org:FLTR_1",
+		indexes, true, utils.NonTransactional); err != nil {
+		t.Error(err)
+	}
+
+	// reverse indexes for charger with the changes
+	exp = map[string]*ReverseFilterIHReply{
+		utils.CacheChargerFilterIndexes: {
+			MissingFilters: map[string][]string{
+				"cgrates.org:FLTR_1": {"Raw"},
+				"cgrates.org:FLTR_2": {"Raw"},
+			},
+			BrokenReverseIndexes:  map[string][]string{},
+			MissingReverseIndexes: map[string][]string{},
+			MissingObjects:        []string{"cgrates.org:Default", "cgrates.org:Call_Attr1"},
+		},
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else {
+		sort.Strings(exp[utils.CacheChargerFilterIndexes].MissingObjects)
+		sort.Strings(rply[utils.CacheChargerFilterIndexes].MissingObjects)
+		if !reflect.DeepEqual(exp, rply) {
+			t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+		}
+	}
+
+	// reverse for a filter present in PROFILE but does not exist for the same indexes
+	indexes = map[string]utils.StringSet{
+		utils.CacheChargerFilterIndexes: {
+			"Raw":        {},
+			"Default":    {},
+			"Call_Attr1": {},
+		},
+	}
+	if err := dm.SetIndexes(utils.CacheReverseFilterIndexes, "cgrates.org:FLTR_NOT_IN_PROFILE",
+		indexes, true, utils.NonTransactional); err != nil {
+		t.Error(err)
+	}
+
+	// reverse indexes for charger with the changes
+	exp = map[string]*ReverseFilterIHReply{
+		utils.CacheChargerFilterIndexes: {
+			MissingFilters: map[string][]string{
+				"cgrates.org:FLTR_1": {"Raw"},
+				"cgrates.org:FLTR_2": {"Raw"},
+			},
+			BrokenReverseIndexes: map[string][]string{
+				"cgrates.org:Raw": {"FLTR_NOT_IN_PROFILE"},
+			},
+			MissingReverseIndexes: map[string][]string{},
+			MissingObjects:        []string{"cgrates.org:Default", "cgrates.org:Call_Attr1"},
+		},
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else {
+		sort.Strings(exp[utils.CacheChargerFilterIndexes].MissingObjects)
+		sort.Strings(rply[utils.CacheChargerFilterIndexes].MissingObjects)
+		if !reflect.DeepEqual(exp, rply) {
+			t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+		}
+	}
+}
+
+func TestIndexHealthMissingReverseIndexes(t *testing.T) {
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+
+	filter1 := &Filter{
+		Tenant: "cgrates.org",
+		ID:     "FLTR_1",
+		Rules: []*FilterRule{
+			{
+				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Destination,
+				Type:    utils.MetaString,
+				Values:  []string{"1001"},
+			},
+		},
+	}
+	filter2 := &Filter{
+		Tenant: "cgrates.org",
+		ID:     "FLTR_2",
+		Rules: []*FilterRule{
+			{
+				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Destination,
+				Type:    utils.MetaString,
+				Values:  []string{"1003"},
+			},
+		},
+	}
+	filter3 := &Filter{
+		Tenant: "cgrates.org",
+		ID:     "FLTR_3",
+		Rules: []*FilterRule{
+			{
+				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Destination,
+				Type:    utils.MetaString,
+				Values:  []string{"1004"},
+			},
+		},
+	}
+	if err := dm.SetFilter(filter1, false); err != nil {
+		t.Error(err)
+	}
+	if err := dm.SetFilter(filter2, false); err != nil {
+		t.Error(err)
+	}
+	if err := dm.SetFilter(filter3, false); err != nil {
+		t.Error(err)
+	}
+
+	chPrf1 := &ChargerProfile{
+		Tenant: "cgrates.org",
+		ID:     "Raw",
+		FilterIDs: []string{
+			"*string:~*req.Account:1234",
+			"FLTR_1",
+			"FLTR_3",
+		},
+		RunID:        "raw",
+		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
+		Weight:       20,
+	}
+	if err := dm.SetChargerProfile(chPrf1, false); err != nil {
+		t.Error(err)
+	}
+	// get cachePrefix for every subsystem
+	objCaches := make(map[string]*ltcache.Cache)
+	for indxType := range utils.CacheIndexesToPrefix {
+		objCaches[indxType] = ltcache.NewCache(-1, 0, false, nil)
+	}
+
+	exp := map[string]*ReverseFilterIHReply{
+		utils.CacheChargerFilterIndexes: {
+			MissingFilters:       map[string][]string{},
+			BrokenReverseIndexes: map[string][]string{},
+			MissingReverseIndexes: map[string][]string{
+				"cgrates.org:Raw": {"FLTR_1", "FLTR_3"},
+			},
+		},
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else {
+		if !reflect.DeepEqual(exp, rply) {
+			t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+		}
+	}
+
+	Cache.Clear(nil)
+	if err := dm.SetFilter(filter1, true); err != nil {
+		t.Error(err)
+	}
+	if err := dm.SetFilter(filter2, true); err != nil {
+		t.Error(err)
+	}
+	if err := dm.SetFilter(filter3, true); err != nil {
+		t.Error(err)
+	}
+	// initialized cachePrefix for every subsystem again for a new case
+	objCaches = make(map[string]*ltcache.Cache)
+	for indxType := range utils.CacheIndexesToPrefix {
+		objCaches[indxType] = ltcache.NewCache(-1, 0, false, nil)
+	}
+	chPrf1 = &ChargerProfile{
+		Tenant: "cgrates.org",
+		ID:     "Raw",
+		FilterIDs: []string{
+			"*string:~*req.Account:1234",
+			"FLTR_1",
+			"FLTR_2",
+			"FLTR_3",
+		},
+		RunID:        "raw",
+		AttributeIDs: []string{"*constant:*req.RequestType:*none"},
+		Weight:       20,
+	}
+	// now we set the charger with indexing and check the reverse indexes health
+	if err := dm.SetChargerProfile(chPrf1, false); err != nil {
+		t.Error(err)
+	}
+	exp = map[string]*ReverseFilterIHReply{
+		utils.CacheChargerFilterIndexes: {
+			MissingFilters:       map[string][]string{},
+			BrokenReverseIndexes: map[string][]string{},
+			MissingReverseIndexes: map[string][]string{
+				"cgrates.org:Raw": {"FLTR_1", "FLTR_2", "FLTR_3"},
+			},
+		},
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else {
+		sort.Strings(exp[utils.CacheChargerFilterIndexes].MissingReverseIndexes["cgrates.org:Raw"])
+		sort.Strings(rply[utils.CacheChargerFilterIndexes].MissingReverseIndexes["cgrates.org:Raw"])
+		if !reflect.DeepEqual(exp, rply) {
+			t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
+		}
+	}
+
+	// delete the filters and check again the reverse index health
+	if err := dm.RemoveFilter("cgrates.org", "FLTR_1", true); err != nil {
+		t.Error(err)
+	}
+	if err := dm.RemoveFilter("cgrates.org", "FLTR_2", true); err != nil {
+		t.Error(err)
+	}
+	if err := dm.RemoveFilter("cgrates.org", "FLTR_3", true); err != nil {
+		t.Error(err)
+	}
+	// Nnow the exepcted should be on missing filters as those were removed lately
+	exp = map[string]*ReverseFilterIHReply{
+		utils.CacheChargerFilterIndexes: {
+			MissingFilters: map[string][]string{
+				"cgrates.org:FLTR_1": {"Raw"},
+				"cgrates.org:FLTR_2": {"Raw"},
+				"cgrates.org:FLTR_3": {"Raw"},
+			},
+			BrokenReverseIndexes:  map[string][]string{},
+			MissingReverseIndexes: map[string][]string{},
+		},
+	}
+	if rply, err := GetRevFltrIdxHealth(dm,
+		ltcache.NewCache(-1, 0, false, nil),
+		ltcache.NewCache(-1, 0, false, nil),
+		objCaches); err != nil {
+		t.Fatal(err)
+	} else {
+		sort.Strings(exp[utils.CacheChargerFilterIndexes].MissingReverseIndexes["cgrates.org:Raw"])
+		sort.Strings(rply[utils.CacheChargerFilterIndexes].MissingReverseIndexes["cgrates.org:Raw"])
+		if !reflect.DeepEqual(exp, rply) {
+			t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(exp), utils.ToJSON(rply))
 		}
 	}
 }

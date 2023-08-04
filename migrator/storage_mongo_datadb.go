@@ -34,6 +34,7 @@ const (
 	v1AliasCol             = "aliases"
 	v1UserCol              = "users"
 	v1DerivedChargersCol   = "derived_chargers"
+	v2StatsCol             = "statqueues"
 )
 
 type mongoMigrator struct {
@@ -161,8 +162,17 @@ func (v1ms *mongoMigrator) getV1ActionPlans() (v1aps *v1ActionPlans, err error) 
 
 // set
 func (v1ms *mongoMigrator) setV1ActionPlans(x *v1ActionPlans) (err error) {
-	key := utils.ACTION_PLAN_PREFIX + (*x)[0].Id
+	key := utils.ActionPlanPrefix + (*x)[0].Id
 	_, err = v1ms.mgoDB.DB().Collection("actiontimings").InsertOne(v1ms.mgoDB.GetContext(), &AtKeyValue{key, *x})
+	return
+}
+
+// rem
+func (v1ms *mongoMigrator) remV1ActionPlans(x *v1ActionPlans) (err error) {
+	for _, item := range *x {
+		_, err = v1ms.mgoDB.DB().Collection("actiontimings").DeleteOne(v1ms.mgoDB.GetContext(), bson.M{"id": item.Id})
+		return
+	}
 	return
 }
 
@@ -189,8 +199,14 @@ func (v1ms *mongoMigrator) getV1Actions() (v1acs *v1Actions, err error) {
 
 // set
 func (v1ms *mongoMigrator) setV1Actions(x *v1Actions) (err error) {
-	key := utils.ACTION_PREFIX + (*x)[0].Id
+	key := utils.ActionPrefix + (*x)[0].Id
 	_, err = v1ms.mgoDB.DB().Collection("actions").InsertOne(v1ms.mgoDB.GetContext(), &AcKeyValue{key, *x})
+	return
+}
+
+// rem
+func (v1ms *mongoMigrator) remV1Actions(x v1Actions) (err error) {
+	_, err = v1ms.mgoDB.DB().Collection("actions").DeleteOne(v1ms.mgoDB.GetContext(), bson.M{"id": x[0].Id})
 	return
 }
 
@@ -226,11 +242,20 @@ func (v1ms *mongoMigrator) setV1ActionTriggers(act *v1ActionTriggers) (err error
 	return
 }
 
+// rem
+func (v1ms *mongoMigrator) remV1ActionTriggers(x *v1ActionTriggers) (err error) {
+	for _, item := range *x {
+		_, err = v1ms.mgoDB.DB().Collection(v1ActionTriggersCol).DeleteOne(v1ms.mgoDB.GetContext(), bson.M{"id": item.Id})
+		return
+	}
+	return
+}
+
 // Actions methods
 // get
 func (v1ms *mongoMigrator) getV1SharedGroup() (v1sg *v1SharedGroup, err error) {
 	if v1ms.cursor == nil {
-		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(utils.SHARED_GROUP_PREFIX).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(utils.SharedGroupPrefix).Find(v1ms.mgoDB.GetContext(), bson.D{})
 		if err != nil {
 			return nil, err
 		}
@@ -249,7 +274,7 @@ func (v1ms *mongoMigrator) getV1SharedGroup() (v1sg *v1SharedGroup, err error) {
 
 // set
 func (v1ms *mongoMigrator) setV1SharedGroup(x *v1SharedGroup) (err error) {
-	_, err = v1ms.mgoDB.DB().Collection(utils.SHARED_GROUP_PREFIX).InsertOne(v1ms.mgoDB.GetContext(), x)
+	_, err = v1ms.mgoDB.DB().Collection(utils.SharedGroupPrefix).InsertOne(v1ms.mgoDB.GetContext(), x)
 	return
 }
 
@@ -257,7 +282,7 @@ func (v1ms *mongoMigrator) setV1SharedGroup(x *v1SharedGroup) (err error) {
 // get
 func (v1ms *mongoMigrator) getV1Stats() (v1st *v1Stat, err error) {
 	if v1ms.cursor == nil {
-		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(utils.CDR_STATS_PREFIX).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(utils.CDRsStatsPrefix).Find(v1ms.mgoDB.GetContext(), bson.D{})
 		if err != nil {
 			return nil, err
 		}
@@ -274,9 +299,54 @@ func (v1ms *mongoMigrator) getV1Stats() (v1st *v1Stat, err error) {
 	return v1st, nil
 }
 
+func (v1ms *mongoMigrator) getV3Stats() (v1st *engine.StatQueueProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(engine.ColSqp).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v1st = new(engine.StatQueueProfile)
+	if err := (*v1ms.cursor).Decode(v1st); err != nil {
+		return nil, err
+	}
+	return v1st, nil
+}
+
 // set
 func (v1ms *mongoMigrator) setV1Stats(x *v1Stat) (err error) {
-	_, err = v1ms.mgoDB.DB().Collection(utils.CDR_STATS_PREFIX).InsertOne(v1ms.mgoDB.GetContext(), x)
+	_, err = v1ms.mgoDB.DB().Collection(utils.CDRsStatsPrefix).InsertOne(v1ms.mgoDB.GetContext(), x)
+	return
+}
+
+// get V2
+func (v1ms *mongoMigrator) getV2Stats() (v2 *engine.StatQueue, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(v2StatsCol).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v2 = new(engine.StatQueue)
+	if err := (*v1ms.cursor).Decode(v2); err != nil {
+		return nil, err
+	}
+	return v2, nil
+}
+
+// set v2
+func (v1ms *mongoMigrator) setV2Stats(v2 *engine.StatQueue) (err error) {
+	_, err = v1ms.mgoDB.DB().Collection(v2StatsCol).InsertOne(v1ms.mgoDB.GetContext(), v2)
 	return
 }
 
@@ -349,6 +419,25 @@ func (v1ms *mongoMigrator) getV2ThresholdProfile() (v2T *v2Threshold, err error)
 		return nil, utils.ErrNoMoreData
 	}
 	v2T = new(v2Threshold)
+	if err := (*v1ms.cursor).Decode(v2T); err != nil {
+		return nil, err
+	}
+	return v2T, nil
+}
+
+func (v1ms *mongoMigrator) getV3ThresholdProfile() (v2T *engine.ThresholdProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(engine.ColTps).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v2T = new(engine.ThresholdProfile)
 	if err := (*v1ms.cursor).Decode(v2T); err != nil {
 		return nil, err
 	}
@@ -610,6 +699,25 @@ func (v1ms *mongoMigrator) getV4AttributeProfile() (v4attrPrf *v4AttributeProfil
 	return v4attrPrf, nil
 }
 
+func (v1ms *mongoMigrator) getV5AttributeProfile() (v5attrPrf *engine.AttributeProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(v1AttributeProfilesCol).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v5attrPrf = new(engine.AttributeProfile)
+	if err := (*v1ms.cursor).Decode(v5attrPrf); err != nil {
+		return nil, err
+	}
+	return v5attrPrf, nil
+}
+
 // set
 func (v1ms *mongoMigrator) setV4AttributeProfile(x *v4AttributeProfile) (err error) {
 	_, err = v1ms.mgoDB.DB().Collection(v1AttributeProfilesCol).InsertOne(v1ms.mgoDB.GetContext(), x)
@@ -643,6 +751,25 @@ func (v1ms *mongoMigrator) getV1Filter() (v1Fltr *v1Filter, err error) {
 	return
 }
 
+func (v1ms *mongoMigrator) getV4Filter() (v4Fltr *engine.Filter, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(engine.ColFlt).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v4Fltr = new(engine.Filter)
+	if err := (*v1ms.cursor).Decode(v4Fltr); err != nil {
+		return nil, err
+	}
+	return
+}
+
 // set
 func (v1ms *mongoMigrator) setV1Filter(x *v1Filter) (err error) {
 	_, err = v1ms.mgoDB.DB().Collection(engine.ColFlt).InsertOne(v1ms.mgoDB.GetContext(), x)
@@ -652,5 +779,95 @@ func (v1ms *mongoMigrator) setV1Filter(x *v1Filter) (err error) {
 // rem
 func (v1ms *mongoMigrator) remV1Filter(tenant, id string) (err error) {
 	_, err = v1ms.mgoDB.DB().Collection(engine.ColFlt).DeleteOne(v1ms.mgoDB.GetContext(), bson.M{"tenant": tenant, "id": id})
+	return
+}
+
+// Supplier Methods
+// get
+func (v1ms *mongoMigrator) getSupplier() (spl *SupplierProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(ColSpp).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	spl = new(SupplierProfile)
+	if err := (*v1ms.cursor).Decode(spl); err != nil {
+		return nil, err
+	}
+	return
+}
+
+// set
+func (v1ms *mongoMigrator) setSupplier(spl *SupplierProfile) (err error) {
+	_, err = v1ms.mgoDB.DB().Collection(ColSpp).InsertOne(v1ms.mgoDB.GetContext(), spl)
+	return
+}
+
+// rem
+func (v1ms *mongoMigrator) remSupplier(tenant, id string) (err error) {
+	_, err = v1ms.mgoDB.DB().Collection(ColSpp).DeleteOne(v1ms.mgoDB.GetContext(), bson.M{"tenant": tenant, "id": id})
+	return
+}
+
+func (v1ms *mongoMigrator) getV1ChargerProfile() (v1chrPrf *engine.ChargerProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(engine.ColCpp).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v1chrPrf = new(engine.ChargerProfile)
+	if err := (*v1ms.cursor).Decode(v1chrPrf); err != nil {
+		return nil, err
+	}
+	return
+}
+
+func (v1ms *mongoMigrator) getV1DispatcherProfile() (v1dppPrf *engine.DispatcherProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(engine.ColDpp).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v1dppPrf = new(engine.DispatcherProfile)
+	if err := (*v1ms.cursor).Decode(v1dppPrf); err != nil {
+		return nil, err
+	}
+	return
+}
+
+func (v1ms *mongoMigrator) getV1RouteProfile() (v1dppPrf *engine.RouteProfile, err error) {
+	if v1ms.cursor == nil {
+		v1ms.cursor, err = v1ms.mgoDB.DB().Collection(engine.ColRts).Find(v1ms.mgoDB.GetContext(), bson.D{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !(*v1ms.cursor).Next(v1ms.mgoDB.GetContext()) {
+		(*v1ms.cursor).Close(v1ms.mgoDB.GetContext())
+		v1ms.cursor = nil
+		return nil, utils.ErrNoMoreData
+	}
+	v1dppPrf = new(engine.RouteProfile)
+	if err := (*v1ms.cursor).Decode(v1dppPrf); err != nil {
+		return nil, err
+	}
 	return
 }

@@ -19,8 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package migrator
 
 import (
-	"fmt"
-
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -52,7 +50,7 @@ func (m *Migrator) migrateCurrentTPactionplans() (err error) {
 							return err
 						}
 					}
-					m.stats[utils.TpActionPlans] += 1
+					m.stats[utils.TpActionPlans]++
 				}
 			}
 		}
@@ -63,17 +61,8 @@ func (m *Migrator) migrateCurrentTPactionplans() (err error) {
 func (m *Migrator) migrateTPactionplans() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentStorDBVersions()
-	vrs, err = m.storDBOut.StorDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.TpActionPlans); err != nil {
+		return
 	}
 	switch vrs[utils.TpActionPlans] {
 	case current[utils.TpActionPlans]:

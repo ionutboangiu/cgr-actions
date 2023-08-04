@@ -18,7 +18,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
+	"bytes"
+	"log"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,7 +96,7 @@ func TestRightHourMargin(t *testing.T) {
 		t.Error("RateInterval not attached correctly")
 	}
 
-	if ts.GetDuration() != 29*time.Minute || nts.GetDuration() != 1*time.Minute {
+	if ts.GetDuration() != 29*time.Minute || nts.GetDuration() != time.Minute {
 		t.Error("Wrong durations.for RateIntervals", ts.GetDuration(), nts.GetDuration())
 	}
 	if ts.GetDuration().Seconds()+nts.GetDuration().Seconds() != oldDuration.Seconds() {
@@ -220,14 +224,14 @@ func TestTimespanGetCost(t *testing.T) {
 	ts1.SetRateInterval(
 		&RateInterval{
 			Timing: &RITiming{},
-			Rating: &RIRate{Rates: RateGroups{&Rate{0, 1.0, 1 * time.Second, 1 * time.Second}}},
+			Rating: &RIRate{Rates: RateGroups{&RGRate{0, 1.0, time.Second, time.Second}}},
 		},
 	)
 	if ts1.CalculateCost() != 600 {
 		t.Error("Expected 10 got ", ts1.Cost)
 	}
 	ts1.RateInterval = nil
-	ts1.SetRateInterval(&RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{0, 1.0, 1 * time.Second, 60 * time.Second}}}})
+	ts1.SetRateInterval(&RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{0, 1.0, time.Second, 60 * time.Second}}}})
 	if ts1.CalculateCost() != 10 {
 		t.Error("Expected 6000 got ", ts1.Cost)
 	}
@@ -247,12 +251,12 @@ func TestTimespanGetCostIntervals(t *testing.T) {
 func TestSetRateInterval(t *testing.T) {
 	i1 := &RateInterval{
 		Timing: &RITiming{},
-		Rating: &RIRate{Rates: RateGroups{&Rate{0, 1.0, 1 * time.Second, 1 * time.Second}}},
+		Rating: &RIRate{Rates: RateGroups{&RGRate{0, 1.0, time.Second, time.Second}}},
 	}
 	ts1 := TimeSpan{RateInterval: i1}
 	i2 := &RateInterval{
 		Timing: &RITiming{},
-		Rating: &RIRate{Rates: RateGroups{&Rate{0, 2.0, 1 * time.Second, 1 * time.Second}}},
+		Rating: &RIRate{Rates: RateGroups{&RGRate{0, 2.0, time.Second, time.Second}}},
 	}
 	if !ts1.hasBetterRateIntervalThan(i2) {
 		ts1.SetRateInterval(i2)
@@ -273,7 +277,7 @@ func TestTimespanSplitGroupedRates(t *testing.T) {
 			EndTime: "17:59:00",
 		},
 		Rating: &RIRate{
-			Rates: RateGroups{&Rate{0, 2, 1 * time.Second, 1 * time.Second}, &Rate{900 * time.Second, 1, 1 * time.Second, 1 * time.Second}},
+			Rates: RateGroups{&RGRate{0, 2, time.Second, time.Second}, &RGRate{900 * time.Second, 1, time.Second, time.Second}},
 		},
 	}
 	t1 := time.Date(2012, time.February, 3, 17, 30, 0, 0, time.UTC)
@@ -312,12 +316,12 @@ func TestTimespanSplitGroupedRatesIncrements(t *testing.T) {
 		},
 		Rating: &RIRate{
 			Rates: RateGroups{
-				&Rate{
+				&RGRate{
 					GroupIntervalStart: 0,
 					Value:              2,
 					RateIncrement:      time.Second,
 					RateUnit:           time.Second},
-				&Rate{
+				&RGRate{
 					GroupIntervalStart: 30 * time.Second,
 					Value:              1,
 					RateIncrement:      time.Minute,
@@ -353,7 +357,7 @@ func TestTimespanSplitGroupedRatesIncrements(t *testing.T) {
 		t.Error("Wrong costs: ", c1, c2)
 	}
 
-	if ts.GetDuration().Seconds() != 0.5*60 || nts.GetDuration().Seconds() != 1*60 {
+	if ts.GetDuration().Seconds() != 0.5*60 || nts.GetDuration().Seconds() != 60 {
 		t.Error("Wrong durations.for RateIntervals", ts.GetDuration().Seconds(), nts.GetDuration().Seconds())
 	}
 	if ts.GetDuration()+nts.GetDuration() != oldDuration+30*time.Second {
@@ -367,7 +371,7 @@ func TestTimespanSplitRightHourMarginBeforeGroup(t *testing.T) {
 			EndTime: "17:00:30",
 		},
 		Rating: &RIRate{
-			Rates: RateGroups{&Rate{0, 2, 1 * time.Second, 1 * time.Second}, &Rate{60 * time.Second, 1, 60 * time.Second, 1 * time.Second}},
+			Rates: RateGroups{&RGRate{0, 2, time.Second, time.Second}, &RGRate{60 * time.Second, 1, 60 * time.Second, time.Second}},
 		},
 	}
 	t1 := time.Date(2012, time.February, 3, 17, 00, 0, 0, time.UTC)
@@ -404,7 +408,7 @@ func TestTimespanSplitGroupSecondSplit(t *testing.T) {
 			EndTime: "17:03:30",
 		},
 		Rating: &RIRate{
-			Rates: RateGroups{&Rate{0, 2, 1 * time.Second, 1 * time.Second}, &Rate{60 * time.Second, 1, 1 * time.Second, 1 * time.Second}}},
+			Rates: RateGroups{&RGRate{0, 2, time.Second, time.Second}, &RGRate{60 * time.Second, 1, time.Second, time.Second}}},
 	}
 	t1 := time.Date(2012, time.February, 3, 17, 00, 0, 0, time.UTC)
 	t2 := time.Date(2012, time.February, 3, 17, 04, 0, 0, time.UTC)
@@ -481,7 +485,7 @@ func TestTimespanSplitMultipleGroup(t *testing.T) {
 			EndTime: "17:05:00",
 		},
 		Rating: &RIRate{
-			Rates: RateGroups{&Rate{0, 2, 1 * time.Second, 1 * time.Second}, &Rate{60 * time.Second, 1, 1 * time.Second, 1 * time.Second}, &Rate{180 * time.Second, 1, 1 * time.Second, 1 * time.Second}}},
+			Rates: RateGroups{&RGRate{0, 2, time.Second, time.Second}, &RGRate{60 * time.Second, 1, time.Second, time.Second}, &RGRate{180 * time.Second, 1, time.Second, time.Second}}},
 	}
 	t1 := time.Date(2012, time.February, 3, 17, 00, 0, 0, time.UTC)
 	t2 := time.Date(2012, time.February, 3, 17, 04, 0, 0, time.UTC)
@@ -528,7 +532,7 @@ func TestTimespanExpandingPastEnd(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 60 * time.Second},
+				&RGRate{RateIncrement: 60 * time.Second},
 			}}},
 		},
 		{
@@ -552,7 +556,7 @@ func TestTimespanExpandingDurationIndex(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 60 * time.Second},
+				&RGRate{RateIncrement: 60 * time.Second},
 			}}},
 		},
 		{
@@ -574,7 +578,7 @@ func TestTimespanExpandingRoundingPastEnd(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 20, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 15 * time.Second},
+				&RGRate{RateIncrement: 15 * time.Second},
 			}}},
 		},
 		{
@@ -598,7 +602,7 @@ func TestTimespanExpandingPastEndMultiple(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 60 * time.Second},
+				&RGRate{RateIncrement: 60 * time.Second},
 			}}},
 		},
 		{
@@ -626,7 +630,7 @@ func TestTimespanExpandingPastEndMultipleEqual(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 60 * time.Second},
+				&RGRate{RateIncrement: 60 * time.Second},
 			}}},
 		},
 		{
@@ -654,7 +658,7 @@ func TestTimespanExpandingBeforeEnd(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 45 * time.Second},
+				&RGRate{RateIncrement: 45 * time.Second},
 			}}},
 		},
 		{
@@ -680,7 +684,7 @@ func TestTimespanExpandingBeforeEndMultiple(t *testing.T) {
 			TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 			TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 			RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-				&Rate{RateIncrement: 45 * time.Second},
+				&RGRate{RateIncrement: 45 * time.Second},
 			}}},
 		},
 		{
@@ -709,7 +713,7 @@ func TestTimespanCreateSecondsSlice(t *testing.T) {
 		TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
 		TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
 		RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{
-			&Rate{Value: 2.0},
+			&RGRate{Value: 2.0},
 		}}},
 	}
 	ts.createIncrementsSlice()
@@ -727,10 +731,10 @@ func TestTimespanCreateIncrements(t *testing.T) {
 		TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 100000000, time.UTC),
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -755,10 +759,10 @@ func TestTimespanSplitByIncrement(t *testing.T) {
 		ratingInfo:    &RatingInfo{},
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -789,10 +793,10 @@ func TestTimespanSplitByIncrementStart(t *testing.T) {
 		DurationIndex: 60 * time.Second,
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -823,10 +827,10 @@ func TestTimespanSplitByIncrementEnd(t *testing.T) {
 		DurationIndex: 60 * time.Second,
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -858,10 +862,10 @@ func TestTimespanSplitByDuration(t *testing.T) {
 		ratingInfo:    &RatingInfo{},
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -1513,7 +1517,7 @@ func TestIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     2,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", Value: 25, DestinationID: "1", Consumed: 1, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", Value: 25, DestinationID: "1", Consumed: 1, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2", Value: 98},
 						AccountID: "3"},
 				},
@@ -1521,7 +1525,7 @@ func TestIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     2,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", Value: 24, DestinationID: "1", Consumed: 1, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", Value: 24, DestinationID: "1", Consumed: 1, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2", Value: 96},
 						AccountID: "3"},
 				},
@@ -1529,7 +1533,7 @@ func TestIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     2,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", Value: 23, DestinationID: "1", Consumed: 1, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", Value: 23, DestinationID: "1", Consumed: 1, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2", Value: 94},
 						AccountID: "3"},
 				},
@@ -1537,7 +1541,7 @@ func TestIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     2,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", Value: 22, DestinationID: "1", Consumed: 1, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 1111 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", Value: 22, DestinationID: "1", Consumed: 1, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 1111 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2", Value: 92},
 						AccountID: "3"},
 				},
@@ -1545,7 +1549,7 @@ func TestIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     2,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", Value: 21, DestinationID: "1", Consumed: 1, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", Value: 21, DestinationID: "1", Consumed: 1, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2", Value: 90},
 						AccountID: "3"},
 				},
@@ -1570,7 +1574,7 @@ func TestMultipleIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     10.4,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2"},
 						AccountID: "3"},
 				},
@@ -1578,7 +1582,7 @@ func TestMultipleIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     10.4,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2"},
 						AccountID: "3"},
 				},
@@ -1586,7 +1590,7 @@ func TestMultipleIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     10.4,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2"},
 						AccountID: "3"},
 				},
@@ -1594,7 +1598,7 @@ func TestMultipleIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     10.4,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 1111 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 1111 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2"},
 						AccountID: "3"},
 				},
@@ -1602,7 +1606,7 @@ func TestMultipleIncrementsCompressDecompress(t *testing.T) {
 					Duration: time.Minute,
 					Cost:     10.4,
 					BalanceInfo: &DebitInfo{
-						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+						Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 						Monetary:  &MonetaryInfo{UUID: "2"},
 						AccountID: "3"},
 				},
@@ -1709,7 +1713,7 @@ func TestCompressDecompress(t *testing.T) {
 			TimeStart:     time.Date(2015, 1, 9, 16, 18, 0, 0, time.UTC),
 			TimeEnd:       time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC),
 			Cost:          1.2,
-			DurationIndex: 1 * time.Minute,
+			DurationIndex: time.Minute,
 		},
 		&TimeSpan{
 			TimeStart:     time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC),
@@ -1746,7 +1750,7 @@ func TestCompressDecompress(t *testing.T) {
 	if len(tss) != 4 ||
 		!tss[0].TimeStart.Equal(time.Date(2015, 1, 9, 16, 18, 0, 0, time.UTC)) ||
 		!tss[0].TimeEnd.Equal(time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC)) ||
-		tss[0].DurationIndex != 1*time.Minute ||
+		tss[0].DurationIndex != time.Minute ||
 		tss[0].CompressFactor != 1 ||
 		tss[0].Cost != 1.2 ||
 		!tss[1].TimeStart.Equal(time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC)) ||
@@ -1778,7 +1782,7 @@ func TestDifferentCompressDecompress(t *testing.T) {
 			TimeEnd:       time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC),
 			RateInterval:  &RateInterval{Weight: 1},
 			Cost:          1.2,
-			DurationIndex: 1 * time.Minute,
+			DurationIndex: time.Minute,
 		},
 		&TimeSpan{
 			TimeStart:     time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC),
@@ -1806,7 +1810,7 @@ func TestDifferentCompressDecompress(t *testing.T) {
 	if len(tss) != 3 ||
 		!tss[0].TimeStart.Equal(time.Date(2015, 1, 9, 16, 18, 0, 0, time.UTC)) ||
 		!tss[0].TimeEnd.Equal(time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC)) ||
-		tss[0].DurationIndex != 1*time.Minute ||
+		tss[0].DurationIndex != time.Minute ||
 		tss[0].Cost != 1.2 ||
 		!tss[1].TimeStart.Equal(time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC)) ||
 		!tss[1].TimeEnd.Equal(time.Date(2015, 1, 9, 16, 20, 0, 0, time.UTC)) ||
@@ -1825,7 +1829,7 @@ func TestDifferentCompressDecompress(t *testing.T) {
 	if len(tss) != 4 ||
 		!tss[0].TimeStart.Equal(time.Date(2015, 1, 9, 16, 18, 0, 0, time.UTC)) ||
 		!tss[0].TimeEnd.Equal(time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC)) ||
-		tss[0].DurationIndex != 1*time.Minute ||
+		tss[0].DurationIndex != time.Minute ||
 		tss[0].CompressFactor != 1 ||
 		tss[0].Cost != 1.2 ||
 		!tss[1].TimeStart.Equal(time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC)) ||
@@ -1856,10 +1860,10 @@ func TestMerge(t *testing.T) {
 		TimeEnd:   time.Date(2015, 1, 9, 16, 19, 0, 0, time.UTC),
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -1867,13 +1871,13 @@ func TestMerge(t *testing.T) {
 			},
 		},
 		Cost:          3,
-		DurationIndex: 1 * time.Minute,
+		DurationIndex: time.Minute,
 		Increments: Increments{
 			&Increment{
 				Duration: time.Minute,
 				Cost:     1,
 				BalanceInfo: &DebitInfo{
-					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 					Monetary:  &MonetaryInfo{UUID: "2"},
 					AccountID: "3"},
 				CompressFactor: 3,
@@ -1885,10 +1889,10 @@ func TestMerge(t *testing.T) {
 		TimeEnd:   time.Date(2015, 1, 9, 16, 20, 0, 0, time.UTC),
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -1902,7 +1906,7 @@ func TestMerge(t *testing.T) {
 				Duration: time.Minute,
 				Cost:     1,
 				BalanceInfo: &DebitInfo{
-					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 					Monetary:  &MonetaryInfo{UUID: "2"},
 					AccountID: "3"},
 			},
@@ -1910,7 +1914,7 @@ func TestMerge(t *testing.T) {
 				Duration: time.Minute,
 				Cost:     1,
 				BalanceInfo: &DebitInfo{
-					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 					Monetary:  &MonetaryInfo{UUID: "2"},
 					AccountID: "3"},
 			},
@@ -1921,10 +1925,10 @@ func TestMerge(t *testing.T) {
 		TimeEnd:   time.Date(2015, 1, 9, 16, 20, 0, 0, time.UTC),
 		RateInterval: &RateInterval{
 			Rating: &RIRate{
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 2,
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						Value:         2.0,
 						RateIncrement: 10 * time.Second,
 					},
@@ -1938,7 +1942,7 @@ func TestMerge(t *testing.T) {
 				Duration: time.Minute,
 				Cost:     1,
 				BalanceInfo: &DebitInfo{
-					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 					Monetary:  &MonetaryInfo{UUID: "2"},
 					AccountID: "3"},
 				CompressFactor: 3,
@@ -1947,7 +1951,7 @@ func TestMerge(t *testing.T) {
 				Duration: time.Minute,
 				Cost:     1,
 				BalanceInfo: &DebitInfo{
-					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 					Monetary:  &MonetaryInfo{UUID: "2"},
 					AccountID: "3"},
 				CompressFactor: 1,
@@ -1956,7 +1960,7 @@ func TestMerge(t *testing.T) {
 				Duration: time.Minute,
 				Cost:     1,
 				BalanceInfo: &DebitInfo{
-					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.VOICE, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&Rate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
+					Unit:      &UnitInfo{UUID: "1", DestinationID: "1", Consumed: 2.3, ToR: utils.MetaVoice, RateInterval: &RateInterval{Rating: &RIRate{Rates: RateGroups{&RGRate{GroupIntervalStart: 0, Value: 100, RateIncrement: 10 * time.Second, RateUnit: time.Second}}}}},
 					Monetary:  &MonetaryInfo{UUID: "2"},
 					AccountID: "3"},
 				CompressFactor: 1,
@@ -1969,6 +1973,14 @@ func TestMerge(t *testing.T) {
 	} else if !tss1.Equal(eMergedTSS) {
 		t.Errorf("Expecting: %+v, received: %+v", eMergedTSS, tss1)
 	}
+	tss1.TimeEnd = time.Date(2015, 1, 9, 16, 20, 0, 0, time.UTC)
+	if merged := tss1.Merge(tss2); merged {
+		t.Error("expected false")
+	}
+	tss1.MatchedSubject = "match_subj1"
+	if merged := tss1.Merge(tss2); merged {
+		t.Error("expected false")
+	}
 }
 
 func TestIncrementClone(t *testing.T) {
@@ -1978,13 +1990,13 @@ func TestIncrementClone(t *testing.T) {
 		t.Errorf("Expecting %+v, received: %+v", utils.ToJSON(eOut), utils.ToJSON(clone))
 	}
 	incr = &Increment{
-		Duration:       time.Duration(10),
+		Duration:       10,
 		Cost:           0.7,
 		CompressFactor: 10,
 		BalanceInfo:    &DebitInfo{AccountID: "AccountID_test"},
 	}
 	eOut = &Increment{
-		Duration:       time.Duration(10),
+		Duration:       10,
 		Cost:           0.7,
 		CompressFactor: 10,
 		BalanceInfo:    &DebitInfo{AccountID: "AccountID_test"},
@@ -1992,4 +2004,225 @@ func TestIncrementClone(t *testing.T) {
 	if clone := incr.Clone(); !reflect.DeepEqual(eOut, clone) {
 		t.Errorf("Expecting %+v, received: %+v", utils.ToJSON(eOut), utils.ToJSON(clone))
 	}
+}
+
+func TestTimeSpansMerge(t *testing.T) {
+
+	tss := &TimeSpans{
+		{
+			CompressFactor: 4,
+			DurationIndex:  1 * time.Hour,
+			Cost:           12,
+			TimeStart:      time.Date(2022, 12, 1, 18, 0, 0, 0, time.UTC),
+			TimeEnd:        time.Date(2022, 12, 1, 19, 0, 0, 0, time.UTC),
+			Increments: Increments{
+				&Increment{
+					Duration: 2 * time.Minute,
+					Cost:     23.22,
+				},
+				{
+					Duration: 5 * time.Minute,
+					Cost:     12.32,
+				},
+			},
+			RateInterval: &RateInterval{
+				Timing: &RITiming{
+					ID:    "id",
+					Years: utils.Years{2, 1, 3},
+				},
+				Rating: &RIRate{
+					ConnectFee:       12.11,
+					RoundingMethod:   "method",
+					RoundingDecimals: 13,
+					MaxCost:          494,
+				},
+				Weight: 2.3,
+			},
+			MatchedSubject: "subject",
+			MatchedPrefix:  "match_prefix",
+			MatchedDestId:  "dest_id",
+			RatingPlanId:   "rate_id",
+		},
+		{
+			CompressFactor: 4,
+			DurationIndex:  1 * time.Hour,
+			Cost:           12,
+			TimeStart:      time.Date(2022, 12, 1, 19, 0, 0, 0, time.UTC),
+			TimeEnd:        time.Date(2022, 12, 1, 20, 0, 0, 0, time.UTC),
+			Increments: Increments{
+				&Increment{
+					Duration: 2 * time.Minute,
+					Cost:     23.22,
+				},
+				{
+					Duration: 5 * time.Minute,
+					Cost:     12.32,
+				},
+			},
+			RateInterval: &RateInterval{
+				Timing: &RITiming{
+					ID:    "id",
+					Years: utils.Years{2, 1, 3},
+				},
+				Rating: &RIRate{
+					ConnectFee:       12.11,
+					RoundingMethod:   "method",
+					RoundingDecimals: 13,
+					MaxCost:          494,
+				},
+				Weight: 2.3,
+			},
+			MatchedSubject: "subject",
+			MatchedPrefix:  "match_prefix",
+			MatchedDestId:  "dest_id",
+			RatingPlanId:   "rate_id",
+		}, {
+			Cost:           11,
+			DurationIndex:  1 * time.Hour,
+			CompressFactor: 4,
+			TimeStart:      time.Date(2022, 12, 1, 20, 0, 0, 0, time.UTC),
+			TimeEnd:        time.Date(2022, 12, 1, 21, 0, 0, 0, time.UTC),
+			Increments: Increments{
+				&Increment{
+					Duration: 2 * time.Minute,
+					Cost:     23.22,
+				},
+				{
+					Duration: 5 * time.Minute,
+					Cost:     12.32,
+				},
+			},
+			RateInterval: &RateInterval{
+				Timing: &RITiming{
+					ID:    "id",
+					Years: utils.Years{2, 1, 3},
+				},
+				Rating: &RIRate{
+					ConnectFee:       12.11,
+					RoundingMethod:   "method",
+					RoundingDecimals: 13,
+					MaxCost:          494,
+				},
+				Weight: 2.3,
+			},
+			MatchedSubject: "subject",
+			MatchedPrefix:  "match_prefix",
+			MatchedDestId:  "dest_id",
+			RatingPlanId:   "rate_id",
+		},
+	}
+	expMerge := &TimeSpans{{
+		CompressFactor: 4,
+		DurationIndex:  1 * time.Hour,
+		Cost:           35,
+		TimeStart:      time.Date(2022, 12, 1, 18, 0, 0, 0, time.UTC),
+		TimeEnd:        time.Date(2022, 12, 1, 21, 0, 0, 0, time.UTC),
+		Increments: Increments{
+			{
+				Duration: 2 * time.Minute,
+				Cost:     23.22,
+			},
+			{
+				Duration: 5 * time.Minute,
+				Cost:     12.32,
+			},
+			{
+				Duration: 2 * time.Minute,
+				Cost:     23.22,
+			},
+			{
+				Duration: 5 * time.Minute,
+				Cost:     12.32,
+			},
+			{
+				Duration: 2 * time.Minute,
+				Cost:     23.22,
+			},
+			{
+				Duration: 5 * time.Minute,
+				Cost:     12.32,
+			},
+		},
+		RateInterval: &RateInterval{
+			Timing: &RITiming{
+				ID:    "id",
+				Years: utils.Years{2, 1, 3},
+			},
+			Rating: &RIRate{
+				ConnectFee:       12.11,
+				RoundingMethod:   "method",
+				RoundingDecimals: 13,
+				MaxCost:          494,
+			},
+			Weight: 2.3,
+		},
+		MatchedSubject: "subject",
+		MatchedPrefix:  "match_prefix",
+		MatchedDestId:  "dest_id",
+		RatingPlanId:   "rate_id",
+	}}
+	if tss.Merge(); !reflect.DeepEqual(tss, expMerge) {
+		t.Errorf("expected %v ,recived %v", utils.ToJSON(expMerge), utils.ToJSON(tss))
+	}
+}
+
+func TestMIUIEqualFalse(t *testing.T) {
+	mi := &MonetaryInfo{
+		UUID:  "uuid",
+		ID:    "id",
+		Value: 23.1,
+	}
+	ui := &UnitInfo{
+		UUID:          "uuid",
+		ID:            "id",
+		Value:         12.2,
+		DestinationID: "destId",
+	}
+	if val := mi.Equal(nil); val {
+		t.Errorf("expected false ,received %+v", val)
+	} else if val = ui.Equal(nil); val {
+		t.Errorf("expected false,received %+v", val)
+	}
+
+}
+
+func TestTimespanCreateSecondsSliceNegativeIncrementErr(t *testing.T) {
+
+	setLogger := func(buf *bytes.Buffer) {
+		utils.Logger.SetLogLevel(utils.LOGLEVEL_WARNING)
+		utils.Logger.SetSyslog(nil)
+		log.SetOutput(buf)
+	}
+	removeLogger := func() {
+		utils.Logger.SetLogLevel(0)
+		log.SetOutput(os.Stderr)
+	}
+	defer func() {
+		removeLogger()
+	}()
+	buf := new(bytes.Buffer)
+	setLogger(buf)
+
+	ts := &TimeSpan{
+		TimeStart: time.Date(2013, 9, 10, 14, 30, 0, 0, time.UTC),
+		TimeEnd:   time.Date(2013, 9, 10, 14, 30, 30, 0, time.UTC),
+		RateInterval: &RateInterval{
+			Rating: &RIRate{
+				Rates: RateGroups{
+					&RGRate{
+						GroupIntervalStart: 60 * time.Second,
+						Value:              2.0,
+					},
+				},
+			},
+		},
+	}
+
+	expLog := `error: <UNCOMPUTABLE_INCREMENT with -30000000000>, when creating increments slice, TimeSpan:`
+	ts.createIncrementsSlice()
+	if rcvLog := buf.String(); !strings.Contains(rcvLog, expLog) {
+		t.Errorf("expected log <%+v> to be included in: <%+v>",
+			expLog, rcvLog)
+	}
+
 }

@@ -22,8 +22,6 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/cgrates/birpc"
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/rpcclient"
@@ -32,9 +30,9 @@ import (
 type DispatcherHostProfile struct {
 	ID        string
 	FilterIDs []string
-	Weight    float64                // applied in case of multiple connections need to be ordered
-	Params    map[string]interface{} // additional parameters stored for a session
-	Blocker   bool                   // no connection after this one
+	Weight    float64        // applied in case of multiple connections need to be ordered
+	Params    map[string]any // additional parameters stored for a session
+	Blocker   bool           // no connection after this one
 }
 
 func (dC *DispatcherHostProfile) Clone() (cln *DispatcherHostProfile) {
@@ -50,7 +48,7 @@ func (dC *DispatcherHostProfile) Clone() (cln *DispatcherHostProfile) {
 		}
 	}
 	if dC.Params != nil {
-		cln.Params = make(map[string]interface{})
+		cln.Params = make(map[string]any)
 		for k, v := range dC.Params {
 			cln.Params[k] = v
 		}
@@ -75,7 +73,6 @@ func (dHPrfls DispatcherHostProfiles) ReorderFromIndex(idx int) {
 		dHPrfls[i] = initConns[idx]
 		idx++
 	}
-	return
 }
 
 // Shuffle will mix the connections in place
@@ -83,7 +80,6 @@ func (dHPrfls DispatcherHostProfiles) Shuffle() {
 	rand.Shuffle(len(dHPrfls), func(i, j int) {
 		dHPrfls[i], dHPrfls[j] = dHPrfls[j], dHPrfls[i]
 	})
-	return
 }
 
 func (dHPrfls DispatcherHostProfiles) Clone() (cln DispatcherHostProfiles) {
@@ -110,9 +106,15 @@ type DispatcherProfile struct {
 	FilterIDs          []string
 	ActivationInterval *utils.ActivationInterval // activation interval
 	Strategy           string
-	StrategyParams     map[string]interface{} // ie for distribution, set here the pool weights
+	StrategyParams     map[string]any         // ie for distribution, set here the pool weights
 	Weight             float64                // used for profile sorting on match
 	Hosts              DispatcherHostProfiles // dispatch to these connections
+}
+
+// DispatcherProfileWithAPIOpts is used in replicatorV1 for dispatcher
+type DispatcherProfileWithAPIOpts struct {
+	*DispatcherProfile
+	APIOpts map[string]any
 }
 
 func (dP *DispatcherProfile) TenantID() string {
@@ -129,29 +131,65 @@ func (dps DispatcherProfiles) Sort() {
 
 // DispatcherHost represents one virtual host used by dispatcher
 type DispatcherHost struct {
-	Tenant  string
-	ID      string
-	Conns   []*config.RemoteHost
-	rpcConn birpc.ClientConnector
+	Tenant string
+	*config.RemoteHost
+	rpcConn rpcclient.ClientConnector
 }
 
+// DispatcherHostWithOpts is used in replicatorV1 for dispatcher
+type DispatcherHostWithAPIOpts struct {
+	*DispatcherHost
+	APIOpts map[string]any
+}
+
+// TenantID returns the tenant concatenated with the ID
 func (dH *DispatcherHost) TenantID() string {
 	return utils.ConcatenatedKey(dH.Tenant, dH.ID)
 }
 
-// GetRPCConnection builds or returns the cached connection
-func (dH *DispatcherHost) Call(serviceMethod string, args interface{}, reply interface{}) (err error) {
+// Call will build and cache the connection if it is not defined yet then will execute the method on conn
+func (dH *DispatcherHost) Call(serviceMethod string, args any, reply any) (err error) {
 	if dH.rpcConn == nil {
+		// connect the rpcConn
 		cfg := config.CgrConfig()
-		if dH.rpcConn, err = NewRPCPool(
-			rpcclient.PoolFirst,
-			cfg.TlsCfg().ClientKey,
-			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+		if dH.rpcConn, err = NewRPCConnection(dH.RemoteHost,
+			cfg.TLSCfg().ClientKey,
+			cfg.TLSCfg().ClientCerificate, cfg.TLSCfg().CaCertificate,
 			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
 			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
-			dH.Conns, IntRPC.GetInternalChanel(), false); err != nil {
+			IntRPC.GetInternalChanel(), false, nil,
+			utils.EmptyString, utils.EmptyString, nil); err != nil {
 			return
 		}
 	}
-	return dH.rpcConn.Call(context.TODO(), serviceMethod, args, reply)
+	return dH.rpcConn.Call(serviceMethod, args, reply)
+}
+
+type DispatcherHostIDs []string
+
+// ReorderFromIndex will consider idx as starting point for the reordered slice
+func (dHPrflIDs DispatcherHostIDs) ReorderFromIndex(idx int) {
+	initConns := dHPrflIDs.Clone()
+	for i := 0; i < len(dHPrflIDs); i++ {
+		if idx > len(dHPrflIDs)-1 {
+			idx = 0
+		}
+		dHPrflIDs[i] = initConns[idx]
+		idx++
+	}
+}
+
+// Shuffle will mix the connections in place
+func (dHPrflIDs DispatcherHostIDs) Shuffle() {
+	rand.Shuffle(len(dHPrflIDs), func(i, j int) {
+		dHPrflIDs[i], dHPrflIDs[j] = dHPrflIDs[j], dHPrflIDs[i]
+	})
+}
+
+func (dHPrflIDs DispatcherHostIDs) Clone() (cln DispatcherHostIDs) {
+	cln = make(DispatcherHostIDs, len(dHPrflIDs))
+	for i, dhID := range dHPrflIDs {
+		cln[i] = dhID
+	}
+	return
 }

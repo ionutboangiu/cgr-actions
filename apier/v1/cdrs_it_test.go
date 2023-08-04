@@ -49,14 +49,14 @@ var (
 		testV1CDRsRefundCDR,
 		testV1CDRsKillEngine,
 
-		/* 	testV1CDRsInitConfig,
+		testV1CDRsInitConfig,
 		testV1CDRsInitDataDb,
 		testV1CDRsInitCdrDb,
 		testV1CDRsStartEngine,
 		testV1CDRsRpcConn,
 		testV1CDRsLoadTariffPlanFromFolderSMS,
 		testV1CDRsAddBalanceForSMS,
-		testV1CDRsKillEngine, */
+		testV1CDRsKillEngine,
 	}
 )
 
@@ -133,9 +133,9 @@ func testV1CDRsProcessEventWithRefund(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      acntAttrs.Tenant,
 		Account:     acntAttrs.Account,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       120000000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     "BALANCE1",
 			utils.Weight: 20,
 		},
@@ -149,9 +149,9 @@ func testV1CDRsProcessEventWithRefund(t *testing.T) {
 	attrSetBalance = utils.AttrSetBalance{
 		Tenant:      acntAttrs.Tenant,
 		Account:     acntAttrs.Account,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       180000000000,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     "BALANCE2",
 			utils.Weight: 10,
 		},
@@ -164,21 +164,21 @@ func testV1CDRsProcessEventWithRefund(t *testing.T) {
 	expectedVoice := 300000000000.0
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.VOICE].GetTotalValue(); rply != expectedVoice {
+	} else if rply := acnt.BalanceMap[utils.MetaVoice].GetTotalValue(); rply != expectedVoice {
 		t.Errorf("Expecting: %v, received: %v", expectedVoice, rply)
 	}
 	argsEv := &engine.ArgV1ProcessEvent{
 		Flags: []string{utils.MetaRALs},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.RunID:       "testv1",
-				utils.OriginID:    "testV1CDRsProcessEventWithRefund",
-				utils.RequestType: utils.META_PSEUDOPREPAID,
-				utils.Account:     "testV1CDRsProcessEventWithRefund",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(3) * time.Minute,
+			Event: map[string]any{
+				utils.RunID:        "testv1",
+				utils.OriginID:     "testV1CDRsProcessEventWithRefund",
+				utils.RequestType:  utils.MetaPseudoPrepaid,
+				utils.AccountField: "testV1CDRsProcessEventWithRefund",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
+				utils.Usage:        3 * time.Minute,
 			},
 		},
 	}
@@ -188,7 +188,7 @@ func testV1CDRsProcessEventWithRefund(t *testing.T) {
 		t.Error("Unexpected reply received: ", reply)
 	}
 	var cdrs []*engine.ExternalCDR
-	if err := cdrsRpc.Call(utils.APIerSv1GetCDRs, utils.AttrGetCdrs{}, &cdrs); err != nil {
+	if err := cdrsRpc.Call(utils.APIerSv1GetCDRs, &utils.AttrGetCdrs{}, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -199,41 +199,37 @@ func testV1CDRsProcessEventWithRefund(t *testing.T) {
 	}
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if blc1 := acnt.GetBalanceWithID(utils.VOICE, "BALANCE1"); blc1.Value != 0 {
+	} else if blc1 := acnt.GetBalanceWithID(utils.MetaVoice, "BALANCE1"); blc1.Value != 0 {
 		t.Errorf("Balance1 is: %s", utils.ToIJSON(blc1))
-	} else if blc2 := acnt.GetBalanceWithID(utils.VOICE, "BALANCE2"); blc2.Value != 120000000000 {
+	} else if blc2 := acnt.GetBalanceWithID(utils.MetaVoice, "BALANCE2"); blc2.Value != 120000000000 {
 		t.Errorf("Balance2 is: %s", utils.ToIJSON(blc2))
 	}
-
 	// without re-rate we should be denied
-	if err := cdrsRpc.Call(utils.CDRsV1ProcessEvent, argsEv, &reply); err == nil &&
-		err.Error() != utils.ErrExists.Error() {
-		t.Errorf("should receive error here: %v", err)
+	if err := cdrsRpc.Call(utils.CDRsV1ProcessEvent, argsEv, &reply); err == nil {
+		t.Error("should receive error here")
 	}
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if blc1 := acnt.GetBalanceWithID(utils.VOICE, "BALANCE1"); blc1.Value != 0 {
+	} else if blc1 := acnt.GetBalanceWithID(utils.MetaVoice, "BALANCE1"); blc1.Value != 0 {
 		t.Errorf("Balance1 is: %s", utils.ToIJSON(blc1))
-	} else if blc2 := acnt.GetBalanceWithID(utils.VOICE, "BALANCE2"); blc2.Value != 120000000000 {
+	} else if blc2 := acnt.GetBalanceWithID(utils.MetaVoice, "BALANCE2"); blc2.Value != 120000000000 {
 		t.Errorf("Balance2 is: %s", utils.ToIJSON(blc2))
 	}
-
 	argsEv = &engine.ArgV1ProcessEvent{
 		Flags: []string{utils.MetaRALs, utils.MetaRerate},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.RunID:       "testv1",
-				utils.OriginID:    "testV1CDRsProcessEventWithRefund",
-				utils.RequestType: utils.META_PSEUDOPREPAID,
-				utils.Account:     "testV1CDRsProcessEventWithRefund",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(1) * time.Minute,
+			Event: map[string]any{
+				utils.RunID:        "testv1",
+				utils.OriginID:     "testV1CDRsProcessEventWithRefund",
+				utils.RequestType:  utils.MetaPseudoPrepaid,
+				utils.AccountField: "testV1CDRsProcessEventWithRefund",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
 			},
 		},
 	}
-
 	if err := cdrsRpc.Call(utils.CDRsV1ProcessEvent, argsEv, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
@@ -241,9 +237,9 @@ func testV1CDRsProcessEventWithRefund(t *testing.T) {
 	}
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if blc1 := acnt.GetBalanceWithID(utils.VOICE, "BALANCE1"); blc1.Value != 60000000000 {
+	} else if blc1 := acnt.GetBalanceWithID(utils.MetaVoice, "BALANCE1"); blc1.Value != 60000000000 {
 		t.Errorf("Balance1 is: %s", utils.ToIJSON(blc1))
-	} else if blc2 := acnt.GetBalanceWithID(utils.VOICE, "BALANCE2"); blc2.Value != 180000000000 {
+	} else if blc2 := acnt.GetBalanceWithID(utils.MetaVoice, "BALANCE2"); blc2.Value != 180000000000 {
 		t.Errorf("Balance2 is: %s", utils.ToIJSON(blc2))
 	}
 }
@@ -257,9 +253,9 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      acntAttrs.Tenant,
 		Account:     acntAttrs.Account,
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       123,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     utils.MetaDefault,
 			utils.Weight: 20,
 		},
@@ -274,10 +270,10 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 	exp := 123.0
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != exp {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != exp {
 		t.Errorf("Expecting: %v, received: %v", exp, rply)
 	}
-	balanceUuid := acnt.BalanceMap[utils.MONETARY][0].Uuid
+	balanceUuid := acnt.BalanceMap[utils.MetaMonetary][0].Uuid
 
 	attr := &engine.AttrCDRSStoreSMCost{
 		Cost: &engine.SMCost{
@@ -285,25 +281,25 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 			RunID:      utils.MetaDefault,
 			OriginID:   "testV1CDRsRefundOutOfSessionCost",
 			CostSource: utils.MetaSessionS,
-			Usage:      time.Duration(3 * time.Minute),
+			Usage:      3 * time.Minute,
 			CostDetails: &engine.EventCost{
 				CGRID:     "test1",
 				RunID:     utils.MetaDefault,
 				StartTime: time.Date(2017, 1, 9, 16, 18, 21, 0, time.UTC),
-				Usage:     utils.DurationPointer(time.Duration(3 * time.Minute)),
+				Usage:     utils.DurationPointer(3 * time.Minute),
 				Cost:      utils.Float64Pointer(2.3),
 				Charges: []*engine.ChargingInterval{
 					{
 						RatingID: "c1a5ab9",
 						Increments: []*engine.ChargingIncrement{
 							{
-								Usage:          time.Duration(2 * time.Minute),
+								Usage:          2 * time.Minute,
 								Cost:           2.0,
 								AccountingID:   "a012888",
 								CompressFactor: 1,
 							},
 							{
-								Usage:          time.Duration(1 * time.Second),
+								Usage:          time.Second,
 								Cost:           0.005,
 								AccountingID:   "44d6c02",
 								CompressFactor: 60,
@@ -318,7 +314,7 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 					BalanceSummaries: []*engine.BalanceSummary{
 						{
 							UUID:  balanceUuid,
-							Type:  utils.MONETARY,
+							Type:  utils.MetaMonetary,
 							Value: 50,
 						},
 					},
@@ -348,11 +344,11 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 				},
 				Rates: engine.ChargedRates{
 					"ec1a177": engine.RateGroups{
-						&engine.Rate{
-							GroupIntervalStart: time.Duration(0),
+						&engine.RGRate{
+							GroupIntervalStart: 0,
 							Value:              0.01,
-							RateIncrement:      time.Duration(1 * time.Minute),
-							RateUnit:           time.Duration(1 * time.Second)},
+							RateIncrement:      time.Minute,
+							RateUnit:           time.Second},
 					},
 				},
 			},
@@ -369,15 +365,15 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 		Flags: []string{utils.MetaRALs},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.CGRID:       "test1",
-				utils.RunID:       utils.MetaDefault,
-				utils.OriginID:    "testV1CDRsRefundOutOfSessionCost",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "testV1CDRsRefundOutOfSessionCost",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
-				utils.Usage:       123 * time.Minute,
+			Event: map[string]any{
+				utils.CGRID:        "test1",
+				utils.RunID:        utils.MetaDefault,
+				utils.OriginID:     "testV1CDRsRefundOutOfSessionCost",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "testV1CDRsRefundOutOfSessionCost",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
+				utils.Usage:        123 * time.Minute,
 			},
 		},
 	}
@@ -392,7 +388,7 @@ func testV1CDRsRefundOutOfSessionCost(t *testing.T) {
 	exp = 124.0454
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != exp {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != exp {
 		t.Errorf("Expecting: %v, received: %v", exp, rply)
 	}
 }
@@ -406,9 +402,9 @@ func testV1CDRsRefundCDR(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      acntAttrs.Tenant,
 		Account:     acntAttrs.Account,
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       123,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     utils.MetaDefault,
 			utils.Weight: 20,
 		},
@@ -423,42 +419,42 @@ func testV1CDRsRefundCDR(t *testing.T) {
 	exp := 123.0
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != exp {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != exp {
 		t.Errorf("Expecting: %v, received: %v", exp, rply)
 	}
 
-	balanceUuid := acnt.BalanceMap[utils.MONETARY][0].Uuid
+	balanceUuid := acnt.BalanceMap[utils.MetaMonetary][0].Uuid
 
 	argsEv := &engine.ArgV1ProcessEvent{
 		Flags: []string{utils.MetaRefund},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.RunID:       utils.MetaDefault,
-				utils.OriginID:    "testV1CDRsRefundCDR",
-				utils.RequestType: utils.META_PSEUDOPREPAID,
-				utils.Account:     "testV1CDRsRefundCDR",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(10) * time.Minute,
+			Event: map[string]any{
+				utils.RunID:        utils.MetaDefault,
+				utils.OriginID:     "testV1CDRsRefundCDR",
+				utils.RequestType:  utils.MetaPseudoPrepaid,
+				utils.AccountField: "testV1CDRsRefundCDR",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
+				utils.Usage:        10 * time.Minute,
 				utils.CostDetails: &engine.EventCost{
 					CGRID:     "test1",
 					RunID:     utils.MetaDefault,
 					StartTime: time.Date(2017, 1, 9, 16, 18, 21, 0, time.UTC),
-					Usage:     utils.DurationPointer(time.Duration(3 * time.Minute)),
+					Usage:     utils.DurationPointer(3 * time.Minute),
 					Cost:      utils.Float64Pointer(2.3),
 					Charges: []*engine.ChargingInterval{
 						{
 							RatingID: "c1a5ab9",
 							Increments: []*engine.ChargingIncrement{
 								{
-									Usage:          time.Duration(2 * time.Minute),
+									Usage:          2 * time.Minute,
 									Cost:           2.0,
 									AccountingID:   "a012888",
 									CompressFactor: 1,
 								},
 								{
-									Usage:          time.Duration(1 * time.Second),
+									Usage:          time.Second,
 									Cost:           0.005,
 									AccountingID:   "44d6c02",
 									CompressFactor: 60,
@@ -473,7 +469,7 @@ func testV1CDRsRefundCDR(t *testing.T) {
 						BalanceSummaries: []*engine.BalanceSummary{
 							{
 								UUID:  balanceUuid,
-								Type:  utils.MONETARY,
+								Type:  utils.MetaMonetary,
 								Value: 50,
 							},
 						},
@@ -503,11 +499,11 @@ func testV1CDRsRefundCDR(t *testing.T) {
 					},
 					Rates: engine.ChargedRates{
 						"ec1a177": engine.RateGroups{
-							&engine.Rate{
-								GroupIntervalStart: time.Duration(0),
+							&engine.RGRate{
+								GroupIntervalStart: 0,
 								Value:              0.01,
-								RateIncrement:      time.Duration(1 * time.Minute),
-								RateUnit:           time.Duration(1 * time.Second)},
+								RateIncrement:      time.Minute,
+								RateUnit:           time.Second},
 						},
 					},
 				},
@@ -525,7 +521,7 @@ func testV1CDRsRefundCDR(t *testing.T) {
 	exp = 125.3
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != exp {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != exp {
 		t.Errorf("Expecting: %v, received: %v", exp, rply)
 	}
 }
@@ -545,7 +541,7 @@ func testV1CDRsAddBalanceForSMS(t *testing.T) {
 	attrs := &AttrAddBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1CDRsAddBalanceForSMS",
-		BalanceType: utils.SMS,
+		BalanceType: utils.MetaSMS,
 		Value:       1000,
 	}
 	if err := cdrsRpc.Call(utils.APIerSv1AddBalance, attrs, &reply); err != nil {
@@ -557,7 +553,7 @@ func testV1CDRsAddBalanceForSMS(t *testing.T) {
 	attrs = &AttrAddBalance{
 		Tenant:      "cgrates.org",
 		Account:     "testV1CDRsAddBalanceForSMS",
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       10,
 	}
 	if err := cdrsRpc.Call(utils.APIerSv1AddBalance, attrs, &reply); err != nil {
@@ -574,31 +570,31 @@ func testV1CDRsAddBalanceForSMS(t *testing.T) {
 
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, attrAcc, &acnt); err != nil {
 		t.Error(err)
-	} else if len(acnt.BalanceMap[utils.SMS]) != 1 {
-		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.SMS]))
-	} else if acnt.BalanceMap[utils.SMS].GetTotalValue() != 1000 {
-		t.Errorf("Expecting: %v, received: %v", 1000, acnt.BalanceMap[utils.SMS].GetTotalValue())
-	} else if len(acnt.BalanceMap[utils.MONETARY]) != 1 {
-		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.MONETARY]))
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != 10 {
-		t.Errorf("Expecting: %v, received: %v", 10, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if len(acnt.BalanceMap[utils.MetaSMS]) != 1 {
+		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.MetaSMS]))
+	} else if acnt.BalanceMap[utils.MetaSMS].GetTotalValue() != 1000 {
+		t.Errorf("Expecting: %v, received: %v", 1000, acnt.BalanceMap[utils.MetaSMS].GetTotalValue())
+	} else if len(acnt.BalanceMap[utils.MetaMonetary]) != 1 {
+		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.MetaMonetary]))
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != 10 {
+		t.Errorf("Expecting: %v, received: %v", 10, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 
 	argsEv := &engine.ArgV1ProcessEvent{
 		Flags: []string{utils.MetaRALs},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.CGRID:       "asdfas",
-				utils.ToR:         utils.SMS,
-				utils.Category:    "sms",
-				utils.RunID:       utils.MetaDefault,
-				utils.OriginID:    "testV1CDRsAddBalanceForSMS",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "testV1CDRsAddBalanceForSMS",
-				utils.Destination: "+4986517174963",
-				utils.AnswerTime:  time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(1),
+			Event: map[string]any{
+				utils.CGRID:        "asdfas",
+				utils.ToR:          utils.MetaSMS,
+				utils.Category:     "sms",
+				utils.RunID:        utils.MetaDefault,
+				utils.OriginID:     "testV1CDRsAddBalanceForSMS",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "testV1CDRsAddBalanceForSMS",
+				utils.Destination:  "+4986517174963",
+				utils.AnswerTime:   time.Date(2019, 11, 27, 12, 21, 26, 0, time.UTC),
+				utils.Usage:        1,
 			},
 		},
 	}
@@ -610,14 +606,14 @@ func testV1CDRsAddBalanceForSMS(t *testing.T) {
 
 	if err := cdrsRpc.Call(utils.APIerSv2GetAccount, attrAcc, &acnt); err != nil {
 		t.Error(err)
-	} else if len(acnt.BalanceMap[utils.SMS]) != 1 {
-		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.SMS]))
-	} else if acnt.BalanceMap[utils.SMS].GetTotalValue() != 999 {
-		t.Errorf("Expecting: %v, received: %v", 999, acnt.BalanceMap[utils.SMS].GetTotalValue())
-	} else if len(acnt.BalanceMap[utils.MONETARY]) != 1 {
-		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.MONETARY]))
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != 10 {
-		t.Errorf("Expecting: %v, received: %v", 10, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if len(acnt.BalanceMap[utils.MetaSMS]) != 1 {
+		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.MetaSMS]))
+	} else if acnt.BalanceMap[utils.MetaSMS].GetTotalValue() != 999 {
+		t.Errorf("Expecting: %v, received: %v", 999, acnt.BalanceMap[utils.MetaSMS].GetTotalValue())
+	} else if len(acnt.BalanceMap[utils.MetaMonetary]) != 1 {
+		t.Errorf("Expecting: %v, received: %v", 1, len(acnt.BalanceMap[utils.MetaMonetary]))
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != 10 {
+		t.Errorf("Expecting: %v, received: %v", 10, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 
 }

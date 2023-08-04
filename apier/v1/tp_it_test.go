@@ -38,7 +38,6 @@ var (
 	tpCfgPath   string
 	tpCfg       *config.CGRConfig
 	tpRPC       *rpc.Client
-	tpDataDir   = "/usr/share/cgrates"
 	tpConfigDIR string //run tests for specific configuration
 
 	sTestsTP = []func(t *testing.T){
@@ -48,6 +47,7 @@ var (
 		testTPRpcConn,
 		testTPImportTPFromFolderPath,
 		testTPExportTPToFolder,
+		testTPExportTPToFolderWithError,
 		testTPKillEngine,
 	}
 )
@@ -74,13 +74,11 @@ func TestTPIT(t *testing.T) {
 
 func testTPInitCfg(t *testing.T) {
 	var err error
-	tpCfgPath = path.Join(tpDataDir, "conf", "samples", tpConfigDIR)
+	tpCfgPath = path.Join(*dataDir, "conf", "samples", tpConfigDIR)
 	tpCfg, err = config.NewCGRConfigFromPath(tpCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpCfg.DataFolderPath = tpDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpCfg)
 }
 
 // Wipe out the cdr database
@@ -110,12 +108,12 @@ func testTPImportTPFromFolderPath(t *testing.T) {
 	var reply string
 	if err := tpRPC.Call(utils.APIerSv1ImportTariffPlanFromFolder,
 		utils.AttrImportTPFromFolder{TPid: "TEST_TPID2",
-			FolderPath: path.Join(tpDataDir, "tariffplans", "tutorial")}, &reply); err != nil {
+			FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}, &reply); err != nil {
 		t.Error("Got error on APIerSv1.ImportTarrifPlanFromFolder: ", err.Error())
 	} else if reply != utils.OK {
 		t.Error("Calling APIerSv1.ImportTarrifPlanFromFolder got reply: ", reply)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testTPExportTPToFolder(t *testing.T) {
@@ -124,8 +122,8 @@ func testTPExportTPToFolder(t *testing.T) {
 		Compressed: true,
 		ExportPath: "/tmp/",
 		ExportedFiles: []string{utils.RatingProfilesCsv, utils.RatingPlansCsv, utils.ActionsCsv, utils.AccountActionsCsv,
-			utils.ChargersCsv, utils.TimingsCsv, utils.ActionPlansCsv, utils.ResourcesCsv, utils.StatsCsv, utils.ThresholdsCsv,
-			utils.DestinationsCsv, utils.RatesCsv, utils.DestinationRatesCsv, utils.FiltersCsv, utils.SuppliersCsv, utils.AttributesCsv},
+			utils.ChargersCsv, utils.ActionPlansCsv, utils.ResourcesCsv, utils.StatsCsv, utils.ThresholdsCsv,
+			utils.DestinationsCsv, utils.RatesCsv, utils.DestinationRatesCsv, utils.FiltersCsv, utils.RoutesCsv, utils.AttributesCsv},
 	}
 	sort.Strings(expectedTPStas.ExportedFiles)
 	tpid := "TEST_TPID2"
@@ -140,7 +138,17 @@ func testTPExportTPToFolder(t *testing.T) {
 	} else if sort.Strings(reply.ExportedFiles); !reflect.DeepEqual(expectedTPStas.ExportedFiles, reply.ExportedFiles) {
 		t.Errorf("Expecting : %+v, received: %+v", expectedTPStas.ExportedFiles, reply.ExportedFiles)
 	}
-	time.Sleep(500 * time.Millisecond)
+}
+
+func testTPExportTPToFolderWithError(t *testing.T) {
+	var reply *utils.ExportedTPStats
+	tpid := "UnexistedTP"
+	compress := true
+	exportPath := "/tmp/"
+	if err := tpRPC.Call(utils.APIerSv1ExportTPToFolder,
+		&utils.AttrDirExportTP{TPid: &tpid, ExportPath: &exportPath, Compress: &compress}, &reply); err == nil || err.Error() != utils.NewErrServerError(utils.ErrNotFound).Error() {
+		t.Error("Expecting error, received: ", err)
+	}
 
 }
 

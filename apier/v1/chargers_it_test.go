@@ -25,6 +25,7 @@ import (
 	"net/rpc"
 	"path"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -37,28 +38,34 @@ var (
 	chargerCfgPath   string
 	chargerCfg       *config.CGRConfig
 	chargerRPC       *rpc.Client
-	chargerProfile   *ChargerWithCache
+	chargerProfile   *ChargerWithAPIOpts
 	chargerConfigDIR string //run tests for specific configuration
 
-	chargerEvent = []*utils.CGREventWithArgDispatcher{
+	chargerEvent = []*utils.CGREvent{
 		{
-			CGREvent: &utils.CGREvent{ // matching Charger1
-				Tenant: "cgrates.org",
-				ID:     "event1",
-				Event: map[string]interface{}{
-					utils.Account: "1001",
-				},
+			Tenant: "cgrates.org",
+			ID:     "event1",
+			Event: map[string]any{
+				utils.AccountField: "1001",
+			},
+			APIOpts: map[string]any{utils.OptsContext: "simpleauth"},
+		},
+
+		{
+			Tenant: "cgrates.org",
+			ID:     "event2",
+			Event: map[string]any{
+				utils.AccountField: "1010",
+				"DistinctMatch":    "cgrates",
 			},
 		},
 		{
-			CGREvent: &utils.CGREvent{ // no matching
-				Tenant: "cgrates.org",
-				ID:     "event1",
-				Event: map[string]interface{}{
-					utils.Account:   "1010",
-					"DistinctMatch": "cgrates",
-				},
+			Tenant: "cgrates.org",
+			ID:     "event1",
+			Event: map[string]any{
+				utils.AccountField: "1007",
 			},
+			APIOpts: map[string]any{utils.OptsContext: "simpleauth"},
 		},
 	}
 
@@ -77,15 +84,33 @@ var (
 		testChargerSUpdateChargerProfile,
 		testChargerSRemChargerProfile,
 		testChargerSPing,
+		testChargerSProcessWithNotFoundAttribute,
+		testChargerSProccessEventWithProcceSRunS,
+		testChargerSSetChargerProfileWithoutTenant,
+		testChargerSRemChargerProfileWithoutTenant,
+		testChargerSKillEngine,
+		//cache test
+		testChargerSInitCfg,
+		testChargerSInitDataDb,
+		testChargerSResetStorDb,
+		testChargerSStartEngine,
+		testChargerSRPCConn,
+		testChargerSCacheTestGetNotFound,
+		testChargerSCacheTestSet,
+		testChargerSCacheTestGetNotFound,
+		testChargerSCacheReload,
+		testChargerSCacheTestGetFound,
 		testChargerSKillEngine,
 	}
 )
 
 // Test start here
 func TestChargerSIT(t *testing.T) {
+	sTestsChargerCache := sTestsCharger
 	switch *dbType {
 	case utils.MetaInternal:
 		chargerConfigDIR = "tutinternal"
+		sTestsChargerCache = sTestsChargerCache[:len(sTestsChargerCache)-10]
 	case utils.MetaMySQL:
 		chargerConfigDIR = "tutmysql"
 	case utils.MetaMongo:
@@ -95,7 +120,7 @@ func TestChargerSIT(t *testing.T) {
 	default:
 		t.Fatal("Unknown Database type")
 	}
-	for _, stest := range sTestsCharger {
+	for _, stest := range sTestsChargerCache {
 		t.Run(chargerConfigDIR, stest)
 	}
 }
@@ -107,8 +132,6 @@ func testChargerSInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	chargerCfg.DataFolderPath = *dataDir
-	config.SetCgrConfig(chargerCfg)
 }
 
 func testChargerSInitDataDb(t *testing.T) {
@@ -141,7 +164,7 @@ func testChargerSRPCConn(t *testing.T) {
 }
 
 func testChargerSLoadAddCharger(t *testing.T) {
-	chargerProfile := &ChargerWithCache{
+	chargerProfile := &ChargerWithAPIOpts{
 		ChargerProfile: &engine.ChargerProfile{
 			Tenant:    "cgrates.org",
 			ID:        "Charger1",
@@ -161,8 +184,27 @@ func testChargerSLoadAddCharger(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
+	chargerProfile = &ChargerWithAPIOpts{
+		ChargerProfile: &engine.ChargerProfile{
+			Tenant:    "cgrates.org",
+			ID:        "Charger2",
+			FilterIDs: []string{"*string:~*req.Account:1007"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 29, 15, 0, 0, 0, time.UTC),
+			},
+			RunID:        utils.MetaDefault,
+			AttributeIDs: []string{"*constant:*req.RequestType:*rated;*constant:*req.Category:call"},
+			Weight:       20,
+		},
+	}
 
-	chargerProfile = &ChargerWithCache{
+	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &result); err != nil {
+		t.Error(err)
+	} else if result != utils.OK {
+		t.Error("Unexpected reply returned", result)
+	}
+
+	chargerProfile = &ChargerWithAPIOpts{
 		ChargerProfile: &engine.ChargerProfile{
 			Tenant:    "cgrates.org",
 			ID:        "ChargerNotMatching",
@@ -182,7 +224,7 @@ func testChargerSLoadAddCharger(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 
-	alsPrf = &AttributeWithCache{
+	alsPrf = &engine.AttributeProfileWithAPIOpts{
 		AttributeProfile: &engine.AttributeProfile{
 			Tenant:   "cgrates.org",
 			ID:       "ATTR_1001_SIMPLEAUTH",
@@ -192,8 +234,7 @@ func testChargerSLoadAddCharger(t *testing.T) {
 					Path: utils.MetaReq + utils.NestingSep + "Password",
 					Value: config.RSRParsers{
 						&config.RSRParser{
-							Rules:           "CGRateS.org",
-							AllFiltersMatch: true,
+							Rules: "CGRateS.org",
 						},
 					},
 				},
@@ -224,11 +265,34 @@ func testChargerSGetChargersForEvent(t *testing.T) {
 		},
 	}
 	var result *engine.ChargerProfiles
-	if err := chargerRPC.Call(utils.ChargerSv1GetChargersForEvent, chargerEvent[1], &result); err == nil ||
+	if err := chargerRPC.Call(utils.ChargerSv1GetChargersForEvent,
+		chargerEvent[1], &result); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	if err := chargerRPC.Call(utils.ChargerSv1GetChargersForEvent, chargerEvent[0], &result); err != nil {
+	if err := chargerRPC.Call(utils.ChargerSv1GetChargersForEvent,
+		chargerEvent[0], &result); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(result, chargerProfiles) {
+		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(chargerProfiles), utils.ToJSON(result))
+	}
+
+	chargerProfiles = &engine.ChargerProfiles{
+		&engine.ChargerProfile{
+			Tenant:    "cgrates.org",
+			ID:        "Charger1",
+			FilterIDs: []string{"*string:~*req.Account:1001"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 29, 15, 0, 0, 0, time.UTC),
+			},
+			RunID:        utils.MetaDefault,
+			AttributeIDs: []string{"ATTR_1001_SIMPLEAUTH"},
+			Weight:       20,
+		},
+	}
+	chargerEvent[0].Tenant = utils.EmptyString
+	if err := chargerRPC.Call(utils.ChargerSv1GetChargersForEvent,
+		chargerEvent[0], &result); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(result, chargerProfiles) {
 		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(chargerProfiles), utils.ToJSON(result))
@@ -238,14 +302,12 @@ func testChargerSGetChargersForEvent(t *testing.T) {
 func testChargerSGetChargersForEvent2(t *testing.T) {
 	var result *engine.ChargerProfiles
 	if err := chargerRPC.Call(utils.ChargerSv1GetChargersForEvent,
-		&utils.CGREventWithArgDispatcher{
-			CGREvent: &utils.CGREvent{ // matching Charger1
-				Tenant: "cgrates.org",
-				ID:     "event1",
-				Event: map[string]interface{}{
-					utils.Account: "1015",
-					utils.Usage:   1,
-				},
+		&utils.CGREvent{ // matching Charger1
+			Tenant: utils.EmptyString,
+			ID:     "event1",
+			Event: map[string]any{
+				utils.AccountField: "1015",
+				utils.Usage:        1,
 			},
 		}, &result); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
@@ -255,40 +317,84 @@ func testChargerSGetChargersForEvent2(t *testing.T) {
 }
 
 func testChargerSProcessEvent(t *testing.T) {
-	processedEv := &[]*engine.ChrgSProcessEventReply{
+	processedEv := []*engine.ChrgSProcessEventReply{
 		{
 			ChargerSProfile:    "Charger1",
-			AttributeSProfiles: []string{"ATTR_1001_SIMPLEAUTH"},
+			AttributeSProfiles: []string{"cgrates.org:ATTR_1001_SIMPLEAUTH"},
 			AlteredFields:      []string{utils.MetaReqRunID, "*req.Password"},
 			CGREvent: &utils.CGREvent{ // matching Charger1
 				Tenant: "cgrates.org",
 				ID:     "event1",
-				Event: map[string]interface{}{
-					utils.Account: "1001",
-					"Password":    "CGRateS.org",
-					"RunID":       utils.MetaDefault,
+				Event: map[string]any{
+					utils.AccountField: "1001",
+					"Password":         "CGRateS.org",
+					"RunID":            utils.MetaDefault,
+				},
+				APIOpts: map[string]any{
+					utils.OptsContext:              "simpleauth",
+					utils.MetaSubsys:               utils.MetaChargers,
+					utils.OptsAttributesProfileIDs: []string{"ATTR_1001_SIMPLEAUTH"},
 				},
 			},
 		},
 	}
-	var result *[]*engine.ChrgSProcessEventReply
+	var result []*engine.ChrgSProcessEventReply
 	if err := chargerRPC.Call(utils.ChargerSv1ProcessEvent, chargerEvent[1], &result); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 	if err := chargerRPC.Call(utils.ChargerSv1ProcessEvent, chargerEvent[0], &result); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(result, processedEv) {
+	} else if utils.ToJSON(result) != utils.ToJSON(processedEv) {
+		t.Errorf("Expecting : %s, received: %s", utils.ToJSON(processedEv), utils.ToJSON(result))
+	}
+	result = []*engine.ChrgSProcessEventReply{}
+	processedEv = []*engine.ChrgSProcessEventReply{
+		{
+			ChargerSProfile:    "Charger2",
+			AttributeSProfiles: []string{"*constant:*req.RequestType:*rated;*constant:*req.Category:call"},
+			AlteredFields:      []string{"*req.Category", "*req.RequestType", utils.MetaReqRunID},
+			CGREvent: &utils.CGREvent{ // matching Charger1
+				Tenant: "cgrates.org",
+				ID:     "event1",
+				Event: map[string]any{
+					utils.AccountField: "1007",
+					utils.RequestType:  "*rated",
+					utils.Category:     "call",
+					utils.RunID:        utils.MetaDefault,
+				},
+				APIOpts: map[string]any{
+					utils.OptsContext:              "simpleauth",
+					utils.MetaSubsys:               utils.MetaChargers,
+					utils.OptsAttributesProfileIDs: []string{"*constant:*req.RequestType:*rated;*constant:*req.Category:call"},
+				},
+			},
+		},
+	}
+	if err := chargerRPC.Call(utils.ChargerSv1ProcessEvent, chargerEvent[2], &result); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(result[0].AlteredFields)
+	if utils.ToJSON(result) != utils.ToJSON(processedEv) {
+		t.Errorf("Expecting : %s, received: %s", utils.ToJSON(processedEv), utils.ToJSON(result))
+	}
+
+	chargerEvent[2].Tenant = utils.EmptyString
+	if err := chargerRPC.Call(utils.ChargerSv1ProcessEvent, chargerEvent[2], &result); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(result[0].AlteredFields)
+	if utils.ToJSON(result) != utils.ToJSON(processedEv) {
 		t.Errorf("Expecting : %s, received: %s", utils.ToJSON(processedEv), utils.ToJSON(result))
 	}
 }
 
 func testChargerSSetChargerProfile(t *testing.T) {
-	chargerProfile = &ChargerWithCache{
+	chargerProfile = &ChargerWithAPIOpts{
 		ChargerProfile: &engine.ChargerProfile{
 			Tenant:    "cgrates.org",
 			ID:        "ApierTest",
-			FilterIDs: []string{"*string:~*req.Account:1001", "*string:~Account:1002"},
+			FilterIDs: []string{"*wrong:inline"},
 			ActivationInterval: &utils.ActivationInterval{
 				ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
@@ -299,12 +405,23 @@ func testChargerSSetChargerProfile(t *testing.T) {
 		},
 	}
 	var result string
+	expErr := "SERVER_ERROR: broken reference to filter: <*wrong:inline> for item with ID: cgrates.org:ApierTest"
+	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &result); err == nil || err.Error() != expErr {
+		t.Fatalf("Expected error: %q, received: %v", expErr, err)
+	}
+	var reply *engine.ChargerProfile
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
+		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
+		t.Fatal(err)
+	}
+
+	chargerProfile.FilterIDs = []string{"*string:~*req.Account:1001", "*string:~*opts.Account:1002"}
 	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	var reply *engine.ChargerProfile
 	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
 		t.Error(err)
@@ -314,15 +431,20 @@ func testChargerSSetChargerProfile(t *testing.T) {
 }
 
 func testChargerSGetChargerProfileIDs(t *testing.T) {
-	expected := []string{"Charger1", "ApierTest", "ChargerNotMatching"}
+	expected := []string{"Charger1", "Charger2", "ApierTest", "ChargerNotMatching"}
 	var result []string
-	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfileIDs, utils.TenantArgWithPaginator{TenantArg: utils.TenantArg{Tenant: "cgrates.org"}}, &result); err != nil {
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfileIDs, utils.PaginatorWithTenant{}, &result); err != nil {
 		t.Error(err)
 	} else if len(expected) != len(result) {
 		t.Errorf("Expecting : %+v, received: %+v", expected, result)
 	}
-	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfileIDs, utils.TenantArgWithPaginator{
-		TenantArg: utils.TenantArg{Tenant: "cgrates.org"},
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfileIDs, utils.PaginatorWithTenant{Tenant: "cgrates.org"}, &result); err != nil {
+		t.Error(err)
+	} else if len(expected) != len(result) {
+		t.Errorf("Expecting : %+v, received: %+v", expected, result)
+	}
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfileIDs, utils.PaginatorWithTenant{
+		Tenant:    "cgrates.org",
 		Paginator: utils.Paginator{Limit: utils.IntPointer(1)},
 	}, &result); err != nil {
 		t.Error(err)
@@ -364,7 +486,7 @@ func testChargerSRemChargerProfile(t *testing.T) {
 	}
 	if err := chargerRPC.Call(utils.APIerSv1RemoveChargerProfile,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &resp); err.Error() != utils.ErrNotFound.Error() {
-		t.Errorf("Expected error: %v recived: %v", utils.ErrNotFound, err)
+		t.Errorf("Expected error: %v received: %v", utils.ErrNotFound, err)
 	}
 }
 
@@ -377,8 +499,228 @@ func testChargerSPing(t *testing.T) {
 	}
 }
 
+func testChargerSProcessWithNotFoundAttribute(t *testing.T) {
+	var result string
+	chargerProfile = &ChargerWithAPIOpts{
+		ChargerProfile: &engine.ChargerProfile{
+			Tenant:    "cgrates.org",
+			ID:        "ChargerWithoutAttribute",
+			FilterIDs: []string{"*string:~*req.CustomField:WithoutAttributes"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 29, 15, 0, 0, 0, time.UTC),
+			},
+			RunID:  "CustomRun",
+			Weight: 20,
+		},
+	}
+
+	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &result); err != nil {
+		t.Error(err)
+	} else if result != utils.OK {
+		t.Error("Unexpected reply returned", result)
+	}
+
+	ev := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "CustomEvent",
+		Event: map[string]any{
+			utils.AccountField: "Random",
+			"CustomField":      "WithoutAttributes",
+		},
+	}
+	processedEv := []*engine.ChrgSProcessEventReply{
+		{
+			ChargerSProfile:    "ChargerWithoutAttribute",
+			AttributeSProfiles: []string{},
+			AlteredFields:      []string{utils.MetaReqRunID},
+			CGREvent: &utils.CGREvent{ // matching ChargerWithoutAttribute
+				Tenant: "cgrates.org",
+				ID:     "CustomEvent",
+				Event: map[string]any{
+					utils.AccountField: "Random",
+					"CustomField":      "WithoutAttributes",
+					"RunID":            "CustomRun",
+				},
+				APIOpts: map[string]any{
+					utils.MetaSubsys:               utils.MetaChargers,
+					utils.OptsAttributesProfileIDs: nil,
+				},
+			},
+		},
+	}
+	if *encoding == utils.MetaGOB {
+		processedEv[0].AttributeSProfiles = nil
+	}
+	var rply []*engine.ChrgSProcessEventReply
+	if err := chargerRPC.Call(utils.ChargerSv1ProcessEvent, ev, &rply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(rply, processedEv) {
+		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(processedEv), utils.ToJSON(rply))
+	}
+
+}
 func testChargerSKillEngine(t *testing.T) {
 	if err := engine.KillEngine(100); err != nil {
 		t.Error(err)
+	}
+}
+
+func testChargerSProccessEventWithProcceSRunS(t *testing.T) {
+	chargerProfile = &ChargerWithAPIOpts{
+		ChargerProfile: &engine.ChargerProfile{
+			Tenant:    "cgrates.org",
+			ID:        "ApierTest",
+			FilterIDs: []string{"*string:~*req.Account:1010"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+				ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+			},
+			RunID:        utils.MetaDefault,
+			AttributeIDs: []string{"*constant:*req.Account:1002", "*constant:*req.Account:1003"},
+			Weight:       20,
+		},
+	}
+	var result string
+	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &result); err != nil {
+		t.Error(err)
+	} else if result != utils.OK {
+		t.Error("Unexpected reply returned", result)
+	}
+	var reply *engine.ChargerProfile
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
+		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(chargerProfile.ChargerProfile, reply) {
+		t.Errorf("Expecting : %+v, received: %+v", chargerProfile.ChargerProfile, reply)
+	}
+
+	processedEv := []*engine.ChrgSProcessEventReply{
+		{
+			ChargerSProfile:    "ApierTest",
+			AttributeSProfiles: []string{"*constant:*req.Account:1002"},
+			AlteredFields:      []string{utils.MetaReqRunID, "*req.Account"},
+			CGREvent: &utils.CGREvent{ // matching Charger1
+				Tenant: "cgrates.org",
+				ID:     "event1",
+				Event: map[string]any{
+					utils.AccountField: "1002",
+					utils.RunID:        "*default",
+				},
+				APIOpts: map[string]any{
+					utils.MetaSubsys:                utils.MetaChargers,
+					utils.OptsAttributesProfileIDs:  []string{"*constant:*req.Account:1002", "*constant:*req.Account:1003"},
+					utils.OptsAttributesProcessRuns: 1.,
+				},
+			},
+		},
+	}
+	cgrEv := &utils.CGREvent{ // matching Charger1
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1010",
+		},
+		APIOpts: map[string]any{utils.OptsAttributesProcessRuns: 1},
+	}
+	var result2 []*engine.ChrgSProcessEventReply
+	if err := chargerRPC.Call(utils.ChargerSv1ProcessEvent, cgrEv, &result2); err != nil {
+		t.Error(err)
+	} else if utils.ToJSON(result2) != utils.ToJSON(processedEv) {
+		t.Errorf("Expecting : %s, received: %s", utils.ToJSON(processedEv), utils.ToJSON(result2))
+	}
+}
+
+func testChargerSSetChargerProfileWithoutTenant(t *testing.T) {
+	chargerProfile = &ChargerWithAPIOpts{
+		ChargerProfile: &engine.ChargerProfile{
+			ID:        "randomID",
+			FilterIDs: []string{"*string:~*req.Account:1010"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+				ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+			},
+			RunID:        utils.MetaDefault,
+			AttributeIDs: []string{"Attr1", "Attr2"},
+			Weight:       20,
+		},
+	}
+	var reply string
+	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply returned", reply)
+	}
+	chargerProfile.ChargerProfile.Tenant = "cgrates.org"
+	var result *engine.ChargerProfile
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
+		&utils.TenantID{ID: "randomID"},
+		&result); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(chargerProfile.ChargerProfile, result) {
+		t.Errorf("Expected %+v, received %+v", utils.ToJSON(chargerProfile.ChargerProfile), utils.ToJSON(result))
+	}
+}
+
+func testChargerSRemChargerProfileWithoutTenant(t *testing.T) {
+	var reply string
+	if err := chargerRPC.Call(utils.APIerSv1RemoveChargerProfile,
+		&utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{ID: "randomID"}},
+		&reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply returned", reply)
+	}
+	var result *engine.ChargerProfile
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
+		&utils.TenantID{ID: "randomID"},
+		&result); err == nil || err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+}
+
+func testChargerSCacheTestGetNotFound(t *testing.T) {
+	var reply *engine.ChargerProfile
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
+		&utils.TenantID{Tenant: "cgrates.org", ID: "CHARGERS_CACHE"}, &reply); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
+		t.Fatal(err)
+	}
+}
+
+func testChargerSCacheTestGetFound(t *testing.T) {
+	var reply *engine.ChargerProfile
+	if err := chargerRPC.Call(utils.APIerSv1GetChargerProfile,
+		&utils.TenantID{Tenant: "cgrates.org", ID: "CHARGERS_CACHE"}, &reply); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testChargerSCacheTestSet(t *testing.T) {
+	chargerProfile = &ChargerWithAPIOpts{
+		ChargerProfile: &engine.ChargerProfile{
+			Tenant: "cgrates.org",
+			ID:     "CHARGERS_CACHE",
+		},
+		APIOpts: map[string]any{
+			utils.CacheOpt: utils.MetaNone,
+		},
+	}
+	var reply string
+	if err := chargerRPC.Call(utils.APIerSv1SetChargerProfile, chargerProfile, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply returned", reply)
+	}
+}
+
+func testChargerSCacheReload(t *testing.T) {
+	cache := &utils.AttrReloadCacheWithAPIOpts{
+		ChargerProfileIDs: []string{"cgrates.org:CHARGERS_CACHE"},
+	}
+	var reply string
+	if err := chargerRPC.Call(utils.CacheSv1ReloadCache, cache, &reply); err != nil {
+		t.Error("Got error on CacheSv1.ReloadCache: ", err.Error())
+	} else if reply != utils.OK {
+		t.Error("Calling CacheSv1.ReloadCache got reply: ", reply)
 	}
 }

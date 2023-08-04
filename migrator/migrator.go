@@ -54,7 +54,7 @@ type Migrator struct {
 	dryRun     bool
 	sameDataDB bool
 	sameStorDB bool
-	sameOutDB  bool
+	sameOutDB  bool // needed in case we set version and we use same DataDB as StorDB to store the versions without overwriting them
 	stats      map[string]int
 }
 
@@ -127,7 +127,8 @@ func (m *Migrator) Migrate(taskIDs []string) (err error, stats map[string]int) {
 			err = m.migrateAttributeProfile()
 		case utils.MetaFilters:
 			err = m.migrateFilters()
-		//only Move
+		case utils.MetaRoutes:
+			err = m.migrateRouteProfiles()
 		case utils.MetaRatingPlans:
 			err = m.migrateRatingPlans()
 		case utils.MetaRatingProfiles:
@@ -148,8 +149,6 @@ func (m *Migrator) Migrate(taskIDs []string) (err error, stats map[string]int) {
 			err = m.migrateSubscribers()
 		case utils.MetaDerivedChargersV:
 			err = m.migrateDerivedChargers()
-		case utils.MetaSuppliers:
-			err = m.migrateSupplierProfiles()
 		case utils.MetaChargers:
 			err = m.migrateChargers()
 		case utils.MetaDispatchers:
@@ -171,8 +170,8 @@ func (m *Migrator) Migrate(taskIDs []string) (err error, stats map[string]int) {
 			err = m.migrateTPactions()
 		case utils.MetaTpThresholds:
 			err = m.migrateTPthresholds()
-		case utils.MetaTpSuppliers:
-			err = m.migrateTPSuppliers()
+		case utils.MetaTpRoutes:
+			err = m.migrateTPRoutes()
 		case utils.MetaTpStats:
 			err = m.migrateTPstats()
 		case utils.MetaTpSharedGroups:
@@ -216,8 +215,8 @@ func (m *Migrator) Migrate(taskIDs []string) (err error, stats map[string]int) {
 			if err := m.migrateThresholds(); err != nil {
 				log.Print("ERROR: ", utils.MetaThresholds, " ", err)
 			}
-			if err := m.migrateSupplierProfiles(); err != nil {
-				log.Print("ERROR: ", utils.MetaSuppliers, " ", err)
+			if err := m.migrateRouteProfiles(); err != nil {
+				log.Print("ERROR: ", utils.MetaRoutes, " ", err)
 			}
 			if err := m.migrateAttributeProfile(); err != nil {
 				log.Print("ERROR: ", utils.MetaAttributes, " ", err)
@@ -288,8 +287,8 @@ func (m *Migrator) Migrate(taskIDs []string) (err error, stats map[string]int) {
 			if err := m.migrateTPthresholds(); err != nil {
 				log.Print("ERROR: ", utils.MetaTpThresholds, " ", err)
 			}
-			if err := m.migrateTPSuppliers(); err != nil {
-				log.Print("ERROR: ", utils.MetaTpSuppliers, " ", err)
+			if err := m.migrateTPRoutes(); err != nil {
+				log.Print("ERROR: ", utils.MetaTpRoutes, " ", err)
 			}
 			if err := m.migrateTPstats(); err != nil {
 				log.Print("ERROR: ", utils.MetaTpStats, " ", err)

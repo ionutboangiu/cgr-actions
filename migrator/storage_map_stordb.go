@@ -31,10 +31,8 @@ func newInternalStorDBMigrator(stor engine.StorDB) (iDBMig *internalStorDBMigrat
 }
 
 type internalStorDBMigrator struct {
-	storDB   *engine.StorDB
-	iDB      *engine.InternalDB
-	dataKeys []string
-	qryIdx   *int
+	storDB *engine.StorDB
+	iDB    *engine.InternalDB
 }
 
 func (iDBMig *internalStorDBMigrator) close() {}
@@ -51,6 +49,11 @@ func (iDBMig *internalStorDBMigrator) getV1CDR() (v1Cdr *v1Cdrs, err error) {
 
 // set
 func (iDBMig *internalStorDBMigrator) setV1CDR(v1Cdr *v1Cdrs) (err error) {
+	return utils.ErrNotImplemented
+}
+
+// rem
+func (iDBMig *internalStorDBMigrator) remV1CDRs(v1Cdr *v1Cdrs) (err error) {
 	return utils.ErrNotImplemented
 }
 

@@ -21,7 +21,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cgrates/birpc/context"
+	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -226,11 +226,11 @@ func TestDispatcherProfilesSort(t *testing.T) {
 
 type testRPCHost struct {
 	serviceMethod string
-	args          interface{}
-	reply         interface{}
+	args          any
+	reply         any
 }
 
-func (v *testRPCHost) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+func (v *testRPCHost) Call(serviceMethod string, args any, reply any) error {
 	v.serviceMethod = serviceMethod
 	v.args = args
 	v.reply = reply
@@ -239,7 +239,7 @@ func (v *testRPCHost) Call(ctx *context.Context, serviceMethod string, args inte
 
 func TestDispatcherHostCall(t *testing.T) {
 	tRPC := &testRPCHost{}
-	dspHost := DispatcherHost{}
+	dspHost := &DispatcherHost{}
 	etRPC := &testRPCHost{
 		serviceMethod: utils.AttributeSv1Ping,
 		args:          &utils.CGREvent{},
@@ -251,5 +251,90 @@ func TestDispatcherHostCall(t *testing.T) {
 		t.Error(err)
 	} else if !reflect.DeepEqual(*etRPC, *tRPC) {
 		t.Errorf("Expected: %s , received: %s", utils.ToJSON(etRPC), utils.ToJSON(tRPC))
+	}
+
+}
+
+func TestDispatcherHostIDsProfilesReorderFromIndex(t *testing.T) {
+	dConns := DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	eConns := DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	if dConns.ReorderFromIndex(0); !reflect.DeepEqual(eConns, dConns) {
+		t.Errorf("expecting: %+v, received: %+v", eConns, dConns)
+	}
+	dConns = DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	if dConns.ReorderFromIndex(3); !reflect.DeepEqual(eConns, dConns) {
+		t.Errorf("expecting: %+v, received: %+v", eConns, dConns)
+	}
+	dConns = DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	eConns = DispatcherHostIDs{"DSP_3", "DSP_1", "DSP_2"}
+	if dConns.ReorderFromIndex(2); !reflect.DeepEqual(eConns, dConns) {
+		t.Errorf("expecting: %+v, received: %+v", eConns, dConns)
+	}
+	dConns = DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	eConns = DispatcherHostIDs{"DSP_2", "DSP_3", "DSP_1"}
+	if dConns.ReorderFromIndex(1); !reflect.DeepEqual(eConns, dConns) {
+		t.Errorf("expecting: %+v, received: %+v",
+			utils.ToJSON(eConns), utils.ToJSON(dConns))
+	}
+}
+
+func TestDispatcherHostIDsProfilesShuffle(t *testing.T) {
+	dConns := DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3", "DSP_4", "DSP_5", "DSP_6", "DSP_7", "DSP_8"}
+	oConns := DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3", "DSP_4", "DSP_5", "DSP_6", "DSP_7", "DSP_8"}
+	if dConns.Shuffle(); reflect.DeepEqual(dConns, oConns) {
+		t.Errorf("received: %s", utils.ToJSON(dConns))
+	}
+}
+
+func TestDispatcherHostIDsProfilesClone(t *testing.T) {
+	dConns := DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	eConns := DispatcherHostIDs{"DSP_1", "DSP_2", "DSP_3"}
+	d2Conns := dConns.Clone()
+	d2Conns[0] = "DSP_4"
+	if !reflect.DeepEqual(eConns, dConns) {
+		t.Errorf("expecting: %+v, received: %+v", utils.ToJSON(eConns), utils.ToJSON(dConns))
+	}
+}
+
+func TestDispatcherHostProfileCloneWithParams(t *testing.T) {
+	dC := &DispatcherHostProfile{
+		ID:      "testID",
+		Weight:  10,
+		Blocker: false,
+		Params: map[string]any{
+			"param1": "value of param1",
+			"param2": "value of param2",
+		},
+	}
+
+	exp := &DispatcherHostProfile{
+		ID:      "testID",
+		Weight:  10,
+		Blocker: false,
+		Params: map[string]any{
+			"param1": "value of param1",
+			"param2": "value of param2",
+		},
+	}
+	rcv := dC.Clone()
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v", exp, rcv)
+	}
+}
+
+func TestDispatcherHostCallErr(t *testing.T) {
+	dH := &DispatcherHost{
+		Tenant: "testTenant",
+		RemoteHost: &config.RemoteHost{
+			ID:        "testID",
+			Address:   "",
+			Transport: "",
+			TLS:       false,
+		},
+	}
+	var reply string
+	if err := dH.Call(utils.AttributeSv1Ping, &utils.CGREvent{}, &reply); err == nil || err.Error() != "dial tcp: missing address" {
+		t.Error(err)
 	}
 }

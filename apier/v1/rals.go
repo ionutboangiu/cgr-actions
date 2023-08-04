@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/engine"
@@ -34,8 +33,8 @@ func NewRALsV1() *RALsV1 {
 type RALsV1 struct {
 }
 
-// Call implements birpc.ClientConnector interface for internal RPC
-func (rsv1 *RALsV1) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+// Call implements rpcclient.ClientConnector interface for internal RPC
+func (rsv1 *RALsV1) Call(serviceMethod string, args any, reply any) error {
 	return utils.APIerRPCCall(rsv1, serviceMethod, args, reply)
 }
 
@@ -69,7 +68,7 @@ func (rsv1 *RALsV1) GetRatingPlansCost(arg *utils.RatingPlanCostArg, reply *disp
 	}
 	for _, rp := range arg.RatingPlanIDs { // loop through RatingPlans until we find one without errors
 		rPrfl := &engine.RatingProfile{
-			Id: utils.ConcatenatedKey(utils.META_OUT,
+			Id: utils.ConcatenatedKey(utils.MetaOut,
 				tenant, category, subject),
 			RatingPlanActivations: engine.RatingPlanActivations{
 				&engine.RatingPlanActivation{
@@ -79,11 +78,15 @@ func (rsv1 *RALsV1) GetRatingPlansCost(arg *utils.RatingPlanCostArg, reply *disp
 			},
 		}
 		// force cache set so it can be picked by calldescriptor for cost calculation
-		engine.Cache.Set(utils.CacheRatingProfilesTmp, rPrfl.Id, rPrfl, nil,
-			true, utils.NonTransactional)
+		if err := engine.Cache.Set(utils.CacheRatingProfilesTmp, rPrfl.Id, rPrfl, nil,
+			true, utils.NonTransactional); err != nil {
+			return err
+		}
 		cc, err := cd.GetCost()
-		engine.Cache.Remove(utils.CacheRatingProfilesTmp, rPrfl.Id,
-			true, utils.NonTransactional) // Remove here so we don't overload memory
+		if err := engine.Cache.Remove(utils.CacheRatingProfilesTmp, rPrfl.Id, // Remove here so we don't overload memory
+			true, utils.NonTransactional); err != nil {
+			return err
+		}
 		if err != nil {
 			// in case we have UnauthorizedDestination
 			// or NotFound try next RatingPlan
@@ -104,7 +107,7 @@ func (rsv1 *RALsV1) GetRatingPlansCost(arg *utils.RatingPlanCostArg, reply *disp
 	return nil
 }
 
-func (rsv1 *RALsV1) Ping(ign *utils.CGREventWithArgDispatcher, reply *string) error {
+func (rsv1 *RALsV1) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
 }

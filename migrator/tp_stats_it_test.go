@@ -71,20 +71,18 @@ func testTpStatsITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpStatsCfgIn.StorDbCfg().Type,
 		tpStatsCfgIn.StorDbCfg().Host, tpStatsCfgIn.StorDbCfg().Port,
 		tpStatsCfgIn.StorDbCfg().Name, tpStatsCfgIn.StorDbCfg().User,
-		tpStatsCfgIn.StorDbCfg().Password, tpStatsCfgIn.GeneralCfg().DBDataEncoding, tpStatsCfgIn.StorDbCfg().SSLMode,
-		tpStatsCfgIn.StorDbCfg().MaxOpenConns, tpStatsCfgIn.StorDbCfg().MaxIdleConns,
-		tpStatsCfgIn.StorDbCfg().ConnMaxLifetime, tpStatsCfgIn.StorDbCfg().StringIndexedFields,
-		tpStatsCfgIn.StorDbCfg().PrefixIndexedFields, tpStatsCfgIn.StorDbCfg().Items)
+		tpStatsCfgIn.StorDbCfg().Password, tpStatsCfgIn.GeneralCfg().DBDataEncoding,
+		tpStatsCfgIn.StorDbCfg().StringIndexedFields, tpStatsCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpStatsCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpStatsCfgOut.StorDbCfg().Type,
 		tpStatsCfgOut.StorDbCfg().Host, tpStatsCfgOut.StorDbCfg().Port,
 		tpStatsCfgOut.StorDbCfg().Name, tpStatsCfgOut.StorDbCfg().User,
-		tpStatsCfgOut.StorDbCfg().Password, tpStatsCfgOut.GeneralCfg().DBDataEncoding, tpStatsCfgIn.StorDbCfg().SSLMode,
-		tpStatsCfgIn.StorDbCfg().MaxOpenConns, tpStatsCfgIn.StorDbCfg().MaxIdleConns,
-		tpStatsCfgIn.StorDbCfg().ConnMaxLifetime, tpStatsCfgIn.StorDbCfg().StringIndexedFields,
-		tpStatsCfgIn.StorDbCfg().PrefixIndexedFields, tpStatsCfgOut.StorDbCfg().Items)
+		tpStatsCfgOut.StorDbCfg().Password, tpStatsCfgOut.GeneralCfg().DBDataEncoding,
+		tpStatsCfgIn.StorDbCfg().StringIndexedFields, tpStatsCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpStatsCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -134,7 +132,7 @@ func testTpStatsITPopulate(t *testing.T) {
 		t.Error("Error when setting TpStat ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpStatsMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpStatsMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpStat ", err.Error())
 	}

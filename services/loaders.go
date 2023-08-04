@@ -21,28 +21,31 @@ package services
 import (
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/loaders"
-	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewLoaderService returns the Loader Service
 func NewLoaderService(cfg *config.CGRConfig, dm *DataDBService,
-	filterSChan chan *engine.FilterS, server *utils.Server,
-	exitChan chan bool, internalLoaderSChan chan birpc.ClientConnector,
-	connMgr *engine.ConnManager) servmanager.Service {
+	filterSChan chan *engine.FilterS, server *cores.Server,
+	internalLoaderSChan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) *LoaderService {
 	return &LoaderService{
 		connChan:    internalLoaderSChan,
 		cfg:         cfg,
 		dm:          dm,
 		filterSChan: filterSChan,
 		server:      server,
-		exitChan:    exitChan,
 		connMgr:     connMgr,
+		stopChan:    make(chan struct{}),
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -52,13 +55,15 @@ type LoaderService struct {
 	cfg         *config.CGRConfig
 	dm          *DataDBService
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
-	exitChan    chan bool
+	server      *cores.Server
+	stopChan    chan struct{}
 
 	ldrs     *loaders.LoaderService
 	rpc      *v1.LoaderSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
 	connMgr  *engine.ConnManager
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -77,15 +82,19 @@ func (ldrs *LoaderService) Start() (err error) {
 	defer ldrs.Unlock()
 
 	ldrs.ldrs = loaders.NewLoaderService(datadb, ldrs.cfg.LoaderCfg(),
-		ldrs.cfg.GeneralCfg().DefaultTimezone, ldrs.exitChan, filterS, ldrs.connMgr)
+		ldrs.cfg.GeneralCfg().DefaultTimezone, filterS, ldrs.connMgr)
+
 	if !ldrs.ldrs.Enabled() {
+		return
+	}
+	if err = ldrs.ldrs.ListenAndServe(ldrs.stopChan); err != nil {
 		return
 	}
 	ldrs.rpc = v1.NewLoaderSv1(ldrs.ldrs)
 	if !ldrs.cfg.DispatcherSCfg().Enabled {
 		ldrs.server.RpcRegister(ldrs.rpc)
 	}
-	ldrs.connChan <- ldrs.rpc
+	ldrs.connChan <- ldrs.anz.GetInternalCodec(ldrs.rpc, utils.LoaderS)
 	return
 }
 
@@ -96,11 +105,16 @@ func (ldrs *LoaderService) Reload() (err error) {
 	dbchan := ldrs.dm.GetDMChan()
 	datadb := <-dbchan
 	dbchan <- datadb
+	close(ldrs.stopChan)
+	ldrs.stopChan = make(chan struct{})
 
 	ldrs.RLock()
 
 	ldrs.ldrs.Reload(datadb, ldrs.cfg.LoaderCfg(), ldrs.cfg.GeneralCfg().DefaultTimezone,
-		ldrs.exitChan, filterS, ldrs.connMgr)
+		filterS, ldrs.connMgr)
+	if err = ldrs.ldrs.ListenAndServe(ldrs.stopChan); err != nil {
+		return
+	}
 	ldrs.RUnlock()
 	return
 }
@@ -110,6 +124,7 @@ func (ldrs *LoaderService) Shutdown() (err error) {
 	ldrs.Lock()
 	ldrs.ldrs = nil
 	ldrs.rpc = nil
+	close(ldrs.stopChan)
 	<-ldrs.connChan
 	ldrs.Unlock()
 	return
@@ -130,4 +145,9 @@ func (ldrs *LoaderService) ServiceName() string {
 // ShouldRun returns if the service should be running
 func (ldrs *LoaderService) ShouldRun() bool {
 	return ldrs.cfg.LoaderCfg().Enabled()
+}
+
+// GetLoaderS returns the initialized LoaderService
+func (ldrs *LoaderService) GetLoaderS() *loaders.LoaderService {
+	return ldrs.ldrs
 }

@@ -169,13 +169,13 @@ func testLoaderNoContextGetFilterIndexesAfterLoad(t *testing.T) {
 	// check attribute profile filter indexes
 	expIdx := []string{
 		"*none:*any:*any:ATTR_2",
-		"*string:~*req.Field1:Value1:ATTR_1",
+		"*string:*req.Field1:Value1:ATTR_1",
 	}
 	var result []string
 	if err := ldrCtxRPC.Call(utils.APIerSv1GetFilterIndexes, &v1.AttrGetFilterIndexes{
 		ItemType: utils.MetaAttributes,
 		Tenant:   "cgrates.org",
-		Context:  utils.META_ANY,
+		Context:  utils.MetaAny,
 	}, &result); err != nil {
 		t.Error(err)
 	} else {
@@ -188,12 +188,12 @@ func testLoaderNoContextGetFilterIndexesAfterLoad(t *testing.T) {
 	// check dispatcher profile filter indexes
 	expIdx = []string{
 		"*none:*any:*any:DSP1",
-		"*string:~*req.Field1:Value1:DSP2",
+		"*string:*req.Field1:Value1:DSP2",
 	}
 	if err := ldrCtxRPC.Call(utils.APIerSv1GetFilterIndexes, &v1.AttrGetFilterIndexes{
 		ItemType: utils.MetaDispatchers,
 		Tenant:   "cgrates.org",
-		Context:  utils.META_ANY,
+		Context:  utils.MetaAny,
 	}, &result); err != nil {
 		t.Error(err)
 	} else {
@@ -206,17 +206,17 @@ func testLoaderNoContextGetFilterIndexesAfterLoad(t *testing.T) {
 
 func testLoaderNoContextSetProfiles(t *testing.T) {
 	// set attribute profile
-	attrPrf := &v1.AttributeWithCache{
+	attrPrf := &engine.AttributeProfileWithAPIOpts{
 		AttributeProfile: &engine.AttributeProfile{
 			Tenant: "cgrates.org",
 			ID:     "ATTR_3",
-			// Contexts:  []string{"*any"},
+			// Contexts:  []string{utils.MetaAny},
 			FilterIDs: []string{"*string:~*req.Field3:Value3"},
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "Field3",
-					Type:  utils.META_CONSTANT,
-					Value: config.NewRSRParsersMustCompile("Value4", true, utils.INFIELD_SEP),
+					Type:  utils.MetaConstant,
+					Value: config.NewRSRParsersMustCompile("Value4", utils.InfieldSep),
 				},
 			},
 			Weight: 20,
@@ -231,11 +231,11 @@ func testLoaderNoContextSetProfiles(t *testing.T) {
 	}
 	var attrReply *engine.AttributeProfile
 	if err := ldrCtxRPC.Call(utils.APIerSv1GetAttributeProfile,
-		utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_3"}}, &attrReply); err != nil {
+		utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_3"}}, &attrReply); err != nil {
 		t.Error(err)
 	} else {
 		attrReply.Compile()
-		attrPrf.AttributeProfile.Contexts = []string{utils.META_ANY}
+		attrPrf.AttributeProfile.Contexts = []string{utils.MetaAny}
 		if !reflect.DeepEqual(attrPrf.AttributeProfile, attrReply) {
 			t.Errorf("expected : %+v,\nreceived: %+v",
 				utils.ToJSON(attrPrf.AttributeProfile), utils.ToJSON(attrReply))
@@ -243,10 +243,10 @@ func testLoaderNoContextSetProfiles(t *testing.T) {
 	}
 
 	// set dispatcher profile
-	dspPrf := &v1.DispatcherWithCache{
+	dspPrf := &v1.DispatcherWithAPIOpts{
 		DispatcherProfile: &engine.DispatcherProfile{
 			Tenant: "cgrates.org",
-			// Subsystems: []string{utils.META_ANY},
+			// Subsystems: []string{utils.MetaAny},
 			ID:        "DSP3",
 			FilterIDs: []string{"*string:~*req.RandomField:RandomValue"},
 			Strategy:  utils.MetaFirst,
@@ -268,7 +268,7 @@ func testLoaderNoContextSetProfiles(t *testing.T) {
 		&dspReply); err != nil {
 		t.Error(err)
 	} else {
-		dspPrf.DispatcherProfile.Subsystems = []string{utils.META_ANY}
+		dspPrf.DispatcherProfile.Subsystems = []string{utils.MetaAny}
 		if !reflect.DeepEqual(dspPrf.DispatcherProfile, dspReply) {
 			t.Errorf("expected: %+v,\nreceived: %+v", utils.ToJSON(dspPrf.DispatcherProfile), utils.ToJSON(dspReply))
 		}
@@ -279,14 +279,14 @@ func testLoaderNoContextGetFilterIndexesAfterSet(t *testing.T) {
 	// check attribute profile filter indexes
 	expIdx := []string{
 		"*none:*any:*any:ATTR_2",
-		"*string:~*req.Field1:Value1:ATTR_1",
-		"*string:~*req.Field3:Value3:ATTR_3",
+		"*string:*req.Field1:Value1:ATTR_1",
+		"*string:*req.Field3:Value3:ATTR_3",
 	}
 	var result []string
 	if err := ldrCtxRPC.Call(utils.APIerSv1GetFilterIndexes, &v1.AttrGetFilterIndexes{
 		ItemType: utils.MetaAttributes,
 		Tenant:   "cgrates.org",
-		Context:  utils.META_ANY,
+		Context:  utils.MetaAny,
 	}, &result); err != nil {
 		t.Error(err)
 	} else {
@@ -299,13 +299,13 @@ func testLoaderNoContextGetFilterIndexesAfterSet(t *testing.T) {
 	// check dispatcher profile filter indexes
 	expIdx = []string{
 		"*none:*any:*any:DSP1",
-		"*string:~*req.Field1:Value1:DSP2",
-		"*string:~*req.RandomField:RandomValue:DSP3",
+		"*string:*req.Field1:Value1:DSP2",
+		"*string:*req.RandomField:RandomValue:DSP3",
 	}
 	if err := ldrCtxRPC.Call(utils.APIerSv1GetFilterIndexes, &v1.AttrGetFilterIndexes{
 		ItemType: utils.MetaDispatchers,
 		Tenant:   "cgrates.org",
-		Context:  utils.META_ANY,
+		Context:  utils.MetaAny,
 	}, &result); err != nil {
 		t.Error(err)
 	} else {

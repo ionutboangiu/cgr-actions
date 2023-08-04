@@ -28,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/console"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/rpcclient"
@@ -36,30 +35,30 @@ import (
 )
 
 var (
-	cgrConsoleFlags = flag.NewFlagSet("cgr-console", flag.ContinueOnError)
-	historyFN       = os.Getenv("HOME") + "/.cgr_history"
-	version         = cgrConsoleFlags.Bool("version", false, "Prints the application version.")
-	verbose         = cgrConsoleFlags.Bool("verbose", false, "Show extra info about command execution.")
-	server          = cgrConsoleFlags.String("server", "127.0.0.1:2012", "server address host:port")
-	rpcEncoding     = cgrConsoleFlags.String("rpc_encoding", "*json", "RPC encoding used <*gob|*json>")
-	certificatePath = cgrConsoleFlags.String("crt_path", "", "path to certificate for tls connection")
-	keyPath         = cgrConsoleFlags.String("key_path", "", "path to key for tls connection")
-	caPath          = cgrConsoleFlags.String("ca_path", "", "path to CA for tls connection(only for self sign certificate)")
-	tls             = cgrConsoleFlags.Bool("tls", false, "TLS connection")
-	replyTimeOut    = cgrConsoleFlags.Int("reply_timeout", 300, "Reply timeout in seconds ")
+	cgrConsoleFlags = flag.NewFlagSet(utils.CgrConsole, flag.ContinueOnError)
+	historyFN       = os.Getenv(utils.HomeCgr) + utils.HistoryCgr
+	version         = cgrConsoleFlags.Bool(utils.VersionCgr, false, "Prints the application version.")
+	verbose         = cgrConsoleFlags.Bool(utils.VerboseCgr, false, "Show extra info about command execution.")
+	server          = cgrConsoleFlags.String(utils.MailerServerCfg, "127.0.0.1:2012", "server address host:port")
+	rpcEncoding     = cgrConsoleFlags.String(utils.RpcEncodingCgr, utils.MetaJSON, "RPC encoding used <*gob|*json>")
+	certificatePath = cgrConsoleFlags.String(utils.CertPathCgr, utils.EmptyString, "path to certificate for tls connection")
+	keyPath         = cgrConsoleFlags.String(utils.KeyPathCgr, utils.EmptyString, "path to key for tls connection")
+	caPath          = cgrConsoleFlags.String(utils.CAPathCgr, utils.EmptyString, "path to CA for tls connection(only for self sign certificate)")
+	tls             = cgrConsoleFlags.Bool(utils.TLSNoCaps, false, "TLS connection")
+	replyTimeOut    = cgrConsoleFlags.Int(utils.ReplyTimeoutCfg, 300, "Reply timeout in seconds ")
 	client          *rpcclient.RPCClient
 )
 
 func executeCommand(command string) {
-	if strings.TrimSpace(command) == "" {
+	if strings.TrimSpace(command) == utils.EmptyString {
 		return
 	}
-	if strings.TrimSpace(command) == "help" {
+	if strings.TrimSpace(command) == utils.HelpCgr {
 		commands := console.GetCommands()
 		orderedKeys := make([]string, len(commands))
 		fmt.Println("Commands:")
 		for name := range commands {
-			if name != "" {
+			if name != utils.EmptyString {
 				orderedKeys = append(orderedKeys, name)
 			}
 		}
@@ -72,8 +71,8 @@ func executeCommand(command string) {
 		}
 		return
 	}
-	if strings.HasPrefix(command, "help") {
-		words := strings.Split(command, " ")
+	if strings.HasPrefix(command, utils.HelpCgr) {
+		words := strings.Split(command, utils.SepCgr)
 		if len(words) > 1 {
 			commands := console.GetCommands()
 			if cmd, ok := commands[words[1]]; ok {
@@ -81,7 +80,7 @@ func executeCommand(command string) {
 			} else {
 				fmt.Print("Available commands: ")
 				for name := range commands {
-					fmt.Print(name + " ")
+					fmt.Print(name + utils.SepCgr)
 				}
 				fmt.Println()
 			}
@@ -93,12 +92,12 @@ func executeCommand(command string) {
 		fmt.Println(cmdErr)
 		return
 	}
-	if cmd.RpcMethod() != "" {
+	if cmd.RpcMethod() != utils.EmptyString {
 		res := cmd.RpcResult()
 		param := cmd.RpcParams(false)
 		switch param.(type) {
 		case *console.EmptyWrapper:
-			param = ""
+			param = utils.EmptyString
 		case *console.StringWrapper:
 			param = param.(*console.StringWrapper).Item
 		case *console.StringSliceWrapper:
@@ -107,7 +106,7 @@ func executeCommand(command string) {
 			param = param.(*console.StringMapWrapper).Items
 		}
 
-		if rpcErr := client.Call(context.TODO(), cmd.RpcMethod(), param, res); rpcErr != nil {
+		if rpcErr := client.Call(cmd.RpcMethod(), param, res); rpcErr != nil {
 			fmt.Println("Error executing command: " + rpcErr.Error())
 		} else {
 			fmt.Println(cmd.GetFormatedResult(res))
@@ -130,15 +129,16 @@ func main() {
 		return
 	}
 	var err error
-	client, err = rpcclient.NewRPCClient(context.TODO(), utils.TCP, *server, *tls, *keyPath, *certificatePath, *caPath, 3, 3,
-		0, utils.FibDuration, time.Second, time.Duration(*replyTimeOut)*time.Second, *rpcEncoding, nil, false, nil)
+
+	client, err = rpcclient.NewRPCClient(utils.TCP, *server, *tls, *keyPath, *certificatePath, *caPath, 3, 3,
+		time.Second, time.Duration(*replyTimeOut)*time.Second, *rpcEncoding, nil, false, nil)
 	if err != nil {
 		cgrConsoleFlags.PrintDefaults()
 		log.Fatal("Could not connect to server " + *server)
 	}
 
 	if len(cgrConsoleFlags.Args()) != 0 {
-		executeCommand(strings.Join(cgrConsoleFlags.Args(), " "))
+		executeCommand(strings.Join(cgrConsoleFlags.Args(), utils.SepCgr))
 		return
 	}
 
@@ -157,8 +157,8 @@ func main() {
 			// try arguments
 			if strings.HasPrefix(line, name) {
 				// get last word
-				lastSpace := strings.LastIndex(line, " ")
-				lastSpace += 1
+				lastSpace := strings.LastIndex(line, utils.SepCgr)
+				lastSpace++
 				for _, arg := range cmd.ClientArgs() {
 					if strings.HasPrefix(arg, line[lastSpace:]) {
 						comp = append(comp, line[:lastSpace]+arg)
@@ -186,7 +186,7 @@ func main() {
 		} else {
 			line.AppendHistory(command)
 			switch strings.ToLower(strings.TrimSpace(command)) {
-			case "quit", "exit", "bye", "close":
+			case utils.QuitCgr, utils.ExitCgr, utils.ByeCgr, utils.CloseCgr:
 				fmt.Println("\nbye!")
 				stop = true
 			default:

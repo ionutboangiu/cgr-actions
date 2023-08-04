@@ -114,7 +114,7 @@ func testSrItLoadFromFolder(t *testing.T) {
 	if err := srrpc.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testAccountBalance(t *testing.T, sracc, srten, balType string, expected float64) {
@@ -135,9 +135,9 @@ func testSrItAddVoiceBalance(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      srtenant,
 		Account:     sraccount,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       5 * float64(time.Second),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "TestDynamicDebitBalance",
 			utils.RatingSubject: "*zero5ms",
 		},
@@ -148,27 +148,30 @@ func testSrItAddVoiceBalance(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	t.Run("TestAddVoiceBalance", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.VOICE, 5*float64(time.Second)) })
+	t.Run("TestAddVoiceBalance", func(t *testing.T) {
+		testAccountBalance(t, sraccount, srtenant, utils.MetaVoice, 5*float64(time.Second))
+	})
 }
 
 func testSrItInitSession(t *testing.T) {
 	args1 := &sessions.V1InitSessionArgs{
 		InitSession: true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: srtenant,
 			ID:     "TestSrItInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      srtenant,
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestRefund",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     sraccount,
-				utils.Subject:     "TEST",
-				utils.Destination: "TEST",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       2 * time.Second,
+			Event: map[string]any{
+				utils.Tenant:       srtenant,
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestRefund",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: sraccount,
+				utils.Subject:      "TEST",
+				utils.Destination:  "TEST",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        2 * time.Second,
 			},
 		},
 	}
@@ -177,10 +180,12 @@ func testSrItInitSession(t *testing.T) {
 		args1, &rply1); err != nil {
 		t.Error(err)
 		return
-	} else if rply1.MaxUsage != 2*time.Second {
+	} else if rply1.MaxUsage == nil || *rply1.MaxUsage != 2*time.Second {
 		t.Errorf("Unexpected MaxUsage: %v", rply1.MaxUsage)
 	}
-	t.Run("TestInitSession", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.VOICE, 3*float64(time.Second)) })
+	t.Run("TestInitSession", func(t *testing.T) {
+		testAccountBalance(t, sraccount, srtenant, utils.MetaVoice, 3*float64(time.Second))
+	})
 }
 
 func testSrItTerminateSession(t *testing.T) {
@@ -189,18 +194,18 @@ func testSrItTerminateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: srtenant,
 			ID:     "TestSrItUpdateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      srtenant,
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestRefund",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     sraccount,
-				utils.Subject:     "TEST",
-				utils.Destination: "TEST",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       0 * time.Second,
+			Event: map[string]any{
+				utils.Tenant:       srtenant,
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestRefund",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: sraccount,
+				utils.Subject:      "TEST",
+				utils.Destination:  "TEST",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        0,
 			},
 		},
 	}
@@ -217,7 +222,9 @@ func testSrItTerminateSession(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	t.Run("TestTerminateSession", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.VOICE, 5*float64(time.Second)) })
+	t.Run("TestTerminateSession", func(t *testing.T) {
+		testAccountBalance(t, sraccount, srtenant, utils.MetaVoice, 5*float64(time.Second))
+	})
 }
 
 func testSrItAddMonetaryBalance(t *testing.T) {
@@ -225,9 +232,9 @@ func testSrItAddMonetaryBalance(t *testing.T) {
 	attrs := &utils.AttrSetBalance{
 		Tenant:      srtenant,
 		Account:     sraccount,
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       10.65,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: utils.MetaDefault,
 		},
 	}
@@ -237,27 +244,28 @@ func testSrItAddMonetaryBalance(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	t.Run("TestAddMonetaryBalance", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.MONETARY, 10.65) })
+	t.Run("TestAddMonetaryBalance", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.MetaMonetary, 10.65) })
 }
 
 func testSrItInitSession2(t *testing.T) {
 	args1 := &sessions.V1InitSessionArgs{
 		InitSession: true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: srtenant,
 			ID:     "TestSrItInitiateSession1",
-			Event: map[string]interface{}{
-				utils.Tenant:      srtenant,
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestRefund",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     sraccount,
-				utils.Subject:     "TEST",
-				utils.Destination: "1001",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       2 * time.Minute,
+			Event: map[string]any{
+				utils.Tenant:       srtenant,
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestRefund",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: sraccount,
+				utils.Subject:      "TEST",
+				utils.Destination:  "1001",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        2 * time.Minute,
 			},
 		},
 	}
@@ -266,30 +274,31 @@ func testSrItInitSession2(t *testing.T) {
 		args1, &rply1); err != nil {
 		t.Error(err)
 		return
-	} else if rply1.MaxUsage != 2*time.Minute {
+	} else if rply1.MaxUsage == nil || *rply1.MaxUsage != 2*time.Minute {
 		t.Errorf("Unexpected MaxUsage: %v", rply1.MaxUsage)
 	}
-	t.Run("TestInitSession", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.MONETARY, 10.3002) })
+	t.Run("TestInitSession", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.MetaMonetary, 10.3002) })
 }
 
 func testSrItTerminateSession2(t *testing.T) {
 	args := &sessions.V1TerminateSessionArgs{
 		TerminateSession: true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: srtenant,
 			ID:     "TestSrItUpdateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      srtenant,
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestRefund",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     sraccount,
-				utils.Subject:     "TEST",
-				utils.Destination: "1001",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       0 * time.Second,
+			Event: map[string]any{
+				utils.Tenant:       srtenant,
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestRefund",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: sraccount,
+				utils.Subject:      "TEST",
+				utils.Destination:  "1001",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        0,
 			},
 		},
 	}
@@ -306,7 +315,7 @@ func testSrItTerminateSession2(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	t.Run("TestTerminateSession", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.MONETARY, 10.65) })
+	t.Run("TestTerminateSession", func(t *testing.T) { testAccountBalance(t, sraccount, srtenant, utils.MetaMonetary, 10.65) })
 }
 
 func testSrItStopCgrEngine(t *testing.T) {

@@ -69,7 +69,6 @@ func testTwoEnginesInitConfig(t *testing.T) {
 	if engineOneCfg, err = config.NewCGRConfigFromPath(engineOneCfgPath); err != nil {
 		t.Fatal(err)
 	}
-	config.SetCgrConfig(engineOneCfg)
 	engineTwoCfgPath = path.Join(*dataDir, "conf", "samples", "twoengines", "engine2")
 	if engineTwoCfg, err = config.NewCGRConfigFromPath(engineTwoCfgPath); err != nil {
 		t.Fatal(err)
@@ -147,13 +146,13 @@ func testTwoEnginesSetThreshold(t *testing.T) {
 		t.Error(err)
 	}
 	var result string
-	tPrfl := &engine.ThresholdWithCache{
+	tPrfl := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_TwoEnginesTest",
 			FilterIDs: []string{"*string:~*req.Account:1001"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(5 * time.Minute),
+			MinSleep:  5 * time.Minute,
 			Blocker:   false,
 			Weight:    20.0,
 			ActionIDs: []string{"ACT_1"},
@@ -165,7 +164,6 @@ func testTwoEnginesSetThreshold(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	time.Sleep(50 * time.Millisecond)
 	if err := engineOneRpc.Call(utils.APIerSv1GetThresholdProfile,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "THD_TwoEnginesTest"}, &reply); err != nil {
 		t.Error(err)
@@ -208,13 +206,13 @@ func testTwoEnginesCheckCacheAfterSet(t *testing.T) {
 		t.Errorf("Expected: %+v, received: %+v", expKeys, rcvKeys)
 	}
 	// after we verify the cache make sure it was set correctly there
-	tPrfl := &engine.ThresholdWithCache{
+	tPrfl := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_TwoEnginesTest",
 			FilterIDs: []string{"*string:~*req.Account:1001"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(5 * time.Minute),
+			MinSleep:  5 * time.Minute,
 			Blocker:   false,
 			Weight:    20.0,
 			ActionIDs: []string{"ACT_1"},
@@ -233,26 +231,27 @@ func testTwoEnginesCheckCacheAfterSet(t *testing.T) {
 func testTwoEnginesUpdateThreshold(t *testing.T) {
 	var rplTh *engine.ThresholdProfile
 	var result string
-	tPrfl := &engine.ThresholdWithCache{
+	tPrfl := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_TwoEnginesTest",
 			FilterIDs: []string{"*string:~*req.Account:10"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(1 * time.Minute),
+			MinSleep:  time.Minute,
 			Blocker:   false,
 			Weight:    50.0,
 			ActionIDs: []string{"ACT_1.1"},
 			Async:     true,
 		},
-		Cache: utils.StringPointer(utils.MetaReload),
+		APIOpts: map[string]any{
+			utils.CacheOpt: utils.MetaReload,
+		},
 	}
 	if err := engineOneRpc.Call(utils.APIerSv1SetThresholdProfile, tPrfl, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	time.Sleep(50 * time.Millisecond)
 	if err := engineOneRpc.Call(utils.APIerSv1GetThresholdProfile,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "THD_TwoEnginesTest"}, &rplTh); err != nil {
 		t.Error(err)

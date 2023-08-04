@@ -3,8 +3,10 @@
   vars:
     coprgate_dir: "/home/{{ user }}/go/src/github.com/cgrates/coprgate"
     coprgate_bin: "/home/{{ user }}/go/bin/coprgate"
-    service_name:  coprgate
+    service_name: coprgate
+
   tasks:
+  
     - name: Install dependencies
       become: yes
       apt:
@@ -12,9 +14,9 @@
           - git
           - tar
         state: present
-    - name: Install Go
-      import_role:
-        name: ../roles/install_go
+    - name:  Install Go
+      import_role: 
+        name: ../roles/go
 
     - name: Create coprgate directory
       become: yes
@@ -40,13 +42,13 @@
       environment:
         PATH: "{{ lookup('env','PATH') }}:/home/{{ user }}/go/bin:/usr/local/go/bin:{{ ansible_env.PATH }}"
       args:
-        chdir: '{{  coprgate_dir }}'
+        chdir: '{{ coprgate_dir }}'
 
     
     - name: Copy coprgate to system executable
       become: yes
       copy:
-        src: "{{  coprgate_bin }}"
+        src: "{{ coprgate_bin }}"
         remote_src: true
         dest: "/usr/local/bin"
         unsafe_writes: yes
@@ -54,14 +56,14 @@
     - name: Changing the permissions	
       become: yes
       file:
-        path: /usr/local/bin/coprgate
+        path: /usr/local/bin/{{ service_name }}
         owner: root
         mode: 0755
 
     - name: Create the service file
       become: yes
       template:
-        src:  coprgate.service.j2
+        src: coprgate.service.j2
         dest: /etc/systemd/system/coprgate.service
 
     - name: Reload daemon and start the service
@@ -69,7 +71,7 @@
       ansible.builtin.systemd:
           state: started
           daemon_reload: true
-          name:  coprgate.service
+          name: coprgate.service
           enabled: true
      
     - name: Create directory for reading logs 

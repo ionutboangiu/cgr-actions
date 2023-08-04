@@ -19,11 +19,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
-	"strings"
-
 	"github.com/cgrates/cgrates/utils"
 )
 
+// RadiusAgentCfg the config section that describes the Radius Agent
 type RadiusAgentCfg struct {
 	Enabled            bool
 	ListenNet          string // udp or tcp
@@ -35,46 +34,45 @@ type RadiusAgentCfg struct {
 	RequestProcessors  []*RequestProcessor
 }
 
-func (self *RadiusAgentCfg) loadFromJsonCfg(jsnCfg *RadiusAgentJsonCfg, separator string) (err error) {
+func (ra *RadiusAgentCfg) loadFromJSONCfg(jsnCfg *RadiusAgentJsonCfg, separator string) (err error) {
 	if jsnCfg == nil {
 		return nil
 	}
 	if jsnCfg.Enabled != nil {
-		self.Enabled = *jsnCfg.Enabled
+		ra.Enabled = *jsnCfg.Enabled
 	}
 	if jsnCfg.Listen_net != nil {
-		self.ListenNet = *jsnCfg.Listen_net
+		ra.ListenNet = *jsnCfg.Listen_net
 	}
 	if jsnCfg.Listen_auth != nil {
-		self.ListenAuth = *jsnCfg.Listen_auth
+		ra.ListenAuth = *jsnCfg.Listen_auth
 	}
 	if jsnCfg.Listen_acct != nil {
-		self.ListenAcct = *jsnCfg.Listen_acct
+		ra.ListenAcct = *jsnCfg.Listen_acct
 	}
 	if jsnCfg.Client_secrets != nil {
-		if self.ClientSecrets == nil {
-			self.ClientSecrets = make(map[string]string)
+		if ra.ClientSecrets == nil {
+			ra.ClientSecrets = make(map[string]string)
 		}
 		for k, v := range *jsnCfg.Client_secrets {
-			self.ClientSecrets[k] = v
+			ra.ClientSecrets[k] = v
 		}
 	}
 	if jsnCfg.Client_dictionaries != nil {
-		if self.ClientDictionaries == nil {
-			self.ClientDictionaries = make(map[string]string)
+		if ra.ClientDictionaries == nil {
+			ra.ClientDictionaries = make(map[string]string)
 		}
 		for k, v := range *jsnCfg.Client_dictionaries {
-			self.ClientDictionaries[k] = v
+			ra.ClientDictionaries[k] = v
 		}
 	}
 	if jsnCfg.Sessions_conns != nil {
-		self.SessionSConns = make([]string, len(*jsnCfg.Sessions_conns))
+		ra.SessionSConns = make([]string, len(*jsnCfg.Sessions_conns))
 		for idx, attrConn := range *jsnCfg.Sessions_conns {
 			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			ra.SessionSConns[idx] = attrConn
 			if attrConn == utils.MetaInternal {
-				self.SessionSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)
-			} else {
-				self.SessionSConns[idx] = attrConn
+				ra.SessionSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)
 			}
 		}
 	}
@@ -82,59 +80,89 @@ func (self *RadiusAgentCfg) loadFromJsonCfg(jsnCfg *RadiusAgentJsonCfg, separato
 		for _, reqProcJsn := range *jsnCfg.Request_processors {
 			rp := new(RequestProcessor)
 			var haveID bool
-			for _, rpSet := range self.RequestProcessors {
+			for _, rpSet := range ra.RequestProcessors {
 				if reqProcJsn.ID != nil && rpSet.ID == *reqProcJsn.ID {
 					rp = rpSet // Will load data into the one set
 					haveID = true
 					break
 				}
 			}
-			if err := rp.loadFromJsonCfg(reqProcJsn, separator); err != nil {
-				return nil
+			if err = rp.loadFromJSONCfg(reqProcJsn, separator); err != nil {
+				return
 			}
 			if !haveID {
-				self.RequestProcessors = append(self.RequestProcessors, rp)
+				ra.RequestProcessors = append(ra.RequestProcessors, rp)
 			}
 		}
 	}
-	return nil
+	return
 }
 
-func (ra *RadiusAgentCfg) AsMapInterface(separator string) map[string]interface{} {
-	clientSecrets := make(map[string]interface{}, len(ra.ClientSecrets))
-	for key, val := range ra.ClientSecrets {
-		clientSecrets[key] = val
+// AsMapInterface returns the config as a map[string]any
+func (ra *RadiusAgentCfg) AsMapInterface(separator string) (initialMP map[string]any) {
+	initialMP = map[string]any{
+		utils.EnabledCfg:    ra.Enabled,
+		utils.ListenNetCfg:  ra.ListenNet,
+		utils.ListenAuthCfg: ra.ListenAuth,
+		utils.ListenAcctCfg: ra.ListenAcct,
 	}
 
-	clientDictionaries := make(map[string]interface{}, len(ra.ClientDictionaries))
-	for key, val := range ra.ClientDictionaries {
-		clientDictionaries[key] = val
-	}
-
-	requestProcessors := make([]map[string]interface{}, len(ra.RequestProcessors))
+	requestProcessors := make([]map[string]any, len(ra.RequestProcessors))
 	for i, item := range ra.RequestProcessors {
 		requestProcessors[i] = item.AsMapInterface(separator)
 	}
+	initialMP[utils.RequestProcessorsCfg] = requestProcessors
 
-	sessionSConns := make([]string, len(ra.SessionSConns))
-	for i, item := range ra.SessionSConns {
-		buf := utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)
-		if item == buf {
-			sessionSConns[i] = strings.ReplaceAll(item, utils.CONCATENATED_KEY_SEP+utils.MetaSessionS, utils.EmptyString)
-		} else {
+	if ra.SessionSConns != nil {
+		sessionSConns := make([]string, len(ra.SessionSConns))
+		for i, item := range ra.SessionSConns {
 			sessionSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS) {
+				sessionSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.SessionSConnsCfg] = sessionSConns
+	}
+	clientSecrets := make(map[string]string)
+	for k, v := range ra.ClientSecrets {
+		clientSecrets[k] = v
+	}
+	initialMP[utils.ClientSecretsCfg] = clientSecrets
+	clientDictionaries := make(map[string]string)
+	for k, v := range ra.ClientDictionaries {
+		clientDictionaries[k] = v
+	}
+	initialMP[utils.ClientDictionariesCfg] = clientDictionaries
+	return
+}
+
+// Clone returns a deep copy of RadiusAgentCfg
+func (ra RadiusAgentCfg) Clone() (cln *RadiusAgentCfg) {
+	cln = &RadiusAgentCfg{
+		Enabled:            ra.Enabled,
+		ListenNet:          ra.ListenNet,
+		ListenAuth:         ra.ListenAuth,
+		ListenAcct:         ra.ListenAcct,
+		ClientSecrets:      make(map[string]string),
+		ClientDictionaries: make(map[string]string),
+	}
+	if ra.SessionSConns != nil {
+		cln.SessionSConns = make([]string, len(ra.SessionSConns))
+		for i, con := range ra.SessionSConns {
+			cln.SessionSConns[i] = con
 		}
 	}
-
-	return map[string]interface{}{
-		utils.EnabledCfg:            ra.Enabled,
-		utils.ListenNetCfg:          ra.ListenNet,
-		utils.ListenAuthCfg:         ra.ListenAuth,
-		utils.ListenAcctCfg:         ra.ListenAcct,
-		utils.ClientSecretsCfg:      clientSecrets,
-		utils.ClientDictionariesCfg: clientDictionaries,
-		utils.SessionSConnsCfg:      sessionSConns,
-		utils.RequestProcessorsCfg:  requestProcessors,
+	for k, v := range ra.ClientSecrets {
+		cln.ClientSecrets[k] = v
 	}
-
+	for k, v := range ra.ClientDictionaries {
+		cln.ClientDictionaries[k] = v
+	}
+	if ra.RequestProcessors != nil {
+		cln.RequestProcessors = make([]*RequestProcessor, len(ra.RequestProcessors))
+		for i, req := range ra.RequestProcessors {
+			cln.RequestProcessors[i] = req.Clone()
+		}
+	}
+	return
 }

@@ -46,7 +46,7 @@ type ActionTrigger struct {
 	LastExecutionTime time.Time
 }
 
-func (at *ActionTrigger) Execute(ub *Account) (err error) {
+func (at *ActionTrigger) Execute(ub *Account, fltrS *FilterS) (err error) {
 	// check for min sleep time
 	if at.Recurrent && !at.LastExecutionTime.IsZero() && time.Since(at.LastExecutionTime) < at.MinSleep {
 		return
@@ -68,12 +68,11 @@ func (at *ActionTrigger) Execute(ub *Account) (err error) {
 	removeAccountActionFound := false
 	for _, a := range aac {
 		// check action filter
-		if len(a.Filter) > 0 {
-			matched, err := ub.matchActionFilter(a.Filter)
-			if err != nil {
+		if len(a.Filters) > 0 {
+			if pass, err := fltrS.Pass(utils.NewTenantID(a.Id).Tenant, a.Filters,
+				utils.MapStorage{utils.MetaReq: ub}); err != nil {
 				return err
-			}
-			if !matched {
+			} else if !pass {
 				continue
 			}
 		}
@@ -95,12 +94,12 @@ func (at *ActionTrigger) Execute(ub *Account) (err error) {
 			break
 		}
 		//go utils.Logger.Info(fmt.Sprintf("Executing %v, %v: %v", ub, sq, a))
-		if err := actionFunction(ub, a, aac, nil); err != nil {
+		if err := actionFunction(ub, a, aac, fltrS, nil); err != nil {
 			utils.Logger.Err(fmt.Sprintf("Error executing action %s: %v!", a.ActionType, err))
 			transactionFailed = false
 			break
 		}
-		if a.ActionType == utils.REMOVE_ACCOUNT {
+		if a.ActionType == utils.MetaRemoveAccount {
 			removeAccountActionFound = true
 		}
 	}
@@ -139,7 +138,6 @@ func (at *ActionTrigger) Match(a *Action) bool {
 		}
 		thresholdType = t.ThresholdType == "" || at.ThresholdType == t.ThresholdType
 	}
-
 	return thresholdType && at.Balance.CreateBalance().MatchFilter(a.Balance, false, false)
 }
 
@@ -214,4 +212,97 @@ func (atpl ActionTriggers) Clone() ActionTriggers {
 		clone[i] = at.Clone()
 	}
 	return clone
+}
+
+func (at *ActionTrigger) String() string {
+	return utils.ToJSON(at)
+}
+
+func (at *ActionTrigger) FieldAsInterface(fldPath []string) (val any, err error) {
+	if at == nil || len(fldPath) == 0 {
+		return nil, utils.ErrNotFound
+	}
+	switch fldPath[0] {
+	default:
+		return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
+	case utils.ID:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.ID, nil
+	case utils.UniqueID:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.UniqueID, nil
+	case utils.ThresholdType:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.ThresholdType, nil
+	case utils.ThresholdValue:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.ThresholdValue, nil
+	case utils.Recurrent:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.Recurrent, nil
+	case utils.MinSleep:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.MinSleep, nil
+	case utils.ExpirationDate:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.ExpirationDate, nil
+	case utils.ActivationDate:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.ActivationDate, nil
+	case utils.BalanceField:
+		if len(fldPath) == 1 {
+			return at.Balance, nil
+		}
+		return at.Balance.FieldAsInterface(fldPath[1:])
+	case utils.Weight:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.Weight, nil
+	case utils.ActionsID:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.ActionsID, nil
+	case utils.MinQueuedItems:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.MinQueuedItems, nil
+	case utils.Executed:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.Executed, nil
+	case utils.LastExecutionTime:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return at.LastExecutionTime, nil
+	}
+}
+
+func (at *ActionTrigger) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = at.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return utils.IfaceAsString(iface), nil
 }

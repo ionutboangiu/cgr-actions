@@ -25,65 +25,198 @@ import (
 )
 
 func TestAttributeSCfgloadFromJsonCfg(t *testing.T) {
-	var attscfg, expected AttributeSCfg
-	if err := attscfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(attscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, attscfg)
+
+	jsonCfg := &AttributeSJsonCfg{
+		Enabled:               utils.BoolPointer(true),
+		Indexed_selects:       utils.BoolPointer(false),
+		Resources_conns:       &[]string{"*internal", "*conn1"},
+		Stats_conns:           &[]string{"*internal", "*conn1"},
+		Apiers_conns:          &[]string{"*internal", "*conn1"},
+		String_indexed_fields: &[]string{"*req.index1"},
+		Prefix_indexed_fields: &[]string{"*req.index1", "*req.index2"},
+		Suffix_indexed_fields: &[]string{"*req.index1"},
+		Nested_fields:         utils.BoolPointer(true),
+		Any_context:           utils.BoolPointer(true),
+		Opts: &AttributesOptsJson{
+			ProcessRuns: utils.IntPointer(1),
+			Context:     utils.StringPointer("context"),
+		},
 	}
-	if err := attscfg.loadFromJsonCfg(new(AttributeSJsonCfg)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(attscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, attscfg)
-	}
-	cfgJSONStr := `{
-"attributes": {								// Attribute service
-	"enabled": true,						// starts attribute service: <true|false>.
-	//"string_indexed_fields": [],			// query indexes based on these fields for faster processing
-	"prefix_indexed_fields": ["index1","index2"],			// query indexes based on these fields for faster processing
-	"process_runs": 1,						// number of run loops when processing event
-	},		
-}`
-	expected = AttributeSCfg{
+	expected := &AttributeSCfg{
 		Enabled:             true,
-		PrefixIndexedFields: &[]string{"index1", "index2"},
-		ProcessRuns:         1,
+		ApierSConns:         []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier), "*conn1"},
+		StatSConns:          []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats), "*conn1"},
+		ResourceSConns:      []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources), "*conn1"},
+		IndexedSelects:      false,
+		StringIndexedFields: &[]string{"*req.index1"},
+		PrefixIndexedFields: &[]string{"*req.index1", "*req.index2"},
+		SuffixIndexedFields: &[]string{"*req.index1"},
+		NestedFields:        true,
+		AnyContext:          true,
+		Opts: &AttributesOpts{
+			ProcessRuns: 1,
+			ProfileIDs:  []string{},
+			Context:     utils.StringPointer("context"),
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	jsnCfg := NewDefaultCGRConfig()
+	if err = jsnCfg.attributeSCfg.loadFromJSONCfg(jsonCfg); err != nil {
 		t.Error(err)
-	} else if jsnAttSCfg, err := jsnCfg.AttributeServJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = attscfg.loadFromJsonCfg(jsnAttSCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, attscfg) {
-		t.Errorf("Expected: %+v , recived: %+v", expected, attscfg)
+	} else if !reflect.DeepEqual(expected, jsnCfg.attributeSCfg) {
+		t.Errorf("Expected %+v, received %+v", utils.ToJSON(expected), utils.ToJSON(jsnCfg.attributeSCfg))
+	}
+
+	jsnCfg.attributeSCfg.Opts.loadFromJSONCfg(nil)
+
+	if reflect.DeepEqual(jsnCfg.attributeSCfg.Opts, nil) {
+		t.Error("expected nil")
 	}
 }
 
 func TestAttributeSCfgAsMapInterface(t *testing.T) {
-	var attscfg AttributeSCfg
 	cfgJSONStr := `{
 "attributes": {								
-	"enabled": true,									
-	"prefix_indexed_fields": ["index1","index2"],			
-	"process_runs": 3,						
-	},		
+	"enabled": true,	
+	"stats_conns": ["*internal"],			
+	"resources_conns": ["*internal"],		
+	"apiers_conns": ["*internal"],			
+	"prefix_indexed_fields": ["*req.index1","*req.index2"],		
+    "string_indexed_fields": ["*req.index1"],
+	"opts": {
+		"*processRuns": 3,
+		"*context":"Context"
+	},
+},		
 }`
-	eMap := map[string]interface{}{
-		"enabled":               true,
-		"prefix_indexed_fields": []string{"index1", "index2"},
-		"process_runs":          3,
-		"indexed_selects":       false,
-		"nested_fields":         false,
-		"string_indexed_fields": []string{},
+	eMap := map[string]any{
+		utils.EnabledCfg:             true,
+		utils.StatSConnsCfg:          []string{utils.MetaInternal},
+		utils.ResourceSConnsCfg:      []string{utils.MetaInternal},
+		utils.ApierSConnsCfg:         []string{utils.MetaInternal},
+		utils.StringIndexedFieldsCfg: []string{"*req.index1"},
+		utils.PrefixIndexedFieldsCfg: []string{"*req.index1", "*req.index2"},
+		utils.IndexedSelectsCfg:      true,
+		utils.NestedFieldsCfg:        false,
+		utils.SuffixIndexedFieldsCfg: []string{},
+		utils.AnyContextCfg:          true,
+		utils.OptsCfg: map[string]any{
+			utils.MetaProcessRuns:             3,
+			utils.MetaProfileRuns:             0,
+			utils.MetaProfileIDs:              []string{},
+			utils.MetaProfileIgnoreFiltersCfg: false,
+			utils.OptsContext:                 "Context",
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnAttSCfg, err := jsnCfg.AttributeServJsonCfg(); err != nil {
+	} else if rcv := cgrCfg.attributeSCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected: %+v\n Received: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+}
+
+func TestAttributeSCfgAsMapInterface2(t *testing.T) {
+	cfgJSONStr := `{
+     "attributes": {
+           "suffix_indexed_fields": ["*req.index1","*req.index2"],
+           "nested_fields": true,
+           "enabled": true,
+		   "opts": {
+			   "*processRuns": 7,
+		   },
+     },
+}`
+	expectedMap := map[string]any{
+		utils.EnabledCfg:             true,
+		utils.StatSConnsCfg:          []string{},
+		utils.ResourceSConnsCfg:      []string{},
+		utils.ApierSConnsCfg:         []string{},
+		utils.IndexedSelectsCfg:      true,
+		utils.PrefixIndexedFieldsCfg: []string{},
+		utils.SuffixIndexedFieldsCfg: []string{"*req.index1", "*req.index2"},
+		utils.NestedFieldsCfg:        true,
+		utils.AnyContextCfg:          true,
+		utils.OptsCfg: map[string]any{
+			utils.MetaProcessRuns:             7,
+			utils.MetaProfileRuns:             0,
+			utils.MetaProfileIDs:              []string{},
+			utils.MetaProfileIgnoreFiltersCfg: false,
+		},
+	}
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if err = attscfg.loadFromJsonCfg(jsnAttSCfg); err != nil {
+	} else if newMap := cgrCfg.attributeSCfg.AsMapInterface(); !reflect.DeepEqual(expectedMap, newMap) {
+		t.Errorf("Expected %+v \n, receieved %+v", utils.ToJSON(expectedMap), utils.ToJSON(newMap))
+	}
+}
+
+func TestAttributeSCfgAsMapInterface3(t *testing.T) {
+	myJSONStr := `
+{
+    "attributes": {}
+}
+`
+	expectedMap := map[string]any{
+		utils.EnabledCfg:             false,
+		utils.StatSConnsCfg:          []string{},
+		utils.ResourceSConnsCfg:      []string{},
+		utils.ApierSConnsCfg:         []string{},
+		utils.IndexedSelectsCfg:      true,
+		utils.PrefixIndexedFieldsCfg: []string{},
+		utils.SuffixIndexedFieldsCfg: []string{},
+		utils.NestedFieldsCfg:        false,
+		utils.AnyContextCfg:          true,
+		utils.OptsCfg: map[string]any{
+			utils.MetaProcessRuns:             1,
+			utils.MetaProfileRuns:             0,
+			utils.MetaProfileIDs:              []string{},
+			utils.MetaProfileIgnoreFiltersCfg: false,
+		},
+	}
+	if conv, err := NewCGRConfigFromJSONStringWithDefaults(myJSONStr); err != nil {
 		t.Error(err)
-	} else if rcv := attscfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if newMap := conv.attributeSCfg.AsMapInterface(); !reflect.DeepEqual(expectedMap, newMap) {
+		t.Errorf("Expected %+v, receieved %+v", utils.ToJSON(expectedMap), utils.ToJSON(newMap))
+	}
+}
+
+func TestAttributeSCfgClone(t *testing.T) {
+	ban := &AttributeSCfg{
+		Enabled:             true,
+		ApierSConns:         []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier), "*conn1"},
+		StatSConns:          []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats), "*conn1"},
+		ResourceSConns:      []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources), "*conn1"},
+		IndexedSelects:      false,
+		StringIndexedFields: &[]string{"*req.index1"},
+		PrefixIndexedFields: &[]string{"*req.index1", "*req.index2"},
+		SuffixIndexedFields: &[]string{"*req.index1"},
+		NestedFields:        true,
+		AnyContext:          true,
+		Opts: &AttributesOpts{
+			ProcessRuns: 1,
+			ProfileIDs:  []string{},
+			Context:     utils.StringPointer("Context"),
+		},
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if rcv.ApierSConns[1] = ""; ban.ApierSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.StatSConns[1] = ""; ban.StatSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.ResourceSConns[1] = ""; ban.ResourceSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.StringIndexedFields)[0] = ""; (*ban.StringIndexedFields)[0] != "*req.index1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.PrefixIndexedFields)[0] = ""; (*ban.PrefixIndexedFields)[0] != "*req.index1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.SuffixIndexedFields)[0] = ""; (*ban.SuffixIndexedFields)[0] != "*req.index1" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

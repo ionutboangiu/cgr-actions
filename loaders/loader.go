@@ -25,6 +25,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
@@ -38,18 +39,20 @@ type openedCSVFile struct {
 }
 
 func NewLoader(dm *engine.DataManager, cfg *config.LoaderSCfg,
-	timezone string, exitChan chan bool, filterS *engine.FilterS,
+	timezone string, filterS *engine.FilterS,
 	connMgr *engine.ConnManager, cacheConns []string) (ldr *Loader) {
 	ldr = &Loader{
 		enabled:       cfg.Enabled,
 		tenant:        cfg.Tenant,
 		dryRun:        cfg.DryRun,
-		ldrID:         cfg.Id,
+		ldrID:         cfg.ID,
 		tpInDir:       cfg.TpInDir,
 		tpOutDir:      cfg.TpOutDir,
-		lockFilename:  cfg.LockFileName,
+		lockFilepath:  cfg.GetLockFilePath(),
 		fieldSep:      cfg.FieldSeparator,
+		runDelay:      cfg.RunDelay,
 		dataTpls:      make(map[string][]*config.FCTemplate),
+		flagsTpls:     make(map[string]utils.FlagsWithParams),
 		rdrs:          make(map[string]map[string]*openedCSVFile),
 		bufLoaderData: make(map[string][]LoaderData),
 		dm:            dm,
@@ -60,14 +63,19 @@ func NewLoader(dm *engine.DataManager, cfg *config.LoaderSCfg,
 	}
 	for _, ldrData := range cfg.Data {
 		ldr.dataTpls[ldrData.Type] = ldrData.Fields
+		ldr.flagsTpls[ldrData.Type] = ldrData.Flags
 		ldr.rdrs[ldrData.Type] = make(map[string]*openedCSVFile)
 		if ldrData.Filename != "" {
 			ldr.rdrs[ldrData.Type][ldrData.Filename] = nil
 		}
 		for _, cfgFld := range ldrData.Fields { // add all possible files to be opened
 			for _, cfgFldVal := range cfgFld.Value {
-				if idx := strings.Index(cfgFldVal.Rules, utils.InInFieldSep); idx != -1 {
-					ldr.rdrs[ldrData.Type][cfgFldVal.Rules[:idx]] = nil
+				rule := cfgFldVal.Rules
+				if !strings.HasPrefix(rule, utils.DynamicDataPrefix+utils.MetaFile+utils.FilterValStart) {
+					continue
+				}
+				if idxEnd := strings.Index(rule, utils.FilterValEnd); idxEnd != -1 {
+					ldr.rdrs[ldrData.Type][rule[7:idxEnd]] = nil
 				}
 			}
 		}
@@ -78,16 +86,17 @@ func NewLoader(dm *engine.DataManager, cfg *config.LoaderSCfg,
 // Loader is one instance loading from a folder
 type Loader struct {
 	enabled       bool
-	tenant        config.RSRParsers
+	tenant        string
 	dryRun        bool
 	ldrID         string
 	tpInDir       string
 	tpOutDir      string
-	lockFilename  string
+	lockFilepath  string
 	fieldSep      string
+	runDelay      time.Duration
 	dataTpls      map[string][]*config.FCTemplate      // map[loaderType]*config.FCTemplate
+	flagsTpls     map[string]utils.FlagsWithParams     //map[loaderType]utils.FlagsWithParams
 	rdrs          map[string]map[string]*openedCSVFile // map[loaderType]map[fileName]*openedCSVFile for common incremental read
-	procRows      int                                  // keep here the last processed row in the file/-s
 	bufLoaderData map[string][]LoaderData              // cache of data read, indexed on tenantID
 	dm            *engine.DataManager
 	timezone      string
@@ -96,21 +105,22 @@ type Loader struct {
 	cacheConns    []string
 }
 
-func (ldr *Loader) ListenAndServe(exitChan chan struct{}) (err error) {
+func (ldr *Loader) ListenAndServe(stopChan chan struct{}) (err error) {
 	utils.Logger.Info(fmt.Sprintf("Starting <%s-%s>", utils.LoaderS, ldr.ldrID))
-	e := <-exitChan
-	exitChan <- e // put back for the others listening for shutdown request
-	return
+	return ldr.serve(stopChan)
 }
 
 // ProcessFolder will process the content in the folder with locking
-func (ldr *Loader) ProcessFolder(caching, loadOption string) (err error) {
+func (ldr *Loader) ProcessFolder(caching, loadOption string, stopOnError bool) (err error) {
 	if err = ldr.lockFolder(); err != nil {
 		return
 	}
 	defer ldr.unlockFolder()
 	for ldrType := range ldr.rdrs {
 		if err = ldr.processFiles(ldrType, caching, loadOption); err != nil {
+			if stopOnError {
+				return
+			}
 			utils.Logger.Warning(fmt.Sprintf("<%s-%s> loaderType: <%s> cannot open files, err: %s",
 				utils.LoaderS, ldr.ldrID, ldrType, err.Error()))
 			continue
@@ -121,19 +131,32 @@ func (ldr *Loader) ProcessFolder(caching, loadOption string) (err error) {
 
 // lockFolder will attempt to lock the folder by creating the lock file
 func (ldr *Loader) lockFolder() (err error) {
-	_, err = os.OpenFile(path.Join(ldr.tpInDir, ldr.lockFilename),
+	// If the path is an empty string, we should not be locking
+	if ldr.lockFilepath == utils.EmptyString {
+		return
+	}
+	_, err = os.OpenFile(ldr.lockFilepath,
 		os.O_RDONLY|os.O_CREATE, 0644)
 	return
 }
 
 func (ldr *Loader) unlockFolder() (err error) {
-	return os.Remove(path.Join(ldr.tpInDir,
-		ldr.lockFilename))
+	// If the path is an empty string, we should not be locking
+	if ldr.lockFilepath == utils.EmptyString {
+		return
+	}
+	if _, err = os.Stat(ldr.lockFilepath); err == nil {
+		return os.Remove(ldr.lockFilepath)
+	}
+	return
 }
 
 func (ldr *Loader) isFolderLocked() (locked bool, err error) {
-	if _, err = os.Stat(path.Join(ldr.tpInDir,
-		ldr.lockFilename)); err == nil {
+	// If the path is an empty string, we should not be locking
+	if ldr.lockFilepath == utils.EmptyString {
+		return
+	}
+	if _, err = os.Stat(ldr.lockFilepath); err == nil {
 		return true, nil
 	}
 	if os.IsNotExist(err) {
@@ -150,10 +173,13 @@ func (ldr *Loader) unreferenceFile(loaderType, fileName string) (err error) {
 }
 
 func (ldr *Loader) moveFiles() (err error) {
+	if ldr.tpOutDir == utils.EmptyString {
+		return
+	}
 	filesInDir, _ := os.ReadDir(ldr.tpInDir)
 	for _, file := range filesInDir {
 		fName := file.Name()
-		if fName == ldr.lockFilename {
+		if fName == ldr.lockFilepath {
 			continue
 		}
 		oldPath := path.Join(ldr.tpInDir, fName)
@@ -172,8 +198,8 @@ func (ldr *Loader) processFiles(loaderType, caching, loadOption string) (err err
 			return err
 		}
 		csvReader := csv.NewReader(rdr)
-		csvReader.Comment = '#'
 		csvReader.Comma = rune(ldr.fieldSep[0])
+		csvReader.Comment = '#'
 		ldr.rdrs[loaderType][fName] = &openedCSVFile{
 			fileName: fName, rdr: rdr, csvRdr: csvReader}
 		defer ldr.unreferenceFile(loaderType, fName)
@@ -181,13 +207,9 @@ func (ldr *Loader) processFiles(loaderType, caching, loadOption string) (err err
 	// based on load option will store or remove the content
 	switch loadOption {
 	case utils.MetaStore:
-		if err = ldr.processContent(loaderType, caching); err != nil {
-			return
-		}
+		return ldr.processContent(loaderType, caching)
 	case utils.MetaRemove:
-		if err = ldr.removeContent(loaderType, caching); err != nil {
-			return
-		}
+		return ldr.removeContent(loaderType, caching)
 	}
 	return
 }
@@ -262,13 +284,15 @@ func (ldr *Loader) processContent(loaderType, caching string) (err error) {
 func (ldr *Loader) storeLoadedData(loaderType string,
 	lds map[string][]LoaderData, caching string) (err error) {
 	var ids []string
-	cacheArgs := utils.InitAttrReloadCache()
+	cacheArgs := make(map[string][]string)
+	var cacheIDs []string // verify if we need to clear indexe
 	switch loaderType {
 	case utils.MetaAttributes:
+		cacheIDs = []string{utils.CacheAttributeFilterIndexes}
 		for _, lDataSet := range lds {
-			attrModels := make(engine.TPAttributes, len(lDataSet))
+			attrModels := make(engine.AttributeMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				attrModels[i] = new(engine.TPAttribute)
+				attrModels[i] = new(engine.AttributeMdl)
 				if err = utils.UpdateStructWithIfaceMap(attrModels[i], ld); err != nil {
 					return
 				}
@@ -290,13 +314,14 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 					return err
 				}
 			}
-			cacheArgs.AttributeProfileIDs = ids
+			cacheArgs[utils.CacheAttributeProfiles] = ids
 		}
 	case utils.MetaResources:
+		cacheIDs = []string{utils.CacheResourceFilterIndexes}
 		for _, lDataSet := range lds {
-			resModels := make(engine.TpResources, len(lDataSet))
+			resModels := make(engine.ResourceMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				resModels[i] = new(engine.TpResource)
+				resModels[i] = new(engine.ResourceMdl)
 				if err = utils.UpdateStructWithIfaceMap(resModels[i], ld); err != nil {
 					return
 				}
@@ -318,21 +343,15 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				if err := ldr.dm.SetResourceProfile(res, true); err != nil {
 					return err
 				}
-				if err := ldr.dm.SetResource(
-					&engine.Resource{Tenant: res.Tenant,
-						ID:     res.ID,
-						Usages: make(map[string]*engine.ResourceUsage)}); err != nil {
-					return err
-				}
-				cacheArgs.ResourceProfileIDs = ids
-				cacheArgs.ResourceIDs = ids
+				cacheArgs[utils.CacheResourceProfiles] = ids
+				cacheArgs[utils.CacheResources] = ids
 			}
 		}
 	case utils.MetaFilters:
 		for _, lDataSet := range lds {
-			fltrModels := make(engine.TpFilterS, len(lDataSet))
+			fltrModels := make(engine.FilterMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				fltrModels[i] = new(engine.TpFilter)
+				fltrModels[i] = new(engine.FilterMdl)
 				if err = utils.UpdateStructWithIfaceMap(fltrModels[i], ld); err != nil {
 					return
 				}
@@ -351,17 +370,18 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				}
 				// get IDs so we can reload in cache
 				ids = append(ids, fltrPrf.TenantID())
-				if err := ldr.dm.SetFilter(fltrPrf); err != nil {
+				if err := ldr.dm.SetFilter(fltrPrf, true); err != nil {
 					return err
 				}
-				cacheArgs.FilterIDs = ids
+				cacheArgs[utils.CacheFilters] = ids
 			}
 		}
 	case utils.MetaStats:
+		cacheIDs = []string{utils.CacheStatFilterIndexes}
 		for _, lDataSet := range lds {
-			stsModels := make(engine.TpStats, len(lDataSet))
+			stsModels := make(engine.StatMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				stsModels[i] = new(engine.TpStat)
+				stsModels[i] = new(engine.StatMdl)
 				if err = utils.UpdateStructWithIfaceMap(stsModels[i], ld); err != nil {
 					return
 				}
@@ -382,26 +402,16 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				if err := ldr.dm.SetStatQueueProfile(stsPrf, true); err != nil {
 					return err
 				}
-				metrics := make(map[string]engine.StatMetric)
-				for _, metric := range stsPrf.Metrics {
-					stsMetric, err := engine.NewStatMetric(metric.MetricID, stsPrf.MinItems, metric.FilterIDs)
-					if err != nil {
-						return utils.APIErrorHandler(err)
-					}
-					metrics[metric.MetricID] = stsMetric
-				}
-				if err := ldr.dm.SetStatQueue(&engine.StatQueue{Tenant: stsPrf.Tenant, ID: stsPrf.ID, SQMetrics: metrics}); err != nil {
-					return err
-				}
-				cacheArgs.StatsQueueProfileIDs = ids
-				cacheArgs.StatsQueueIDs = ids
+				cacheArgs[utils.CacheStatQueueProfiles] = ids
+				cacheArgs[utils.CacheStatQueues] = ids
 			}
 		}
 	case utils.MetaThresholds:
+		cacheIDs = []string{utils.CacheThresholdFilterIndexes}
 		for _, lDataSet := range lds {
-			thModels := make(engine.TpThresholds, len(lDataSet))
+			thModels := make(engine.ThresholdMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				thModels[i] = new(engine.TpThreshold)
+				thModels[i] = new(engine.ThresholdMdl)
 				if err = utils.UpdateStructWithIfaceMap(thModels[i], ld); err != nil {
 					return
 				}
@@ -422,47 +432,46 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				if err := ldr.dm.SetThresholdProfile(thPrf, true); err != nil {
 					return err
 				}
-				if err := ldr.dm.SetThreshold(&engine.Threshold{Tenant: thPrf.Tenant, ID: thPrf.ID}); err != nil {
-					return err
-				}
-				cacheArgs.ThresholdProfileIDs = ids
-				cacheArgs.ThresholdIDs = ids
+				cacheArgs[utils.CacheThresholdProfiles] = ids
+				cacheArgs[utils.CacheThresholds] = ids
 			}
 		}
-	case utils.MetaSuppliers:
+	case utils.MetaRoutes:
+		cacheIDs = []string{utils.CacheRouteFilterIndexes}
 		for _, lDataSet := range lds {
-			sppModels := make(engine.TpSuppliers, len(lDataSet))
+			sppModels := make(engine.RouteMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				sppModels[i] = new(engine.TpSupplier)
+				sppModels[i] = new(engine.RouteMdl)
 				if err = utils.UpdateStructWithIfaceMap(sppModels[i], ld); err != nil {
 					return
 				}
 			}
 
-			for _, tpSpp := range sppModels.AsTPSuppliers() {
-				spPrf, err := engine.APItoSupplierProfile(tpSpp, ldr.timezone)
+			for _, tpSpp := range sppModels.AsTPRouteProfile() {
+				spPrf, err := engine.APItoRouteProfile(tpSpp, ldr.timezone)
 				if err != nil {
 					return err
 				}
 				if ldr.dryRun {
 					utils.Logger.Info(
-						fmt.Sprintf("<%s-%s> DRY_RUN: SupplierProfile: %s",
+						fmt.Sprintf("<%s-%s> DRY_RUN: RouteProfile: %s",
 							utils.LoaderS, ldr.ldrID, utils.ToJSON(spPrf)))
 					continue
 				}
 				// get IDs so we can reload in cache
 				ids = append(ids, spPrf.TenantID())
-				if err := ldr.dm.SetSupplierProfile(spPrf, true); err != nil {
+				if err := ldr.dm.SetRouteProfile(spPrf, true); err != nil {
 					return err
 				}
-				cacheArgs.SupplierProfileIDs = ids
+				cacheArgs[utils.CacheRouteProfiles] = ids
 			}
 		}
 	case utils.MetaChargers:
+		cacheIDs = []string{utils.CacheChargerFilterIndexes}
 		for _, lDataSet := range lds {
-			cppModels := make(engine.TPChargers, len(lDataSet))
+			cppModels := make(engine.ChargerMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				cppModels[i] = new(engine.TPCharger)
+				cppModels[i] = new(engine.ChargerMdl)
 				if err = utils.UpdateStructWithIfaceMap(cppModels[i], ld); err != nil {
 					return
 				}
@@ -484,14 +493,15 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				if err := ldr.dm.SetChargerProfile(cpp, true); err != nil {
 					return err
 				}
-				cacheArgs.ChargerProfileIDs = ids
+				cacheArgs[utils.CacheChargerProfiles] = ids
 			}
 		}
 	case utils.MetaDispatchers:
+		cacheIDs = []string{utils.CacheDispatcherFilterIndexes}
 		for _, lDataSet := range lds {
-			dispModels := make(engine.TPDispatcherProfiles, len(lDataSet))
+			dispModels := make(engine.DispatcherProfileMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				dispModels[i] = new(engine.TPDispatcherProfile)
+				dispModels[i] = new(engine.DispatcherProfileMdl)
 				if err = utils.UpdateStructWithIfaceMap(dispModels[i], ld); err != nil {
 					return
 				}
@@ -512,19 +522,23 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				if err := ldr.dm.SetDispatcherProfile(dsp, true); err != nil {
 					return err
 				}
-				cacheArgs.DispatcherProfileIDs = ids
+				cacheArgs[utils.CacheDispatcherProfiles] = ids
 			}
 		}
 	case utils.MetaDispatcherHosts:
 		for _, lDataSet := range lds {
-			dispModels := make(engine.TPDispatcherHosts, len(lDataSet))
+			dispModels := make(engine.DispatcherHostMdls, len(lDataSet))
 			for i, ld := range lDataSet {
-				dispModels[i] = new(engine.TPDispatcherHost)
+				dispModels[i] = new(engine.DispatcherHostMdl)
 				if err = utils.UpdateStructWithIfaceMap(dispModels[i], ld); err != nil {
 					return
 				}
 			}
-			for _, tpDsp := range dispModels.AsTPDispatcherHosts() {
+			tpDsps, err := dispModels.AsTPDispatcherHosts()
+			if err != nil {
+				return err
+			}
+			for _, tpDsp := range tpDsps {
 				dsp := engine.APItoDispatcherHost(tpDsp)
 				if ldr.dryRun {
 					utils.Logger.Info(
@@ -537,55 +551,18 @@ func (ldr *Loader) storeLoadedData(loaderType string,
 				if err := ldr.dm.SetDispatcherHost(dsp); err != nil {
 					return err
 				}
-				cacheArgs.DispatcherHostIDs = ids
+				cacheArgs[utils.CacheDispatcherHosts] = ids
 			}
 		}
 	}
 
 	if len(ldr.cacheConns) != 0 {
-		var tnt string
-		if tnt, err = ldr.tenant.ParseValue(""); err != nil {
-			return
-		}
-		var reply string
-		switch caching {
-		case utils.META_NONE:
-			return
-		case utils.MetaReload:
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1ReloadCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		case utils.MetaLoad:
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1LoadCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		case utils.MetaRemove:
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1FlushCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		case utils.MetaClear:
-			cacheArgs.FlushAll = true
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1FlushCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		}
+		return engine.CallCache(ldr.connMgr, ldr.cacheConns, caching, cacheArgs, cacheIDs, nil, false, ldr.tenant)
 	}
 	return
 }
 
-// removeContent will process the contect and will remove it from database
+// removeContent will process the content and will remove it from database
 func (ldr *Loader) removeContent(loaderType, caching string) (err error) {
 	// start processing lines
 	keepLooping := true // controls looping
@@ -631,7 +608,8 @@ func (ldr *Loader) removeContent(loaderType, caching string) (err error) {
 			for prevTntID = range ldr.bufLoaderData {
 				break // have stolen the existing key in buffer
 			}
-			if err = ldr.removeLoadedData(loaderType, prevTntID, caching); err != nil {
+			if err = ldr.removeLoadedData(loaderType,
+				map[string][]LoaderData{prevTntID: ldr.bufLoaderData[prevTntID]}, caching); err != nil {
 				return
 			}
 			delete(ldr.bufLoaderData, prevTntID)
@@ -643,7 +621,8 @@ func (ldr *Loader) removeContent(loaderType, caching string) (err error) {
 	for tntID = range ldr.bufLoaderData {
 		break // get the first tenantID
 	}
-	if err = ldr.removeLoadedData(loaderType, tntID, caching); err != nil {
+	if err = ldr.removeLoadedData(loaderType,
+		map[string][]LoaderData{tntID: ldr.bufLoaderData[tntID]}, caching); err != nil {
 		return
 	}
 	delete(ldr.bufLoaderData, tntID)
@@ -652,198 +631,270 @@ func (ldr *Loader) removeContent(loaderType, caching string) (err error) {
 
 // removeLoadedData will remove the data from database
 // since we remove we don't need to compose the struct we only need the Tenant and the ID of the profile
-func (ldr *Loader) removeLoadedData(loaderType, tntID, caching string) (err error) {
+func (ldr *Loader) removeLoadedData(loaderType string, lds map[string][]LoaderData, caching string) (err error) {
 	var ids []string
-	cacheArgs := utils.InitAttrReloadCache()
+	cacheArgs := make(map[string][]string)
+	var cacheIDs []string // verify if we need to clear indexe
 	switch loaderType {
 	case utils.MetaAttributes:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: AttributeProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveAttributeProfile(tntIDStruct.Tenant, tntIDStruct.ID,
-				utils.NonTransactional, true); err != nil {
-				return err
+		cacheIDs = []string{utils.CacheAttributeFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: AttributeProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveAttributeProfile(tntIDStruct.Tenant, tntIDStruct.ID,
+					true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheAttributeProfiles] = ids
 			}
-			cacheArgs.AttributeProfileIDs = ids
 		}
+
 	case utils.MetaResources:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: ResourceProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
+		cacheIDs = []string{utils.CacheResourceFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: ResourceProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
 
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveResourceProfile(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional, true); err != nil {
-				return err
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveResourceProfile(tntIDStruct.Tenant,
+					tntIDStruct.ID, true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheResourceProfiles] = ids
+				cacheArgs[utils.CacheResources] = ids
 			}
-			if err := ldr.dm.RemoveResource(tntIDStruct.Tenant, tntIDStruct.ID, utils.NonTransactional); err != nil {
-				return err
-			}
-			cacheArgs.ResourceProfileIDs = ids
-			cacheArgs.ResourceIDs = ids
 		}
-
 	case utils.MetaFilters:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: Filter: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveFilter(tntIDStruct.Tenant, tntIDStruct.ID, utils.NonTransactional); err != nil {
-				return err
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: Filter: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveFilter(tntIDStruct.Tenant, tntIDStruct.ID,
+					true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheFilters] = ids
 			}
-			cacheArgs.FilterIDs = ids
 		}
 	case utils.MetaStats:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: StatsQueueProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveStatQueueProfile(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional, true); err != nil {
-				return err
+		cacheIDs = []string{utils.CacheStatFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: StatsQueueProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveStatQueueProfile(tntIDStruct.Tenant,
+					tntIDStruct.ID, true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheStatQueueProfiles] = ids
+				cacheArgs[utils.CacheStatQueues] = ids
 			}
-			if err := ldr.dm.RemoveStatQueue(tntIDStruct.Tenant, tntIDStruct.ID, utils.NonTransactional); err != nil {
-				return err
-			}
-			cacheArgs.StatsQueueProfileIDs = ids
-			cacheArgs.StatsQueueIDs = ids
 		}
 	case utils.MetaThresholds:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: ThresholdProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveThresholdProfile(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional, true); err != nil {
-				return err
+		cacheIDs = []string{utils.CacheThresholdFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: ThresholdProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveThresholdProfile(tntIDStruct.Tenant,
+					tntIDStruct.ID, true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheThresholdProfiles] = ids
+				cacheArgs[utils.CacheThresholds] = ids
 			}
-			if err := ldr.dm.RemoveThreshold(tntIDStruct.Tenant, tntIDStruct.ID, utils.NonTransactional); err != nil {
-				return err
-			}
-			cacheArgs.ThresholdProfileIDs = ids
-			cacheArgs.ThresholdIDs = ids
 		}
-	case utils.MetaSuppliers:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: SupplierProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveSupplierProfile(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional, true); err != nil {
-				return err
+	case utils.MetaRoutes:
+		cacheIDs = []string{utils.CacheRouteFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: RouteProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveRouteProfile(tntIDStruct.Tenant,
+					tntIDStruct.ID, true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheRouteProfiles] = ids
 			}
-			cacheArgs.SupplierProfileIDs = ids
 		}
 	case utils.MetaChargers:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: ChargerProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveChargerProfile(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional, true); err != nil {
-				return err
+		cacheIDs = []string{utils.CacheChargerFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: ChargerProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveChargerProfile(tntIDStruct.Tenant,
+					tntIDStruct.ID, true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheChargerProfiles] = ids
 			}
-			cacheArgs.ChargerProfileIDs = ids
 		}
 	case utils.MetaDispatchers:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: DispatcherProfileID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveDispatcherProfile(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional, true); err != nil {
-				return err
+		cacheIDs = []string{utils.CacheDispatcherFilterIndexes}
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: DispatcherProfileID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveDispatcherProfile(tntIDStruct.Tenant,
+					tntIDStruct.ID, true); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheDispatcherProfiles] = ids
 			}
-			cacheArgs.DispatcherProfileIDs = ids
 		}
 	case utils.MetaDispatcherHosts:
-		if ldr.dryRun {
-			utils.Logger.Info(
-				fmt.Sprintf("<%s-%s> DRY_RUN: DispatcherHostID: %s",
-					utils.LoaderS, ldr.ldrID, tntID))
-		} else {
-			tntIDStruct := utils.NewTenantID(tntID)
-			// get IDs so we can reload in cache
-			ids = append(ids, tntID)
-			if err := ldr.dm.RemoveDispatcherHost(tntIDStruct.Tenant,
-				tntIDStruct.ID, utils.NonTransactional); err != nil {
-				return err
+		for tntID := range lds {
+			if ldr.dryRun {
+				utils.Logger.Info(
+					fmt.Sprintf("<%s-%s> DRY_RUN: DispatcherHostID: %s",
+						utils.LoaderS, ldr.ldrID, tntID))
+			} else {
+				tntIDStruct := utils.NewTenantID(tntID)
+				// get IDs so we can reload in cache
+				ids = append(ids, tntID)
+				if err := ldr.dm.RemoveDispatcherHost(tntIDStruct.Tenant,
+					tntIDStruct.ID); err != nil {
+					return err
+				}
+				cacheArgs[utils.CacheDispatcherHosts] = ids
 			}
-			cacheArgs.DispatcherHostIDs = ids
 		}
 	}
 
 	if len(ldr.cacheConns) != 0 {
-		var tnt string
-		if tnt, err = ldr.tenant.ParseValue(""); err != nil {
+		return engine.CallCache(ldr.connMgr, ldr.cacheConns, caching, cacheArgs, cacheIDs, nil, false, ldr.tenant)
+	}
+	return
+}
+
+func (ldr *Loader) serve(stopChan chan struct{}) (err error) {
+	switch ldr.runDelay {
+	case time.Duration(0): // 0 disables the automatic read, maybe done per API
+		return
+	case time.Duration(-1):
+		return utils.WatchDir(ldr.tpInDir, ldr.processFile,
+			utils.LoaderS+"-"+ldr.ldrID, stopChan)
+	default:
+		go ldr.handleFolder(stopChan)
+	}
+	return
+}
+
+func (ldr *Loader) handleFolder(stopChan chan struct{}) {
+	for {
+		go ldr.ProcessFolder(config.CgrConfig().GeneralCfg().DefaultCaching, utils.MetaStore, false)
+		timer := time.NewTimer(ldr.runDelay)
+		select {
+		case <-stopChan:
+			utils.Logger.Info(
+				fmt.Sprintf("<%s-%s> stop monitoring path <%s>",
+					utils.LoaderS, ldr.ldrID, ldr.tpInDir))
+			timer.Stop()
 			return
+		case <-timer.C:
 		}
-		var reply string
-		switch caching {
-		case utils.META_NONE:
-			return
-		case utils.MetaReload:
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1ReloadCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		case utils.MetaLoad:
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1LoadCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		case utils.MetaRemove:
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1FlushCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
-		case utils.MetaClear:
-			cacheArgs.FlushAll = true
-			if err = ldr.connMgr.Call(ldr.cacheConns, nil,
-				utils.CacheSv1FlushCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg:       utils.TenantArg{Tenant: tnt},
-					AttrReloadCache: cacheArgs}, &reply); err != nil {
-				return
-			}
+	}
+}
+
+func (ldr *Loader) processFile(_, itmID string) (err error) {
+	loaderType := ldr.getLdrType(itmID)
+	if len(loaderType) == 0 {
+		return
+	}
+	if err = ldr.lockFolder(); err != nil {
+		return
+	}
+	defer ldr.unlockFolder()
+	if ldr.rdrs[loaderType][itmID] != nil {
+		ldr.unreferenceFile(loaderType, itmID)
+	}
+	var rdr *os.File
+	if rdr, err = os.Open(path.Join(ldr.tpInDir, itmID)); err != nil {
+		return
+	}
+	csvReader := csv.NewReader(rdr)
+	csvReader.Comma = rune(ldr.fieldSep[0])
+	csvReader.Comment = '#'
+	ldr.rdrs[loaderType][itmID] = &openedCSVFile{
+		fileName: itmID, rdr: rdr, csvRdr: csvReader}
+	if !ldr.allFilesPresent(loaderType) {
+		return
+	}
+	for fName := range ldr.rdrs[loaderType] {
+		defer ldr.unreferenceFile(loaderType, fName)
+	}
+
+	err = ldr.processContent(loaderType, config.CgrConfig().GeneralCfg().DefaultCaching)
+
+	if ldr.tpOutDir == utils.EmptyString {
+		return
+	}
+	for fName := range ldr.rdrs[loaderType] {
+		oldPath := path.Join(ldr.tpInDir, fName)
+		newPath := path.Join(ldr.tpOutDir, fName)
+		if nerr := os.Rename(oldPath, newPath); nerr != nil {
+			return nerr
+		}
+	}
+	return
+}
+
+func (ldr *Loader) allFilesPresent(ldrType string) bool {
+	for _, rdr := range ldr.rdrs[ldrType] {
+		if rdr == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// getLdrType returns loaderType for the given fileName
+func (ldr *Loader) getLdrType(fName string) (ldrType string) {
+	for ldr, rdrs := range ldr.rdrs {
+		if _, has := rdrs[fName]; has {
+			return ldr
 		}
 	}
 	return

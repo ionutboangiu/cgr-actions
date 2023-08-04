@@ -23,37 +23,43 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/utils"
-	"github.com/jinzhu/gorm"
-	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // NewPostgresStorage returns the posgres storDB
-func NewPostgresStorage(host, port, name, user, password, sslmode string, maxConn, maxIdleConn, connMaxLifetime int) (*SQLStorage, error) {
+func NewPostgresStorage(host, port, name, user, password, sslmode string, maxConn, maxIdleConn int, connMaxLifetime time.Duration) (*SQLStorage, error) {
 	connectString := fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s", host, port, name, user, password, sslmode)
-	db, err := gorm.Open("postgres", connectString)
+	db, err := gorm.Open(postgres.Open(connectString), &gorm.Config{AllowGlobalUpdate: true})
 	if err != nil {
 		return nil, err
 	}
-	err = db.DB().Ping()
-	if err != nil {
-		return nil, err
-	}
-	db.DB().SetMaxIdleConns(maxIdleConn)
-	db.DB().SetMaxOpenConns(maxConn)
-	db.DB().SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-	//db.LogMode(true)
 	postgressStorage := new(PostgresStorage)
+	if postgressStorage.Db, err = db.DB(); err != nil {
+		return nil, err
+	}
+	if err = postgressStorage.Db.Ping(); err != nil {
+		return nil, err
+	}
+	postgressStorage.Db.SetMaxIdleConns(maxIdleConn)
+	postgressStorage.Db.SetMaxOpenConns(maxConn)
+	postgressStorage.Db.SetConnMaxLifetime(connMaxLifetime)
+	//db.LogMode(true)
 	postgressStorage.db = db
-	postgressStorage.Db = db.DB()
-	return &SQLStorage{db.DB(), db, postgressStorage, postgressStorage}, nil
+	return &SQLStorage{
+		Db:      postgressStorage.Db,
+		db:      postgressStorage.db,
+		StorDB:  postgressStorage,
+		SQLImpl: postgressStorage,
+	}, nil
 }
 
 type PostgresStorage struct {
 	SQLStorage
 }
 
-func (self *PostgresStorage) SetVersions(vrs Versions, overwrite bool) (err error) {
-	tx := self.db.Begin()
+func (poS *PostgresStorage) SetVersions(vrs Versions, overwrite bool) (err error) {
+	tx := poS.db.Begin()
 	if overwrite {
 		tx.Table(utils.TBLVersions).Delete(nil)
 	}
@@ -75,22 +81,22 @@ func (self *PostgresStorage) SetVersions(vrs Versions, overwrite bool) (err erro
 	return
 }
 
-func (self *PostgresStorage) extraFieldsExistsQry(field string) string {
+func (poS *PostgresStorage) extraFieldsExistsQry(field string) string {
 	return fmt.Sprintf(" extra_fields ?'%s'", field)
 }
 
-func (self *PostgresStorage) extraFieldsValueQry(field, value string) string {
+func (poS *PostgresStorage) extraFieldsValueQry(field, value string) string {
 	return fmt.Sprintf(" (extra_fields ->> '%s') = '%s'", field, value)
 }
 
-func (self *PostgresStorage) notExtraFieldsExistsQry(field string) string {
+func (poS *PostgresStorage) notExtraFieldsExistsQry(field string) string {
 	return fmt.Sprintf(" NOT extra_fields ?'%s'", field)
 }
 
-func (self *PostgresStorage) notExtraFieldsValueQry(field, value string) string {
+func (poS *PostgresStorage) notExtraFieldsValueQry(field, value string) string {
 	return fmt.Sprintf(" NOT (extra_fields ?'%s' AND (extra_fields ->> '%s') = '%s')", field, field, value)
 }
 
-func (self *PostgresStorage) GetStorageType() string {
+func (poS *PostgresStorage) GetStorageType() string {
 	return utils.MetaPostgres
 }

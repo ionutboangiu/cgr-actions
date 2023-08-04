@@ -1,4 +1,4 @@
-{
+  {
 
 "general": {
     "log_level": 7,
@@ -26,13 +26,13 @@
 
 "cdrs": {
     "enabled": true,
-    "rals_conns": ["*internal"]
+    "rals_conns": ["*localhost"]
 },
 
 "sessions": {
     "enabled": true,
-    "rals_conns": ["*internal"],
-    "cdrs_conns": ["*internal"]
+    "rals_conns": ["*localhost"],
+    "cdrs_conns": ["*localhost"]
 },
 
 "apiers": {

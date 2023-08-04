@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/ees"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -99,6 +100,14 @@ func testPosterITInitCdrDb(t *testing.T) {
 }
 
 func testPosterITStartEngine(t *testing.T) {
+	// before starting the engine, create the directories needed for failed posts or
+	// clear their contents if they exist already
+	if err := os.RemoveAll(pstrCfg.GeneralCfg().FailedPostsDir); err != nil {
+		t.Fatal("Error removing folder: ", pstrCfg.GeneralCfg().FailedPostsDir, err)
+	}
+	if err := os.MkdirAll(pstrCfg.GeneralCfg().FailedPostsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := engine.StopStartEngine(pstrCfgPath, *waitRater); err != nil {
 		t.Fatal(err)
 	}
@@ -111,18 +120,18 @@ func testPosterITRpcConn(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func testPosterReadFolder(format string) (expEv *engine.ExportEvents, err error) {
+
+func testPosterReadFolder(format string) (expEv *ees.ExportEvents, err error) {
 	filesInDir, _ := os.ReadDir(pstrCfg.GeneralCfg().FailedPostsDir)
 	if len(filesInDir) == 0 {
 		err = fmt.Errorf("No files in directory: %s", pstrCfg.GeneralCfg().FailedPostsDir)
 		return
 	}
-
 	for _, file := range filesInDir { // First file in directory is the one we need, harder to find it's name out of config
 		fileName := file.Name()
 		filePath := path.Join(pstrCfg.GeneralCfg().FailedPostsDir, fileName)
 
-		expEv, err = engine.NewExportEventsFromFile(filePath)
+		expEv, err = ees.NewExportEventsFromFile(filePath)
 		if err != nil {
 			return
 		}
@@ -148,7 +157,7 @@ func testPosterITAMQP(t *testing.T) {
 	attrsAA := &utils.AttrSetActions{
 		ActionsId: "ACT_AMQP",
 		Actions: []*utils.TPAction{ // set a action with a wrong endpoint to easily check if it was executed
-			{Identifier: utils.MetaAMQPjsonMap, ExtraParameters: "endpoint"},
+			{Identifier: utils.MetaExport, ExtraParameters: "amqp_fail"},
 		},
 	}
 	if err := pstrRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
@@ -172,12 +181,12 @@ func testPosterITAMQP(t *testing.T) {
 		t.Fatalf("Expected 1 event received: %d events", len(ev.Events))
 	}
 	body := ev.Events[0].([]byte)
-	var acc engine.Account
+	var acc map[string]any
 	if err := json.Unmarshal(body, &acc); err != nil {
 		t.Fatal(err)
 	}
-	if acc.ID != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
-		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc.ID)
+	if acc[utils.AccountField] != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
+		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc[utils.AccountField])
 	}
 }
 
@@ -186,7 +195,7 @@ func testPosterITAMQPv1(t *testing.T) {
 	attrsAA := &utils.AttrSetActions{
 		ActionsId: "ACT_AMQPv1",
 		Actions: []*utils.TPAction{ // set a action with a wrong endpoint to easily check if it was executed
-			{Identifier: utils.MetaAMQPV1jsonMap, ExtraParameters: "endpoint"},
+			{Identifier: utils.MetaExport, ExtraParameters: "aws_fail"},
 		},
 	}
 	if err := pstrRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
@@ -201,7 +210,7 @@ func testPosterITAMQPv1(t *testing.T) {
 		t.Errorf("Calling APIerSv1.ExecuteAction received: %s", reply)
 	}
 	// verify if acction was executed
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	ev, err := testPosterReadFolder(utils.MetaAMQPV1jsonMap)
 	if err != nil {
 		t.Fatal(err)
@@ -210,12 +219,12 @@ func testPosterITAMQPv1(t *testing.T) {
 		t.Fatalf("Expected 1 event received: %d events", len(ev.Events))
 	}
 	body := ev.Events[0].([]byte)
-	var acc engine.Account
+	var acc map[string]any
 	if err := json.Unmarshal(body, &acc); err != nil {
 		t.Fatal(err)
 	}
-	if acc.ID != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
-		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc.ID)
+	if acc[utils.AccountField] != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
+		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc[utils.AccountField])
 	}
 }
 
@@ -224,7 +233,7 @@ func testPosterITSQS(t *testing.T) {
 	attrsAA := &utils.AttrSetActions{
 		ActionsId: "ACT_SQS",
 		Actions: []*utils.TPAction{ // set a action with a wrong endpoint to easily check if it was executed
-			{Identifier: utils.MetaSQSjsonMap, ExtraParameters: "endpoint"},
+			{Identifier: utils.MetaExport, ExtraParameters: "sqs_fail"},
 		},
 	}
 	if err := pstrRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
@@ -248,12 +257,12 @@ func testPosterITSQS(t *testing.T) {
 		t.Fatalf("Expected 1 event received: %d events", len(ev.Events))
 	}
 	body := ev.Events[0].([]byte)
-	var acc engine.Account
+	var acc map[string]any
 	if err := json.Unmarshal(body, &acc); err != nil {
 		t.Fatal(err)
 	}
-	if acc.ID != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
-		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc.ID)
+	if acc[utils.AccountField] != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
+		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc[utils.AccountField])
 	}
 }
 
@@ -262,7 +271,7 @@ func testPosterITS3(t *testing.T) {
 	attrsAA := &utils.AttrSetActions{
 		ActionsId: "ACT_S3",
 		Actions: []*utils.TPAction{ // set a action with a wrong endpoint to easily check if it was executed
-			{Identifier: utils.MetaS3jsonMap, ExtraParameters: "endpoint"},
+			{Identifier: utils.MetaExport, ExtraParameters: "s3_fail"},
 		},
 	}
 	if err := pstrRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
@@ -286,12 +295,12 @@ func testPosterITS3(t *testing.T) {
 		t.Fatalf("Expected 1 event received: %d events", len(ev.Events))
 	}
 	body := ev.Events[0].([]byte)
-	var acc engine.Account
+	var acc map[string]any
 	if err := json.Unmarshal(body, &acc); err != nil {
 		t.Fatal(err)
 	}
-	if acc.ID != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
-		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc.ID)
+	if acc[utils.AccountField] != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
+		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc[utils.AccountField])
 	}
 }
 
@@ -300,7 +309,7 @@ func testPosterITKafka(t *testing.T) {
 	attrsAA := &utils.AttrSetActions{
 		ActionsId: "ACT_Kafka",
 		Actions: []*utils.TPAction{ // set a action with a wrong endpoint to easily check if it was executed
-			{Identifier: utils.MetaKafkajsonMap, ExtraParameters: "endpoint"},
+			{Identifier: utils.MetaExport, ExtraParameters: "kafka_fail"},
 		},
 	}
 	if err := pstrRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
@@ -315,7 +324,7 @@ func testPosterITKafka(t *testing.T) {
 		t.Errorf("Calling APIerSv1.ExecuteAction received: %s", reply)
 	}
 	// verify if acction was executed
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	ev, err := testPosterReadFolder(utils.MetaKafkajsonMap)
 	if err != nil {
 		t.Fatal(err)
@@ -324,12 +333,12 @@ func testPosterITKafka(t *testing.T) {
 		t.Fatalf("Expected 1 event received: %d events", len(ev.Events))
 	}
 	body := ev.Events[0].([]byte)
-	var acc engine.Account
+	var acc map[string]any
 	if err := json.Unmarshal(body, &acc); err != nil {
 		t.Fatal(err)
 	}
-	if acc.ID != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
-		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc.ID)
+	if acc[utils.AccountField] != utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account) {
+		t.Errorf("Expected %q ,received %q", utils.ConcatenatedKey(pstrAccount.Tenant, pstrAccount.Account), acc[utils.AccountField])
 	}
 }
 

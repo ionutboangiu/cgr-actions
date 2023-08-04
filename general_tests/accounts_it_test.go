@@ -133,7 +133,7 @@ func testV1AccLoadTarrifPlans(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply returned", reply)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 }
 
 func testV1AccGetAccountAfterLoad(t *testing.T) {
@@ -224,13 +224,13 @@ func testV1AccMonthly(t *testing.T) {
 		&utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1002"},
 		&reply); err != nil {
 		t.Error(err)
-	} else if _, has := reply.BalanceMap[utils.DATA]; !has {
-		t.Error("Unexpected balance returned: ", utils.ToJSON(reply.BalanceMap[utils.DATA]))
-	} else if len(reply.BalanceMap[utils.DATA]) != 1 {
-		t.Error("Unexpected number of balances returned: ", len(reply.BalanceMap[utils.DATA]))
-	} else if reply.BalanceMap[utils.DATA][0].ExpirationDate.After(timeAfter) &&
-		reply.BalanceMap[utils.DATA][0].ExpirationDate.Before(timeBefore) {
-		t.Error("Unexpected expiration date returned: ", reply.BalanceMap[utils.DATA][0].ExpirationDate)
+	} else if _, has := reply.BalanceMap[utils.MetaData]; !has {
+		t.Error("Unexpected balance returned: ", utils.ToJSON(reply.BalanceMap[utils.MetaData]))
+	} else if len(reply.BalanceMap[utils.MetaData]) != 1 {
+		t.Error("Unexpected number of balances returned: ", len(reply.BalanceMap[utils.MetaData]))
+	} else if reply.BalanceMap[utils.MetaData][0].ExpirationDate.After(timeAfter) &&
+		reply.BalanceMap[utils.MetaData][0].ExpirationDate.Before(timeBefore) {
+		t.Error("Unexpected expiration date returned: ", reply.BalanceMap[utils.MetaData][0].ExpirationDate)
 	}
 
 }
@@ -241,23 +241,23 @@ func testV1AccSendToThreshold(t *testing.T) {
 
 	// Add a disable and log action
 	attrsAA := &utils.AttrSetActions{ActionsId: "DISABLE_LOG", Actions: []*utils.TPAction{
-		{Identifier: utils.DISABLE_ACCOUNT},
-		{Identifier: utils.LOG},
+		{Identifier: utils.MetaDisableAccount},
+		{Identifier: utils.MetaLog},
 	}}
 	if err := accRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
 		t.Error("Got error on APIerSv2.SetActions: ", err.Error())
 	} else if reply != utils.OK {
 		t.Errorf("Calling APIerSv2.SetActions received: %s", reply)
 	}
-	time.Sleep(10 * time.Millisecond)
 
-	tPrfl := &engine.ThresholdWithCache{
+	tPrfl := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
-			Tenant:    "cgrates.org",
-			ID:        "THD_AccDisableAndLog",
-			FilterIDs: []string{"*string:~*req.Account:testAccThreshold"},
+			Tenant: "cgrates.org",
+			ID:     "THD_AccDisableAndLog",
+			FilterIDs: []string{"*string:~*opts.*eventType:AccountUpdate",
+				"*string:~*asm.ID:testAccThreshold"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(1 * time.Second),
+			MinSleep:  time.Second,
 			Weight:    20.0,
 			Async:     true,
 			ActionIDs: []string{"DISABLE_LOG"},
@@ -275,7 +275,7 @@ func testV1AccSendToThreshold(t *testing.T) {
 		Account:     "testAccThreshold",
 		BalanceType: "*monetary",
 		Value:       1.5,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "testAccSetBalance",
 		},
 	}

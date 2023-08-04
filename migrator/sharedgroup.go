@@ -34,12 +34,12 @@ type v1SharedGroup struct {
 
 func (m *Migrator) migrateCurrentSharedGroups() (err error) {
 	var ids []string
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.SHARED_GROUP_PREFIX)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.SharedGroupPrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		idg := strings.TrimPrefix(id, utils.SHARED_GROUP_PREFIX)
+		idg := strings.TrimPrefix(id, utils.SharedGroupPrefix)
 		sgs, err := m.dmIN.DataManager().GetSharedGroup(idg, true, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -47,9 +47,10 @@ func (m *Migrator) migrateCurrentSharedGroups() (err error) {
 		if sgs == nil || m.dryRun {
 			continue
 		}
-		if err := m.dmOut.DataManager().SetSharedGroup(sgs, utils.NonTransactional); err != nil {
+		if err := m.dmOut.DataManager().SetSharedGroup(sgs); err != nil {
 			return err
 		}
+		m.stats[utils.SharedGroups]++
 	}
 	return
 }
@@ -68,18 +69,14 @@ func (m *Migrator) migrateV1SharedGroups() (err error) {
 			continue
 		}
 		acnt := v1SG.AsSharedGroup()
-		if err = m.dmOut.DataManager().SetSharedGroup(acnt, utils.NonTransactional); err != nil {
+		if err = m.dmOut.DataManager().SetSharedGroup(acnt); err != nil {
 			return err
 		}
-		m.stats[utils.SharedGroups] += 1
+		m.stats[utils.SharedGroups]++
 	}
 	// All done, update version wtih current one
-	vrs := engine.Versions{utils.SharedGroups: engine.CurrentStorDBVersions()[utils.SharedGroups]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating SharedGroups version into dataDB", err.Error()))
+	if err = m.setVersions(utils.SharedGroups); err != nil {
+		return err
 	}
 	return
 }
@@ -87,19 +84,12 @@ func (m *Migrator) migrateV1SharedGroups() (err error) {
 func (m *Migrator) migrateSharedGroups() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmOut.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.SharedGroups); err != nil {
+		return
 	}
-	switch vrs[utils.SharedGroups] {
+	switch version := vrs[utils.SharedGroups]; version {
+	default:
+		return fmt.Errorf("Unsupported version %v", version)
 	case current[utils.SharedGroups]:
 		if m.sameDataDB {
 			break

@@ -23,90 +23,11 @@ import (
 	"testing"
 )
 
-func TestConvertMapValStrIf(t *testing.T) {
-	var mapIn map[string]string
-	var mapOut map[string]interface{}
-	if rcv := ConvertMapValStrIf(mapIn); reflect.TypeOf(rcv) != reflect.TypeOf(mapOut) {
-		t.Errorf("Expecting: %+v, received: %+v", reflect.TypeOf(mapOut), reflect.TypeOf(rcv))
-	}
-	mapIn = map[string]string{"test1": "_test1_", "test2": "_test2_"}
-	if rcv := ConvertMapValStrIf(mapIn); reflect.TypeOf(rcv) != reflect.TypeOf(mapOut) {
-		t.Errorf("Expecting: %+v, received: %+v", reflect.TypeOf(mapOut), reflect.TypeOf(rcv))
-	} else if !reflect.DeepEqual(mapIn["test1"], rcv["test1"]) {
-		t.Errorf("Expecting: %+v, received: %+v", mapIn["test1"], rcv["test1"])
-	} else if len(rcv) != len(mapIn) {
-		t.Errorf("Expecting: %+v, received: %+v", len(mapIn), len(rcv))
-	}
-}
-
-func TestMirrorMap(t *testing.T) {
-	var mapIn map[string]string
-	if rcv := MirrorMap(mapIn); reflect.DeepEqual(rcv, mapIn) {
-		t.Errorf("Expecting: %+v, received: %+v", reflect.TypeOf(mapIn), reflect.TypeOf(rcv))
-	} else if len(rcv) != 0 {
-		t.Errorf("Expecting: %+v, received: %+v", 0, len(rcv))
-	}
-	mapIn = map[string]string{"test1": "_test1_", "test2": "_test2_"}
-	eOut := map[string]string{"_test1_": "test1", "_test2_": "test2"}
-	if rcv := MirrorMap(mapIn); reflect.DeepEqual(rcv, mapIn) {
-		t.Errorf("Expecting: %+v, received: %+v", reflect.TypeOf(mapIn), reflect.TypeOf(rcv))
-	} else if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
-	}
-}
-
-func TestMissingMapKeys(t *testing.T) {
-	mapIn := map[string]string{}
-	requiredKeys := []string{}
-	if rcv := MissingMapKeys(mapIn, requiredKeys); len(rcv) != 0 {
-		t.Errorf("Expecting: %+v, received: %+v", 0, len(rcv))
-	}
-
-	mapIn = map[string]string{"test1": "_test1_", "test2": "_test2_"}
-	requiredKeys = []string{"test1", "test2"}
-	if rcv := MissingMapKeys(mapIn, requiredKeys); len(rcv) != 0 {
-		t.Errorf("Expecting: %+v, received: %+v", 0, len(rcv))
-	}
-
-	mapIn = map[string]string{"test1": "_test1_", "test2": "_test2_"}
-	requiredKeys = []string{"test2", "test3"}
-	if rcv := MissingMapKeys(mapIn, requiredKeys); len(rcv) != 1 {
-		t.Errorf("Expecting: %+v, received: %+v", 1, len(rcv))
-	} else if !reflect.DeepEqual([]string{"test3"}, rcv) {
-		t.Errorf("Expecting: %+v, received: %+v", []string{"test3"}, rcv)
-	}
-
-	requiredKeys = []string{"test3", "test4"}
-	eOut := []string{"test3", "test4"}
-	if rcv := MissingMapKeys(mapIn, requiredKeys); len(rcv) != 2 {
-		t.Errorf("Expecting: %+v, received: %+v", 2, len(rcv))
-	} else if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
-	}
-}
-
-func TestMapKeys(t *testing.T) {
-	mapIn := map[string]string{"test1": "_test1_", "test2": "_test2_"}
-	eOut := []string{"test1", "test2"}
-	rcv := MapKeys(mapIn)
-	sort.Slice(rcv, func(i, j int) bool { return rcv[i] < rcv[j] })
-	if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
-	}
-	mapIn = map[string]string{"test1": "_test1_", "test2": "_test2_", "test3": "_test3_", "test4": "_test4_"}
-	eOut = []string{"test1", "test2", "test3", "test4"}
-	rcv = MapKeys(mapIn)
-	sort.Slice(rcv, func(i, j int) bool { return rcv[i] < rcv[j] })
-	if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
-	}
-}
-
-func MapKeysStringMapParse(t *testing.T) {
+func TestMapKeysStringMapParse(t *testing.T) {
 	if sm := ParseStringMap(EmptyString); len(sm) != 0 {
 		t.Errorf("Expecting %+v, received %+v", 0, len(sm))
 	}
-	if sm := ParseStringMap(ZERO); len(sm) != 0 {
+	if sm := ParseStringMap(MetaZero); len(sm) != 0 {
 		t.Errorf("Expecting %+v, received %+v", 0, len(sm))
 	}
 	if sm := ParseStringMap("1;2;3;4"); len(sm) != 4 {
@@ -127,26 +48,9 @@ func MapKeysStringMapParse(t *testing.T) {
 	if include, has := sm["5"]; include != false && has != false {
 		t.Error("Error detecting missing: ", sm)
 	}
-}
-
-func TestMapMergeMapsStringIface(t *testing.T) {
-	mp1 := map[string]interface{}{
-		"Hdr1": "Val1",
-		"Hdr2": "Val2",
-		"Hdr3": "Val3",
-	}
-	mp2 := map[string]interface{}{
-		"Hdr3": "Val4",
-		"Hdr4": "Val4",
-	}
-	eMergedMap := map[string]interface{}{
-		"Hdr1": "Val1",
-		"Hdr2": "Val2",
-		"Hdr3": "Val4",
-		"Hdr4": "Val4",
-	}
-	if mergedMap := MergeMapsStringIface(mp1, mp2); !reflect.DeepEqual(eMergedMap, mergedMap) {
-		t.Errorf("Expecting: %+v, received: %+v", eMergedMap, mergedMap)
+	eOut := make(StringMap)
+	if rcv := ParseStringMap(MetaZero); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
 	}
 }
 
@@ -193,93 +97,77 @@ func TestMapHasKey(t *testing.T) {
 }
 
 func TestMapSubsystemIDsFromSlice(t *testing.T) {
-	sls := []string{"*event", "*thresholds:ID1;ID2;ID3", "*attributes", "*stats:ID"}
+	sls := []string{"*event", "*thresholds:*ids:ID1&ID2&ID3", "*thresholds:*derived_reply", "*attributes:*disabled", "*stats:*ids:ID"}
 	eMp := FlagsWithParams{
-		"*event":      []string{},
-		"*thresholds": []string{"ID1", "ID2", "ID3"},
-		"*attributes": []string{},
-		"*stats":      []string{"ID"},
+		"*event":      map[string][]string{},
+		"*thresholds": map[string][]string{MetaIDs: {"ID1", "ID2", "ID3"}, MetaDerivedReply: {}},
+		"*attributes": map[string][]string{"*disabled": {}},
+		"*stats":      map[string][]string{MetaIDs: {"ID"}},
 	}
-	if mp, err := FlagsWithParamsFromSlice(sls); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(mp, eMp) {
+	if mp := FlagsWithParamsFromSlice(sls); !reflect.DeepEqual(mp, eMp) {
 		t.Errorf("Expecting: %+v, received: %+v", eMp, mp)
-	}
-}
-
-func TestMapSubsystemIDsFromSliceWithErr(t *testing.T) {
-	sls := []string{"*event", "*thresholds:ID1;ID2;ID3:error:", "*attributes", "*stats:ID"}
-
-	if _, err := FlagsWithParamsFromSlice(sls); err != ErrUnsupportedFormat {
-		t.Error(err)
 	}
 }
 
 func TestMapSubsystemIDsHasKey(t *testing.T) {
-	sls := []string{"*event", "*thresholds:ID1;ID2;ID3", "*attributes", "*stats:ID"}
+	sls := []string{"*event", "*thresholds:*ids:ID1&ID2&ID3", "*attributes", "*stats:*ids:ID"}
 	eMp := FlagsWithParams{
-		"*event":      []string{},
-		"*thresholds": []string{"ID1", "ID2", "ID3"},
-		"*attributes": []string{},
-		"*stats":      []string{"ID"},
+		"*event":      map[string][]string{},
+		"*thresholds": map[string][]string{MetaIDs: {"ID1", "ID2", "ID3"}},
+		"*attributes": map[string][]string{},
+		"*stats":      map[string][]string{MetaIDs: {"ID"}},
 	}
-	mp, err := FlagsWithParamsFromSlice(sls)
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(mp, eMp) {
+	mp := FlagsWithParamsFromSlice(sls)
+	if !reflect.DeepEqual(mp, eMp) {
 		t.Errorf("Expecting: %+v, received: %+v", eMp, mp)
 	}
-	if has := mp.HasKey("*event"); !has {
+	if has := mp.Has("*event"); !has {
 		t.Errorf("Expecting: true, received: %+v", has)
 	}
-	if has := mp.HasKey("*thresholds"); !has {
+	if has := mp.Has("*thresholds"); !has {
 		t.Errorf("Expecting: true, received: %+v", has)
 	}
-	if has := mp.HasKey("*resources"); has {
+	if has := mp.Has("*resources"); has {
 		t.Errorf("Expecting: false, received: %+v", has)
 	}
 }
 
 func TestMapSubsystemIDsGetIDs(t *testing.T) {
-	sls := []string{"*event", "*thresholds:ID1;ID2;ID3", "*attributes", "*stats:ID"}
+	sls := []string{"*event", "*thresholds:*ids:ID1&ID2&ID3", "*attributes", "*stats:*ids:ID"}
 	eMp := FlagsWithParams{
-		"*event":      []string{},
-		"*thresholds": []string{"ID1", "ID2", "ID3"},
-		"*attributes": []string{},
-		"*stats":      []string{"ID"},
+		"*event":      map[string][]string{},
+		"*thresholds": map[string][]string{MetaIDs: {"ID1", "ID2", "ID3"}},
+		"*attributes": map[string][]string{},
+		"*stats":      map[string][]string{MetaIDs: {"ID"}},
 	}
-	mp, err := FlagsWithParamsFromSlice(sls)
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(mp, eMp) {
+	mp := FlagsWithParamsFromSlice(sls)
+	if !reflect.DeepEqual(mp, eMp) {
 		t.Errorf("Expecting: %+v, received: %+v", eMp, mp)
 	}
 	eIDs := []string{"ID1", "ID2", "ID3"}
-	if ids := mp.ParamsSlice("*thresholds"); !reflect.DeepEqual(ids, eIDs) {
-		t.Errorf("Expecting: %+v, received: %+v", eIDs, ids)
-	}
-	eIDs = []string{}
-	if ids := mp.ParamsSlice("*event"); !reflect.DeepEqual(ids, eIDs) {
+	if ids := mp.ParamsSlice("*thresholds", MetaIDs); !reflect.DeepEqual(ids, eIDs) {
 		t.Errorf("Expecting: %+v, received: %+v", eIDs, ids)
 	}
 	eIDs = nil
-	if ids := mp.ParamsSlice("*test"); !reflect.DeepEqual(ids, eIDs) {
+	if ids := mp.ParamsSlice("*event", MetaIDs); !reflect.DeepEqual(ids, eIDs) {
+		t.Errorf("Expecting: %+v, received: %+v", eIDs, ids)
+	}
+	if ids := mp.ParamsSlice("*test", MetaIDs); !reflect.DeepEqual(ids, eIDs) {
 		t.Errorf("Expecting: %+v, received: %+v", eIDs, ids)
 	}
 }
 
 func TestFlagsToSlice(t *testing.T) {
-	sls := []string{"*event", "*thresholds:ID1;ID2;ID3", "*attributes", "*stats:ID"}
+	sls := []string{"*event", "*thresholds:*ids:ID1&ID2&ID3", "*attributes", "*stats:*ids:ID", "*routes:*derived_reply"}
 	eMp := FlagsWithParams{
-		"*event":      []string{},
-		"*thresholds": []string{"ID1", "ID2", "ID3"},
-		"*attributes": []string{},
-		"*stats":      []string{"ID"},
+		"*event":      map[string][]string{},
+		"*thresholds": map[string][]string{MetaIDs: {"ID1", "ID2", "ID3"}},
+		"*attributes": map[string][]string{},
+		"*stats":      map[string][]string{MetaIDs: {"ID"}},
+		"*routes":     map[string][]string{MetaDerivedReply: {}},
 	}
-	mp, err := FlagsWithParamsFromSlice(sls)
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(mp, eMp) {
+	mp := FlagsWithParamsFromSlice(sls)
+	if !reflect.DeepEqual(mp, eMp) {
 		t.Errorf("Expecting: %+v, received: %+v", eMp, mp)
 	}
 	sort.Strings(sls)
@@ -292,9 +180,10 @@ func TestFlagsToSlice(t *testing.T) {
 
 func TestFlagsWithParamsGetBool(t *testing.T) {
 	flagsWithParams := &FlagsWithParams{
-		"test":  []string{"string1", "string2"},
-		"test2": []string{"true", "string2"},
-		"empty": []string{},
+		"test":  map[string][]string{"false": {}, "string2": {}},
+		"test2": map[string][]string{"string2": {}},
+		"test3": map[string][]string{"true": {}},
+		"empty": map[string][]string{},
 	}
 	key := "notpresent"
 	if rcv := flagsWithParams.GetBool(key); rcv != false {
@@ -312,9 +201,33 @@ func TestFlagsWithParamsGetBool(t *testing.T) {
 	if rcv := flagsWithParams.GetBool(key); rcv != true {
 		t.Errorf("Expecting: true, received: %+v", ToJSON(rcv))
 	}
+	key = "test3"
+	if rcv := flagsWithParams.GetBool(key); rcv != true {
+		t.Errorf("Expecting: true, received: %+v", ToJSON(rcv))
+	}
 }
+
 func TestFlagsWithParamsValue(t *testing.T) {
 	flagsWithParams := &FlagsWithParams{
+		"test":  map[string][]string{"string2": {}},
+		"empty": map[string][]string{},
+	}
+	key := "notpresent"
+	if rcv := flagsWithParams.ParamValue(key); rcv != EmptyString {
+		t.Errorf("Expecting: %q, received: %+v", EmptyString, rcv)
+	}
+	key = "empty"
+	if rcv := flagsWithParams.ParamValue(key); rcv != EmptyString {
+		t.Errorf("Expecting: %q, received: %+v", EmptyString, rcv)
+	}
+	key = "test"
+	if rcv := flagsWithParams.ParamValue(key); rcv != "string2" {
+		t.Errorf("Expecting: string2, received: %+v", rcv)
+	}
+}
+
+func TestFlagParamsValue(t *testing.T) {
+	flagsWithParams := &FlagParams{
 		"test":  []string{"string2"},
 		"empty": []string{},
 	}
@@ -330,4 +243,313 @@ func TestFlagsWithParamsValue(t *testing.T) {
 	if rcv := flagsWithParams.ParamValue(key); rcv != "string2" {
 		t.Errorf("Expecting: string2, received: %+v", rcv)
 	}
+}
+
+func TestFlagParamsAdd(t *testing.T) {
+	flgs := make(FlagParams)
+	exp := FlagParams{
+		MetaIDs: []string{"id1", "id2"},
+	}
+	flgs.Add([]string{MetaIDs, "id1&id2", "ignored"})
+	if !reflect.DeepEqual(flgs, exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, flgs)
+	}
+}
+
+func TestFlagsToSlice2(t *testing.T) {
+	sls := []string{"*event", "*thresholds:*ids:ID1&ID2&ID3", "*attributes", "*stats:*ids:ID", "*routes:*derived_reply", "*cdrs:*attributes", "*cdrs:*stats:ID"}
+	eMp := FlagsWithParams{
+		"*event":      map[string][]string{},
+		"*thresholds": map[string][]string{MetaIDs: {"ID1", "ID2", "ID3"}},
+		"*attributes": map[string][]string{},
+		"*stats":      map[string][]string{MetaIDs: {"ID"}},
+		"*routes":     map[string][]string{MetaDerivedReply: {}},
+		"*cdrs":       map[string][]string{MetaAttributes: {}, MetaStats: {"ID"}},
+	}
+	mp := FlagsWithParamsFromSlice(sls)
+	if !reflect.DeepEqual(mp, eMp) {
+		t.Errorf("Expecting: %+v, received: %+v", ToJSON(eMp), ToJSON(mp))
+	}
+	sort.Strings(sls)
+	flgSls := mp.SliceFlags()
+	sort.Strings(flgSls)
+	if !reflect.DeepEqual(flgSls, sls) {
+		t.Errorf("Expecting: %+v, received: %+v", sls, flgSls)
+	}
+
+	sls = []string{"*attributes", "*stats:ID"}
+	flgSls = mp["*cdrs"].SliceFlags()
+	sort.Strings(flgSls)
+	if !reflect.DeepEqual(flgSls, sls) {
+		t.Errorf("Expecting: %+v, received: %+v", sls, flgSls)
+	}
+}
+
+func TestNewStringMap(t *testing.T) {
+	expected := StringMap{"item1": true, "item2": true, "negitem1": false}
+	received := NewStringMap("item1", "item2", "!negitem1")
+	if !reflect.DeepEqual(expected, received) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestNewStringMap2(t *testing.T) {
+	expected := StringMap{"test": true, "test!": true, "t!est": true}
+	received := NewStringMap("test", "test!", "t!est")
+	if !reflect.DeepEqual(expected, received) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapEqual1(t *testing.T) {
+	expected := false
+	received := new(StringMap).Equal(StringMap{"test": true})
+	if expected != received {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapEqual2(t *testing.T) {
+	expected := false
+	received := StringMap{"test": true, "test2": true}.Equal(StringMap{"test": true})
+	if expected != received {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapEqual3(t *testing.T) {
+	expected := true
+	received := StringMap{"test": true, "test2": true}.Equal(StringMap{"test": true, "test2": true})
+	if expected != received {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapIncludes1(t *testing.T) {
+	expected := false
+	received := StringMap{"test": true}.Includes(StringMap{"test": true, "test2": true})
+	if expected != received {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapIncludes2(t *testing.T) {
+	expected := false
+	received := StringMap{"test": true, "test2": true}.Includes(StringMap{"test3": true})
+	if expected != received {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapIncludes3(t *testing.T) {
+	expected := true
+	received := StringMap{"test": true, "test2": true}.Includes(StringMap{"test": true, "test2": true})
+	if expected != received {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapSlice(t *testing.T) {
+	expected := []string{"test", "test2"}
+	received := StringMap{"test": true, "test2": true}.Slice()
+	sort.Strings(received)
+	sort.Strings(expected)
+	if !reflect.DeepEqual(expected, received) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapClone(t *testing.T) {
+	expected := StringMap{"test": true, "test2": true}
+	received := StringMap{"test": true, "test2": true}.Clone()
+	if !reflect.DeepEqual(expected, received) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapString(t *testing.T) {
+	received := StringMap{"test": true, "test2": true}.String()
+	if received != "test;test2" && received != "test2;test" {
+		t.Errorf("Expecting: test or test2, received: %+v", received)
+	}
+}
+
+func TestStringMapGetOneEmpty(t *testing.T) {
+	expected := EmptyString
+	received := StringMap{}.GetOne()
+	if !reflect.DeepEqual(expected, received) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, received)
+	}
+}
+
+func TestStringMapGetOneNotEmpty(t *testing.T) {
+	received := StringMap{"test": true, "test2": true}.GetOne()
+	if received != "test" && received != "test2" {
+		t.Errorf("Expecting: test or test2, received: %+v", received)
+	}
+}
+
+func TestMapStringToInt64Err(t *testing.T) {
+	t2 := map[string]string{"test": "a"}
+	_, err := MapStringToInt64(t2)
+	if err == nil {
+		t.Error("Got Error: ", err)
+	}
+}
+
+func TestFlagsWithParamsClone(t *testing.T) {
+	fWp := FlagsWithParams{
+		MetaEvent:      {},
+		MetaRoutes:     nil,
+		MetaThresholds: {MetaIDs: {"ID1", "ID2", "ID3"}, MetaDerivedReply: {}},
+		MetaAttributes: {"*disabled": {}},
+		MetaStats:      {MetaIDs: {"ID"}},
+	}
+
+	cln := fWp.Clone()
+	if !reflect.DeepEqual(cln, fWp) {
+		t.Errorf("Expecting: %+v, received: %+v", ToJSON(fWp), ToJSON(cln))
+	}
+	cln[MetaDispatchers] = FlagParams{}
+	if _, has := fWp[MetaDispatchers]; has {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	cln[MetaThresholds][MetaIDs][0] = ""
+	if fWp[MetaThresholds][MetaIDs][0] != "ID1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	fWp = nil
+	cln = fWp.Clone()
+	if !reflect.DeepEqual(cln, fWp) {
+		t.Errorf("Expecting: %+v, received: %+v", ToJSON(fWp), ToJSON(cln))
+	}
+}
+
+func TestStringMapFieldAsInterfaceNotNil(t *testing.T) {
+	sm := StringMap{}
+	fldPath := []string{"first", "second"}
+	if val, _ := sm.FieldAsInterface(fldPath); val != nil {
+		t.Error("expected nil")
+	}
+	sm["first"] = true
+	fldPath = []string{"second"}
+	if val, _ := sm.FieldAsInterface(fldPath); val != nil {
+		t.Error("Should be nil")
+	}
+	fldPath[0] = "first"
+	if _, val := sm.FieldAsInterface(fldPath); val != nil {
+		t.Error("Should not be nil")
+	}
+
+}
+
+func TestStringMapFieldAsString(t *testing.T) {
+	sm := StringMap{}
+	fldPath := []string{"Hello"}
+	if _, val := sm.FieldAsString(fldPath); val == nil {
+		t.Error("Should not  be nil")
+	}
+	sm["first"] = true
+	fldPath[0] = "first"
+	if _, val := sm.FieldAsString(fldPath); val != nil {
+		t.Error("Should  be nil")
+	}
+
+}
+
+func TestStringMapHasKey(t *testing.T) {
+
+	sm := StringMap{"first": true}
+	key := "first"
+	exp := true
+	if v := sm.HasKey(key); v != exp {
+		t.Error("Expected true")
+	}
+	exp = false
+	if v := sm.HasKey(key); v == exp {
+		t.Error("Expected false")
+	}
+
+}
+
+func TestStringMapStringToInt64(t *testing.T) {
+	mymap := map[string]string{
+		"first":  "1",
+		"second": "two",
+	}
+	exp := map[string]int64{
+		"first":  1,
+		"second": 2,
+	}
+
+	if val, _ := MapStringToInt64(mymap); reflect.DeepEqual(val, exp) == true {
+		t.Errorf("expected %v got %v", ToJSON(exp), ToJSON(val))
+
+	}
+	mymap["second"] = "2"
+	if val, _ := MapStringToInt64(mymap); reflect.DeepEqual(val, exp) == false {
+		t.Errorf("expected %v got %v", ToJSON(exp), ToJSON(val))
+
+	}
+
+}
+
+func TestStringMapIsEmpty(t *testing.T) {
+	sm := StringMap{"foo": true}
+	exp := false
+
+	if val := sm.IsEmpty(); val != exp {
+		t.Error("Should be false")
+	}
+}
+
+func TestStringMapFromSlice(t *testing.T) {
+
+	s := []string{"foo", "", "!baz", "bar"}
+	exp := map[string]bool{
+		"foo": true,
+		"baz": false,
+		"bar": true,
+	}
+
+	if val := StringMapFromSlice(s); reflect.DeepEqual(val, exp) {
+
+		t.Errorf("expected %v got %v", ToJSON(exp), ToJSON(val))
+	}
+
+}
+
+func TestStringMapNewStringMap(t *testing.T) {
+	s := []string{"foo", "", "!baz", "bar"}
+	exp := map[string]bool{
+		"foo": true,
+		"baz": false,
+		"bar": true,
+	}
+
+	if val := NewStringMap(s...); reflect.DeepEqual(val, exp) {
+
+		t.Errorf("expected %v got %v", ToJSON(exp), ToJSON(val))
+	}
+}
+
+func TestStringMapMapParse(t *testing.T) {
+	s := MetaZero
+
+	exp := make(StringMap)
+
+	if val := ParseStringMap(s); !reflect.DeepEqual(exp, val) {
+		t.Errorf("expected %v go t %v", ToJSON(exp), ToJSON(val))
+	}
+	s = "foo;!bar;baz"
+
+	exp = StringMap{
+		"foo": true,
+		"bar": false,
+		"baz": true,
+	}
+	if val := ParseStringMap(s); !reflect.DeepEqual(exp, val) {
+		t.Errorf("expected %v got %v", ToJSON(exp), ToJSON(val))
+	}
+
 }

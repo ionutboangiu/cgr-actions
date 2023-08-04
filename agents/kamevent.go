@@ -20,6 +20,7 @@ package agents
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -66,9 +67,8 @@ type KamSessionDisconnect struct {
 	Reason    string
 }
 
-func (self *KamSessionDisconnect) String() string {
-	mrsh, _ := json.Marshal(self)
-	return string(mrsh)
+func (ksd *KamSessionDisconnect) String() string {
+	return utils.ToJSON(ksd)
 }
 
 // NewKamEvent parses bytes received over the wire from Kamailio into KamEvent
@@ -97,14 +97,14 @@ func (kev KamEvent) MissingParameter() bool {
 			kev[KamHashID],
 			kev[utils.OriginID],
 			kev[utils.AnswerTime],
-			kev[utils.Account],
+			kev[utils.AccountField],
 			kev[utils.Destination],
 		}, "")
 	case CGR_CALL_END:
 		return utils.IsSliceMember([]string{
 			kev[utils.OriginID],
 			kev[utils.AnswerTime],
-			kev[utils.Account],
+			kev[utils.AccountField],
 			kev[utils.Destination],
 		}, "")
 	case CGR_PROCESS_MESSAGE:
@@ -116,7 +116,7 @@ func (kev KamEvent) MissingParameter() bool {
 		if has {
 			mndPrm = append(mndPrm, kev[utils.OriginID],
 				kev[utils.AnswerTime],
-				kev[utils.Account],
+				kev[utils.AccountField],
 				kev[utils.Destination])
 		}
 		return utils.IsSliceMember(mndPrm, "")
@@ -133,24 +133,28 @@ func (kev KamEvent) MissingParameter() bool {
 
 }
 
-// AsMapStringIface converts KamEvent into event used by other subsystems
-func (kev KamEvent) AsMapStringInterface() (mp map[string]interface{}) {
-	mp = make(map[string]interface{})
+// AsMapStringInterface converts KamEvent into event used by other subsystems
+func (kev KamEvent) AsMapStringInterface() (mp map[string]any) {
+	mp = make(map[string]any)
 	for k, v := range kev {
 		if k == utils.Usage {
 			v += "s" // mark the Usage as seconds
 		}
-		if !kamReservedEventFields.Has(k) { // reserved attributes not getting into event
+		if !kamReservedEventFields.Has(k) && // reserved attributes not getting into event
+			!utils.CGROptionsSet.Has(k) { // also omit the options
 			mp[k] = v
 		}
 	}
 	if _, has := mp[utils.Source]; !has {
 		mp[utils.Source] = utils.KamailioAgent
 	}
+	if _, has := mp[utils.RequestType]; !has {
+		mp[utils.RequestType] = config.CgrConfig().GeneralCfg().DefaultReqType
+	}
 	return
 }
 
-// AsCDR converts KamEvent into CGREvent
+// AsCGREvent converts KamEvent into CGREvent
 func (kev KamEvent) AsCGREvent(timezone string) (cgrEv *utils.CGREvent, err error) {
 	var sTime time.Time
 	switch kev[EVENT] {
@@ -186,19 +190,20 @@ func (kev KamEvent) AsCGREvent(timezone string) (cgrEv *utils.CGREvent, err erro
 	cgrEv = &utils.CGREvent{
 		Tenant: utils.FirstNonEmpty(kev[utils.Tenant],
 			config.CgrConfig().GeneralCfg().DefaultTenant),
-		ID:    utils.UUIDSha1Prefix(),
-		Time:  &sTime,
-		Event: kev.AsMapStringInterface(),
+		ID:      utils.UUIDSha1Prefix(),
+		Time:    &sTime,
+		Event:   kev.AsMapStringInterface(),
+		APIOpts: kev.GetOptions(),
 	}
 	return cgrEv, nil
 }
 
 // String is used for pretty printing event in logs
 func (kev KamEvent) String() string {
-	mrsh, _ := json.Marshal(kev)
-	return string(mrsh)
+	return utils.ToJSON(kev)
 }
 
+// V1AuthorizeArgs returns the arguments used in SessionSv1.AuthorizeEvent
 func (kev KamEvent) V1AuthorizeArgs() (args *sessions.V1AuthorizeArgs) {
 	cgrEv, err := kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
 	if err != nil {
@@ -209,10 +214,12 @@ func (kev KamEvent) V1AuthorizeArgs() (args *sessions.V1AuthorizeArgs) {
 	}
 	subsystems, has := kev[utils.CGRFlags]
 	if !has {
+		utils.Logger.Warning(fmt.Sprintf("<%s> cgr_flags variable is not set, using defaults",
+			utils.KamailioAgent))
 		args.GetMaxUsage = true
 		return
 	}
-	args.ParseFlags(subsystems)
+	args.ParseFlags(subsystems, utils.InfieldSep)
 	return
 }
 
@@ -238,17 +245,21 @@ func (kev KamEvent) AsKamAuthReply(authArgs *sessions.V1AuthorizeArgs,
 		kar.ResourceAllocation = *authReply.ResourceAllocation
 	}
 	if authArgs.GetMaxUsage {
-		kar.MaxUsage = int(utils.Round(authReply.MaxUsage.Seconds(), 0, utils.ROUNDING_MIDDLE))
+		if authReply.MaxUsage != nil {
+			kar.MaxUsage = int(utils.Round(authReply.MaxUsage.Seconds(), 0, utils.MetaRoundingMiddle))
+		} else {
+			kar.MaxUsage = 0
+		}
 	}
-	if authArgs.GetSuppliers && authReply.Suppliers != nil {
-		kar.Suppliers = authReply.Suppliers.Digest()
+	if authArgs.GetRoutes && authReply.RouteProfiles != nil {
+		kar.Routes = authReply.RouteProfiles.Digest()
 	}
 
 	if authArgs.ProcessThresholds && authReply.ThresholdIDs != nil {
-		kar.Thresholds = strings.Join(*authReply.ThresholdIDs, utils.FIELDS_SEP)
+		kar.Thresholds = strings.Join(*authReply.ThresholdIDs, utils.FieldsSep)
 	}
 	if authArgs.ProcessStats && authReply.StatQueueIDs != nil {
-		kar.StatQueues = strings.Join(*authReply.StatQueueIDs, utils.FIELDS_SEP)
+		kar.StatQueues = strings.Join(*authReply.StatQueueIDs, utils.FieldsSep)
 	}
 	return
 }
@@ -260,14 +271,17 @@ func (kev KamEvent) V1InitSessionArgs() (args *sessions.V1InitSessionArgs) {
 		return
 	}
 	args = &sessions.V1InitSessionArgs{ // defaults
+
 		CGREvent: cgrEv,
 	}
 	subsystems, has := kev[utils.CGRFlags]
 	if !has {
+		utils.Logger.Warning(fmt.Sprintf("<%s> cgr_flags is not set, using defaults",
+			utils.FreeSWITCHAgent))
 		args.InitSession = true
 		return
 	}
-	args.ParseFlags(subsystems)
+	args.ParseFlags(subsystems, utils.InfieldSep)
 	return
 }
 
@@ -278,35 +292,29 @@ func (kev KamEvent) V1ProcessMessageArgs() (args *sessions.V1ProcessMessageArgs)
 		return
 	}
 	args = &sessions.V1ProcessMessageArgs{ // defaults
+
 		CGREvent: cgrEv,
 	}
 	subsystems, has := kev[utils.CGRFlags]
 	if !has {
+		utils.Logger.Warning(fmt.Sprintf("<%s> cgr_flags is not set, using defaults",
+			utils.FreeSWITCHAgent))
 		return
 	}
-	args.ParseFlags(subsystems)
+	args.ParseFlags(subsystems, utils.InfieldSep)
 	return
 }
 
 // V1ProcessCDRArgs returns the arguments used in SessionSv1.ProcessCDR
-func (kev KamEvent) V1ProcessCDRArgs() (args *utils.CGREventWithArgDispatcher) {
-	cgrEv, err := kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
-	if err != nil {
+func (kev KamEvent) V1ProcessCDRArgs() (args *utils.CGREvent) {
+	var err error
+	if args, err = kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone); err != nil {
 		return
 	}
-	args = &utils.CGREventWithArgDispatcher{ // defaults
-		CGREvent: cgrEv,
-	}
-	subsystems, has := kev[utils.CGRFlags]
-	if !has {
-		return
-	}
-	cgrArgs := cgrEv.ExtractArgs(strings.Index(subsystems, utils.MetaDispatchers) != -1, true)
-	args.ArgDispatcher = cgrArgs.ArgDispatcher
 	return
 }
 
-// AsKamProcessEventReply builds up a Kamailio ProcessEvent based on arguments and reply from SessionS
+// AsKamProcessMessageReply builds up a Kamailio ProcessEvent based on arguments and reply from SessionS
 func (kev KamEvent) AsKamProcessMessageReply(procEvArgs *sessions.V1ProcessMessageArgs,
 	procEvReply *sessions.V1ProcessMessageReply, rplyErr error) (kar *KamReply, err error) {
 	evName := CGR_PROCESS_MESSAGE
@@ -328,23 +336,23 @@ func (kev KamEvent) AsKamProcessMessageReply(procEvArgs *sessions.V1ProcessMessa
 		kar.ResourceAllocation = *procEvReply.ResourceAllocation
 	}
 	if procEvArgs.Debit {
-		kar.MaxUsage = int(utils.Round(procEvReply.MaxUsage.Seconds(), 0, utils.ROUNDING_MIDDLE))
+		kar.MaxUsage = int(utils.Round(procEvReply.MaxUsage.Seconds(), 0, utils.MetaRoundingMiddle))
 	}
-	if procEvArgs.GetSuppliers && procEvReply.Suppliers != nil {
-		kar.Suppliers = procEvReply.Suppliers.Digest()
+	if procEvArgs.GetRoutes && procEvReply.RouteProfiles != nil {
+		kar.Routes = procEvReply.RouteProfiles.Digest()
 	}
 
 	if procEvArgs.ProcessThresholds {
-		kar.Thresholds = strings.Join(*procEvReply.ThresholdIDs, utils.FIELDS_SEP)
+		kar.Thresholds = strings.Join(*procEvReply.ThresholdIDs, utils.FieldsSep)
 	}
 	if procEvArgs.ProcessStats {
-		kar.StatQueues = strings.Join(*procEvReply.StatQueueIDs, utils.FIELDS_SEP)
+		kar.StatQueues = strings.Join(*procEvReply.StatQueueIDs, utils.FieldsSep)
 	}
 	return
 }
 
-// AsKamProcessEventReply builds up a Kamailio ProcessEvent based on arguments and reply from SessionS
-func (kev KamEvent) AsKamProcessCDRReply(cgrEvWithArgDisp *utils.CGREventWithArgDispatcher,
+// AsKamProcessCDRReply builds up a Kamailio ProcessEvent based on arguments and reply from SessionS
+func (kev KamEvent) AsKamProcessCDRReply(cgrEvWithArgDisp *utils.CGREvent,
 	rply *string, rplyErr error) (kar *KamReply, err error) {
 	evName := CGR_PROCESS_CDR
 	if kamRouReply, has := kev[KamReplyRoute]; has {
@@ -360,7 +368,7 @@ func (kev KamEvent) AsKamProcessCDRReply(cgrEvWithArgDisp *utils.CGREventWithArg
 	return
 }
 
-// AsKamProcessEventEmptyReply builds up a Kamailio ProcessEventEmpty
+// AsKamProcessMessageEmptyReply builds up a Kamailio ProcessEventEmpty
 func (kev KamEvent) AsKamProcessMessageEmptyReply() (kar *KamReply) {
 	evName := CGR_PROCESS_MESSAGE
 	if kamRouReply, has := kev[KamReplyRoute]; has {
@@ -375,7 +383,9 @@ func (kev KamEvent) AsKamProcessMessageEmptyReply() (kar *KamReply) {
 
 // V1TerminateSessionArgs returns the arguments used in SMGv1.TerminateSession
 func (kev KamEvent) V1TerminateSessionArgs() (args *sessions.V1TerminateSessionArgs) {
-	cgrEv, err := kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	cgrEv, err := kev.AsCGREvent(utils.FirstNonEmpty(
+		config.CgrConfig().KamAgentCfg().Timezone,
+		config.CgrConfig().GeneralCfg().DefaultTimezone))
 	if err != nil {
 		return
 	}
@@ -385,9 +395,11 @@ func (kev KamEvent) V1TerminateSessionArgs() (args *sessions.V1TerminateSessionA
 	}
 	subsystems, has := kev[utils.CGRFlags]
 	if !has {
+		utils.Logger.Warning(fmt.Sprintf("<%s> cgr_flags is not set, using defaults",
+			utils.FreeSWITCHAgent))
 		return
 	}
-	args.ParseFlags(subsystems)
+	args.ParseFlags(subsystems, utils.InfieldSep)
 	return
 }
 
@@ -400,15 +412,14 @@ type KamReply struct {
 	Attributes         string
 	ResourceAllocation string
 	MaxUsage           int    // Maximum session time in case of success, -1 for unlimited
-	Suppliers          string // List of suppliers, comma separated
+	Routes             string // List of routes, comma separated
 	Thresholds         string
 	StatQueues         string
 	Error              string // Reply in case of error
 }
 
-func (self *KamReply) String() string {
-	mrsh, _ := json.Marshal(self)
-	return string(mrsh)
+func (krply *KamReply) String() string {
+	return utils.ToJSON(krply)
 }
 
 type KamDlgReply struct {
@@ -441,4 +452,15 @@ func NewKamDlgReply(kamEvData []byte) (rpl KamDlgReply, err error) {
 
 func (kdr *KamDlgReply) String() string {
 	return utils.ToJSON(kdr)
+}
+
+// GetOptions returns the posible options
+func (kev KamEvent) GetOptions() (mp map[string]any) {
+	mp = make(map[string]any)
+	for k := range utils.CGROptionsSet {
+		if val, has := kev[k]; has {
+			mp[k] = val
+		}
+	}
+	return
 }

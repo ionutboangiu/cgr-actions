@@ -77,19 +77,19 @@ func testUsrStart(testName, inPath, outPath string, t *testing.T) {
 }
 
 func testUsrITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(usrCfgIn.DataDbCfg().DataDbType,
-		usrCfgIn.DataDbCfg().DataDbHost, usrCfgIn.DataDbCfg().DataDbPort,
-		usrCfgIn.DataDbCfg().DataDbName, usrCfgIn.DataDbCfg().DataDbUser,
-		usrCfgIn.DataDbCfg().DataDbPass, usrCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", usrCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(usrCfgIn.DataDbCfg().Type,
+		usrCfgIn.DataDbCfg().Host, usrCfgIn.DataDbCfg().Port,
+		usrCfgIn.DataDbCfg().Name, usrCfgIn.DataDbCfg().User,
+		usrCfgIn.DataDbCfg().Password, usrCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), usrCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(usrCfgOut.DataDbCfg().DataDbType,
-		usrCfgOut.DataDbCfg().DataDbHost, usrCfgOut.DataDbCfg().DataDbPort,
-		usrCfgOut.DataDbCfg().DataDbName, usrCfgOut.DataDbCfg().DataDbUser,
-		usrCfgOut.DataDbCfg().DataDbPass, usrCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", usrCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(usrCfgOut.DataDbCfg().Type,
+		usrCfgOut.DataDbCfg().Host, usrCfgOut.DataDbCfg().Port,
+		usrCfgOut.DataDbCfg().Name, usrCfgOut.DataDbCfg().User,
+		usrCfgOut.DataDbCfg().Password, usrCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), usrCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -126,24 +126,24 @@ func testUsrITMigrateAndMove(t *testing.T) {
 	attrProf := &engine.AttributeProfile{
 		Tenant:             defaultTenant,
 		ID:                 "1001",
-		Contexts:           []string{utils.META_ANY},
-		FilterIDs:          []string{"*string:~Account:1002"},
+		Contexts:           []string{utils.MetaAny},
+		FilterIDs:          []string{"*string:~*req.Account:1002"},
 		ActivationInterval: nil,
 		Attributes: []*engine.Attribute{
 			{
 				Path:  utils.MetaReq + utils.NestingSep + utils.RequestType,
 				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("*prepaid", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("*prepaid", utils.InfieldSep),
 			},
 			{
 				Path:  utils.MetaReq + utils.NestingSep + "msisdn",
 				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("123423534646752", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("123423534646752", utils.InfieldSep),
 			},
 			{
 				Path:  utils.MetaTenant,
-				Type:  utils.META_CONSTANT,
-				Value: config.NewRSRParsersMustCompile("cgrates.com", true, utils.INFIELD_SEP),
+				Type:  utils.MetaConstant,
+				Value: config.NewRSRParsersMustCompile("cgrates.com", utils.InfieldSep),
 			},
 		},
 		Blocker: false,
@@ -194,15 +194,17 @@ func testUsrITMigrateAndMove(t *testing.T) {
 		t.Error("Error should be not found : ", err)
 	}
 
-	expUsrIdx := map[string]utils.StringMap{
-		"*string:~Account:1002": {
-			"1001": true,
+	expUsrIdx := map[string]utils.StringSet{
+		"*string:*req.Account:1002": {
+			"1001": struct{}{},
 		},
 	}
-	if usridx, err := usrMigrator.dmOut.DataManager().GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		utils.ConcatenatedKey("cgrates.org", utils.META_ANY), utils.MetaString, nil); err != nil {
+	if usridx, err := usrMigrator.dmOut.DataManager().GetIndexes(
+		utils.CacheAttributeFilterIndexes,
+		utils.ConcatenatedKey("cgrates.org", utils.MetaAny),
+		"", true, true); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expUsrIdx, usridx) {
-		t.Errorf("Expected %v, recived: %v", utils.ToJSON(expUsrIdx), utils.ToJSON(usridx))
+		t.Errorf("Expected %v, received: %v", utils.ToJSON(expUsrIdx), utils.ToJSON(usridx))
 	}
 }

@@ -20,22 +20,86 @@ package config
 
 import "github.com/cgrates/cgrates/utils"
 
+type AttributesOpts struct {
+	ProfileIDs           []string
+	ProfileRuns          int
+	ProfileIgnoreFilters bool
+	ProcessRuns          int
+	Context              *string
+}
+
 // AttributeSCfg is the configuration of attribute service
 type AttributeSCfg struct {
 	Enabled             bool
+	ResourceSConns      []string
+	StatSConns          []string
+	ApierSConns         []string
 	IndexedSelects      bool
 	StringIndexedFields *[]string
 	PrefixIndexedFields *[]string
-	ProcessRuns         int
+	SuffixIndexedFields *[]string
 	NestedFields        bool
+	AnyContext          bool
+	Opts                *AttributesOpts
 }
 
-func (alS *AttributeSCfg) loadFromJsonCfg(jsnCfg *AttributeSJsonCfg) (err error) {
+func (attrOpts *AttributesOpts) loadFromJSONCfg(jsnCfg *AttributesOptsJson) {
+	if jsnCfg == nil {
+		return
+	}
+	if jsnCfg.ProfileIDs != nil {
+		attrOpts.ProfileIDs = *jsnCfg.ProfileIDs
+	}
+	if jsnCfg.ProfileRuns != nil {
+		attrOpts.ProfileRuns = *jsnCfg.ProfileRuns
+	}
+	if jsnCfg.ProfileIgnoreFilters != nil {
+		attrOpts.ProfileIgnoreFilters = *jsnCfg.ProfileIgnoreFilters
+	}
+	if jsnCfg.ProcessRuns != nil {
+		attrOpts.ProcessRuns = *jsnCfg.ProcessRuns
+	}
+	if jsnCfg.Context != nil {
+		attrOpts.Context = jsnCfg.Context
+	}
+}
+
+func (alS *AttributeSCfg) loadFromJSONCfg(jsnCfg *AttributeSJsonCfg) (err error) {
 	if jsnCfg == nil {
 		return
 	}
 	if jsnCfg.Enabled != nil {
 		alS.Enabled = *jsnCfg.Enabled
+	}
+	if jsnCfg.Stats_conns != nil {
+		alS.StatSConns = make([]string, len(*jsnCfg.Stats_conns))
+		for idx, connID := range *jsnCfg.Stats_conns {
+			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			alS.StatSConns[idx] = connID
+			if connID == utils.MetaInternal {
+				alS.StatSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats)
+			}
+		}
+	}
+	if jsnCfg.Resources_conns != nil {
+		alS.ResourceSConns = make([]string, len(*jsnCfg.Resources_conns))
+		for idx, connID := range *jsnCfg.Resources_conns {
+			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			alS.ResourceSConns[idx] = connID
+			if connID == utils.MetaInternal {
+				alS.ResourceSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources)
+			}
+		}
+	}
+	if jsnCfg.Apiers_conns != nil {
+		alS.ApierSConns = make([]string, len(*jsnCfg.Apiers_conns))
+		for idx, connID := range *jsnCfg.Apiers_conns {
+			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			alS.ApierSConns[idx] = connID
+			if connID == utils.MetaInternal {
+				alS.ApierSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier)
+			}
+		}
 	}
 	if jsnCfg.Indexed_selects != nil {
 		alS.IndexedSelects = *jsnCfg.Indexed_selects
@@ -54,37 +118,160 @@ func (alS *AttributeSCfg) loadFromJsonCfg(jsnCfg *AttributeSJsonCfg) (err error)
 		}
 		alS.PrefixIndexedFields = &pif
 	}
-	if jsnCfg.Process_runs != nil {
-		alS.ProcessRuns = *jsnCfg.Process_runs
+	if jsnCfg.Suffix_indexed_fields != nil {
+		sif := make([]string, len(*jsnCfg.Suffix_indexed_fields))
+		for i, fID := range *jsnCfg.Suffix_indexed_fields {
+			sif[i] = fID
+		}
+		alS.SuffixIndexedFields = &sif
 	}
 	if jsnCfg.Nested_fields != nil {
 		alS.NestedFields = *jsnCfg.Nested_fields
 	}
+	if jsnCfg.Any_context != nil {
+		alS.AnyContext = *jsnCfg.Any_context
+	}
+	if jsnCfg.Opts != nil {
+		alS.Opts.loadFromJSONCfg(jsnCfg.Opts)
+	}
 	return
 }
 
-func (alS *AttributeSCfg) AsMapInterface() map[string]interface{} {
-	stringIndexedFields := []string{}
+// AsMapInterface returns the config as a map[string]any
+func (alS *AttributeSCfg) AsMapInterface() (initialMP map[string]any) {
+	opts := map[string]any{
+		utils.MetaProfileIDs:              alS.Opts.ProfileIDs,
+		utils.MetaProfileRuns:             alS.Opts.ProfileRuns,
+		utils.MetaProfileIgnoreFiltersCfg: alS.Opts.ProfileIgnoreFilters,
+		utils.MetaProcessRuns:             alS.Opts.ProcessRuns,
+	}
+	if alS.Opts.Context != nil {
+		opts[utils.OptsContext] = *alS.Opts.Context
+	}
+	initialMP = map[string]any{
+		utils.EnabledCfg:        alS.Enabled,
+		utils.IndexedSelectsCfg: alS.IndexedSelects,
+		utils.NestedFieldsCfg:   alS.NestedFields,
+		utils.AnyContextCfg:     alS.AnyContext,
+		utils.OptsCfg:           opts,
+	}
 	if alS.StringIndexedFields != nil {
-		stringIndexedFields = make([]string, len(*alS.StringIndexedFields))
+		stringIndexedFields := make([]string, len(*alS.StringIndexedFields))
 		for i, item := range *alS.StringIndexedFields {
 			stringIndexedFields[i] = item
 		}
+		initialMP[utils.StringIndexedFieldsCfg] = stringIndexedFields
 	}
-	prefixIndexedFields := []string{}
 	if alS.PrefixIndexedFields != nil {
-		prefixIndexedFields = make([]string, len(*alS.PrefixIndexedFields))
+		prefixIndexedFields := make([]string, len(*alS.PrefixIndexedFields))
 		for i, item := range *alS.PrefixIndexedFields {
 			prefixIndexedFields[i] = item
 		}
+		initialMP[utils.PrefixIndexedFieldsCfg] = prefixIndexedFields
 	}
-	return map[string]interface{}{
-		utils.EnabledCfg:             alS.Enabled,
-		utils.IndexedSelectsCfg:      alS.IndexedSelects,
-		utils.StringIndexedFieldsCfg: stringIndexedFields,
-		utils.PrefixIndexedFieldsCfg: prefixIndexedFields,
-		utils.ProcessRunsCfg:         alS.ProcessRuns,
-		utils.NestedFieldsCfg:        alS.NestedFields,
+	if alS.SuffixIndexedFields != nil {
+		suffixIndexedFields := make([]string, len(*alS.SuffixIndexedFields))
+		for i, item := range *alS.SuffixIndexedFields {
+			suffixIndexedFields[i] = item
+		}
+		initialMP[utils.SuffixIndexedFieldsCfg] = suffixIndexedFields
+	}
+	if alS.StatSConns != nil {
+		statSConns := make([]string, len(alS.StatSConns))
+		for i, item := range alS.StatSConns {
+			statSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats) {
+				statSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.StatSConnsCfg] = statSConns
 	}
 
+	if alS.ResourceSConns != nil {
+		resourceSConns := make([]string, len(alS.ResourceSConns))
+		for i, item := range alS.ResourceSConns {
+			resourceSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaResources) {
+				resourceSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.ResourceSConnsCfg] = resourceSConns
+	}
+	if alS.ApierSConns != nil {
+		apierSConns := make([]string, len(alS.ApierSConns))
+		for i, item := range alS.ApierSConns {
+			apierSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaApier) {
+				apierSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.ApierSConnsCfg] = apierSConns
+	}
+	return
+}
+
+func (attrOpts *AttributesOpts) Clone() *AttributesOpts {
+	cln := &AttributesOpts{
+		ProfileIDs:           utils.CloneStringSlice(attrOpts.ProfileIDs),
+		ProfileRuns:          attrOpts.ProfileRuns,
+		ProfileIgnoreFilters: attrOpts.ProfileIgnoreFilters,
+		ProcessRuns:          attrOpts.ProcessRuns,
+	}
+	if attrOpts.Context != nil {
+		cln.Context = new(string)
+		*cln.Context = *attrOpts.Context
+	}
+	return cln
+}
+
+// Clone returns a deep copy of AttributeSCfg
+func (alS AttributeSCfg) Clone() (cln *AttributeSCfg) {
+	cln = &AttributeSCfg{
+		Enabled:        alS.Enabled,
+		IndexedSelects: alS.IndexedSelects,
+		NestedFields:   alS.NestedFields,
+		AnyContext:     alS.AnyContext,
+		Opts:           alS.Opts.Clone(),
+	}
+	if alS.ResourceSConns != nil {
+		cln.ResourceSConns = make([]string, len(alS.ResourceSConns))
+		for i, con := range alS.ResourceSConns {
+			cln.ResourceSConns[i] = con
+		}
+	}
+	if alS.StatSConns != nil {
+		cln.StatSConns = make([]string, len(alS.StatSConns))
+		for i, con := range alS.StatSConns {
+			cln.StatSConns[i] = con
+		}
+	}
+	if alS.ApierSConns != nil {
+		cln.ApierSConns = make([]string, len(alS.ApierSConns))
+		for i, con := range alS.ApierSConns {
+			cln.ApierSConns[i] = con
+		}
+	}
+
+	if alS.StringIndexedFields != nil {
+		idx := make([]string, len(*alS.StringIndexedFields))
+		for i, dx := range *alS.StringIndexedFields {
+			idx[i] = dx
+		}
+		cln.StringIndexedFields = &idx
+	}
+	if alS.PrefixIndexedFields != nil {
+		idx := make([]string, len(*alS.PrefixIndexedFields))
+		for i, dx := range *alS.PrefixIndexedFields {
+			idx[i] = dx
+		}
+		cln.PrefixIndexedFields = &idx
+	}
+	if alS.SuffixIndexedFields != nil {
+		idx := make([]string, len(*alS.SuffixIndexedFields))
+		for i, dx := range *alS.SuffixIndexedFields {
+			idx[i] = dx
+		}
+		cln.SuffixIndexedFields = &idx
+	}
+	return
 }

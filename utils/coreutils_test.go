@@ -20,10 +20,13 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/cgrates/rpcclient"
 )
@@ -54,6 +57,57 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestFirstIntNonEmpty(t *testing.T) {
+	//check for default value
+	rcv := FirstIntNonEmpty(0)
+	if rcv != 0 {
+		t.Errorf("Expected 0 \n but received \n %d", rcv)
+	}
+
+	//case the first non empty value is on the first position
+	rcv = FirstIntNonEmpty(21, 0, 0)
+	if rcv != 21 {
+		t.Errorf("Expected 21 \n but received \n %d", rcv)
+	}
+
+	//case the first non empty value is on the second position
+	rcv = FirstIntNonEmpty(0, 21, 0)
+	if rcv != 21 {
+		t.Errorf("Expected 21 \n but received \n %d", rcv)
+	}
+
+	//case the first non empty value is on the third position
+	rcv = FirstIntNonEmpty(0, 0, 21)
+	if rcv != 21 {
+		t.Errorf("Expected 21 \n but received \n %d", rcv)
+	}
+}
+
+func TestFirstDurationNonEmpty(t *testing.T) {
+	//check for default value
+	rcv := FirstDurationNonEmpty(0)
+	if rcv != 0 {
+		t.Errorf("Expected 0 \n but received \n %d", rcv)
+	}
+
+	//case the first non empty value is on the first position
+	rcv = FirstDurationNonEmpty(2*time.Minute, 0, 0)
+	if rcv != 2*time.Minute {
+		t.Errorf("Expected 2m \n but received \n %d", rcv)
+	}
+
+	//case the first non empty value is on the second position
+	rcv = FirstDurationNonEmpty(0, 2*time.Minute, 0)
+	if rcv != 2*time.Minute {
+		t.Errorf("Expected 2m \n but received \n %d", rcv)
+	}
+
+	//case the first non empty value is on the third position
+	rcv = FirstDurationNonEmpty(0, 0, 2*time.Minute)
+	if rcv != 2*time.Minute {
+		t.Errorf("Expected 2m \n but received \n %d", rcv)
+	}
+}
 func TestSha1(t *testing.T) {
 	//empty check
 	rcv := Sha1(" ")
@@ -71,6 +125,21 @@ func TestSha1(t *testing.T) {
 	eOut = "dff964f6e3c1761b6288f5c75c319d36fb09b2b9"
 	if !reflect.DeepEqual(eOut, rcv) {
 		t.Errorf("Expecting: %s, received: %s", eOut, rcv)
+	}
+}
+
+func TestSha1ReverseOrder(t *testing.T) {
+	rcv := Sha1("test1", "test2")
+	revOrd := Sha1("test2", "test1")
+	// Sha1 consider order when generating
+	if reflect.DeepEqual(revOrd, rcv) {
+		t.Errorf("Expecting: %s, received: %s", revOrd, rcv)
+	}
+
+	rcv = Sha1("test1")
+	revOrd = Sha1("test1")
+	if !reflect.DeepEqual(revOrd, rcv) {
+		t.Errorf("Expecting: %s, received: %s", revOrd, rcv)
 	}
 }
 
@@ -103,31 +172,31 @@ func TestUUIDSha1Prefix(t *testing.T) {
 }
 
 func TestRound(t *testing.T) {
-	result := Round(12.49, 1, ROUNDING_UP)
+	result := Round(12.49, 1, MetaRoundingUp)
 	expected := 12.5
 	if result != expected {
 		t.Errorf("Error rounding up: sould be %v was %v", expected, result)
 	}
 
-	result = Round(12.21, 1, ROUNDING_UP)
+	result = Round(12.21, 1, MetaRoundingUp)
 	expected = 12.3
 	if result != expected {
 		t.Errorf("Error rounding up: sould be %v was %v", expected, result)
 	}
 
-	result = Round(0.0701, 2, ROUNDING_UP)
+	result = Round(0.0701, 2, MetaRoundingUp)
 	expected = 0.08
 	if result != expected {
 		t.Errorf("Error rounding up: sould be %v was %v", expected, result)
 	}
 
-	result = Round(12.49, 1, ROUNDING_DOWN)
+	result = Round(12.49, 1, MetaRoundingDown)
 	expected = 12.4
 	if result != expected {
 		t.Errorf("Error rounding down: sould be %v was %v", expected, result)
 	}
 
-	result = Round(12.21, 1, ROUNDING_DOWN)
+	result = Round(12.21, 1, MetaRoundingDown)
 	expected = 12.2
 	if result != expected {
 		t.Errorf("Error rounding up: sould be %v was %v", expected, result)
@@ -135,23 +204,35 @@ func TestRound(t *testing.T) {
 
 	//AlredyHavingPrecision
 	x := 0.07
-	if y := Round(x, 2, ROUNDING_UP); y != x {
+	if y := Round(x, 2, MetaRoundingUp); y != x {
 		t.Error("Error rounding when already has desired precision: ", y)
 	}
-	if y := Round(x, 2, ROUNDING_MIDDLE); y != x {
+	if y := Round(x, 2, MetaRoundingMiddle); y != x {
 		t.Error("Error rounding when already has desired precision: ", y)
 	}
-	if y := Round(x, 2, ROUNDING_DOWN); y != x {
+	if y := Round(x, 2, MetaRoundingDown); y != x {
 		t.Error("Error rounding when already has desired precision: ", y)
 	}
 
-	result = Round(14.37, 8, ROUNDING_DOWN)
+	result = Round(14.37, 8, MetaRoundingDown)
 	expected = 14.37
 	if result != expected {
 		t.Errorf("Expecting: %v, received:  %v", expected, result)
 	}
 	result = Round(14.37, 8, "ROUNDING_NOWHERE")
 	expected = 14.37
+	if result != expected {
+		t.Errorf("Expecting: %v, received:  %v", expected, result)
+	}
+
+	result = Round(14.37, 0, MetaRoundingMiddle)
+	expected = 14
+	if result != expected {
+		t.Errorf("Expecting: %v, received:  %v", expected, result)
+	}
+
+	result = Round(14.37, -1, MetaRoundingMiddle)
+	expected = 10
 	if result != expected {
 		t.Errorf("Expecting: %v, received:  %v", expected, result)
 	}
@@ -301,9 +382,9 @@ func TestParseTimeDetectLayout(t *testing.T) {
 	} else if !tsTm.Equal(expectedTime) {
 		t.Errorf("Unexpected time parsed: %v, expecting: %v", tsTm, expectedTime)
 	}
-	if nowTm, err := ParseTimeDetectLayout(META_NOW, ""); err != nil {
+	if nowTm, err := ParseTimeDetectLayout(MetaNow, ""); err != nil {
 		t.Error(err)
-	} else if time.Now().Sub(nowTm) > time.Duration(10)*time.Millisecond {
+	} else if time.Since(nowTm) > 10*time.Millisecond {
 		t.Errorf("Unexpected time parsed: %v", nowTm)
 	}
 	eamonTmStr := "31/05/2015 14:46:00"
@@ -331,8 +412,8 @@ func TestParseTimeDetectLayout(t *testing.T) {
 		t.Errorf("Expecting: %v, received: %v", expectedTime, astTMS)
 	}
 	nowTimeStr := "+24h"
-	start := time.Now().Add(time.Duration(23*time.Hour + 59*time.Minute + 58*time.Second))
-	end := start.Add(time.Duration(2 * time.Second))
+	start := time.Now().Add(23*time.Hour + 59*time.Minute + 58*time.Second)
+	end := start.Add(2 * time.Second)
 	parseNowTimeStr, err := ParseTimeDetectLayout(nowTimeStr, "")
 	if err != nil {
 		t.Error(err)
@@ -391,6 +472,20 @@ func TestParseTimeDetectLayout(t *testing.T) {
 	} else if expected.Sub(date).Seconds() > 1 {
 		t.Errorf("received: %+v", date)
 	}
+
+	expected = time.Now().AddDate(0, 1, 0)
+	if date, err := ParseTimeDetectLayout("*monthly_estimated", ""); err != nil {
+		t.Error(err)
+	} else {
+		initialMnt := time.Now().Month()
+		for expected.Month()-initialMnt > 1 {
+			expected = expected.AddDate(0, 0, -1)
+		}
+		if expected.Day() != date.Day() || expected.Month() != date.Month() || expected.Hour() != date.Hour() {
+			t.Errorf("Expected: %+v, received: %+v", expected, date)
+		}
+	}
+
 	expected = time.Now().AddDate(0, 1, 0)
 	if date, err := ParseTimeDetectLayout("*mo", ""); err != nil {
 		t.Error(err)
@@ -455,17 +550,17 @@ func TestParseTimeDetectLayout(t *testing.T) {
 
 func TestRoundDuration(t *testing.T) {
 	minute := time.Minute
-	result := RoundDuration(minute, 0*time.Second)
+	result := RoundDuration(minute, 0)
 	expected := 0 * time.Second
 	if result != expected {
 		t.Errorf("Error rounding to minute1: expected %v was %v", expected, result)
 	}
-	result = RoundDuration(time.Second, 1*time.Second+500*time.Millisecond)
+	result = RoundDuration(time.Second, time.Second+500*time.Millisecond)
 	expected = 2 * time.Second
 	if result != expected {
 		t.Errorf("Error rounding to minute1: expected %v was %v", expected, result)
 	}
-	result = RoundDuration(minute, 1*time.Second)
+	result = RoundDuration(minute, time.Second)
 	expected = minute
 	if result != expected {
 		t.Errorf("Error rounding to minute2: expected %v was %v", expected, result)
@@ -492,14 +587,67 @@ func TestRoundDuration(t *testing.T) {
 	}
 }
 
+func TestRoundStatDuration(t *testing.T) {
+	result := RoundStatDuration(time.Second+14565876*time.Nanosecond, 5)
+	expected := time.Second + 14570000*time.Nanosecond
+	if result != expected {
+		t.Errorf("Expected %+v, received %+v", expected, result)
+	}
+
+	result = RoundStatDuration(time.Second+14565876*time.Nanosecond, 1)
+	expected = time.Second
+	if result != expected {
+		t.Errorf("Expected %+v, received %+v", expected, result)
+	}
+
+	result = RoundStatDuration(time.Second+14565876*time.Nanosecond, 9)
+	expected = time.Second + 14565876*time.Nanosecond
+	if result != expected {
+		t.Errorf("Expected %+v, received %+v", expected, result)
+	}
+
+	result = RoundStatDuration(24*time.Second+14565876*time.Nanosecond, -1)
+	expected = 20 * time.Second
+	if result != expected {
+		t.Errorf("Expected %+v, received %+v", expected, result)
+	}
+
+	result = RoundStatDuration(24*time.Second+14565876*time.Nanosecond, 0)
+	expected = 24 * time.Second
+	if result != expected {
+		t.Errorf("Expected %+v, received %+v", expected, result)
+	}
+}
+
 func TestSplitPrefix(t *testing.T) {
+	exp := []string{"0123456789", "012345678", "01234567", "0123456", "012345", "01234", "0123", "012", "01", "0"}
 	if a := SplitPrefix("0123456789", 1); len(a) != 10 {
 		t.Error("Error splitting prefix: ", a)
+	} else if !reflect.DeepEqual(a, exp) {
+		t.Errorf("Expecting: %v, received: %v", exp, a)
 	}
+	exp = []string{"0123456789", "012345678", "01234567", "0123456", "012345", "01234"}
 	if a := SplitPrefix("0123456789", 5); len(a) != 6 {
 		t.Error("Error splitting prefix: ", a)
+	} else if !reflect.DeepEqual(a, exp) {
+		t.Errorf("Expecting: %v, received: %v", exp, a)
 	}
+	exp = []string{}
 	if a := SplitPrefix("", 1); len(a) != 0 {
+		t.Error("Error splitting prefix: ", a)
+	} else if !reflect.DeepEqual(a, exp) {
+		t.Errorf("Expecting: %v, received: %v", exp, a)
+	}
+}
+
+func TestSplitSuffix(t *testing.T) {
+	exp := []string{"9", "89", "789", "6789", "56789", "456789", "3456789", "23456789", "123456789", "0123456789"}
+	if a := SplitSuffix("0123456789"); len(a) != 10 {
+		t.Error("Error splitting prefix: ", ToJSON(a))
+	} else if !reflect.DeepEqual(a, exp) {
+		t.Errorf("Expecting: %v, received: %v", exp, a)
+	}
+	if a := SplitSuffix(""); len(a) != 0 {
 		t.Error("Error splitting prefix: ", a)
 	}
 }
@@ -525,7 +673,7 @@ func TestParseDurationWithSecs(t *testing.T) {
 		t.Errorf("Expecting: 0s, received: %+v", rcv)
 	}
 	durStr := "2"
-	durExpected = time.Duration(2) * time.Second
+	durExpected = 2 * time.Second
 	if parsed, err := ParseDurationWithSecs(durStr); err != nil {
 		t.Error(err)
 	} else if parsed != durExpected {
@@ -538,21 +686,21 @@ func TestParseDurationWithSecs(t *testing.T) {
 		t.Error("Parsed different than expected")
 	}
 	durStr = "2ms"
-	durExpected = time.Duration(2) * time.Millisecond
+	durExpected = 2 * time.Millisecond
 	if parsed, err := ParseDurationWithSecs(durStr); err != nil {
 		t.Error(err)
 	} else if parsed != durExpected {
 		t.Error("Parsed different than expected")
 	}
 	durStr = "0.002"
-	durExpected = time.Duration(2) * time.Millisecond
+	durExpected = 2 * time.Millisecond
 	if parsed, err := ParseDurationWithSecs(durStr); err != nil {
 		t.Error(err)
 	} else if parsed != durExpected {
 		t.Error("Parsed different than expected")
 	}
 	durStr = "1.002"
-	durExpected = time.Duration(1002) * time.Millisecond
+	durExpected = 1002 * time.Millisecond
 	if parsed, err := ParseDurationWithSecs(durStr); err != nil {
 		t.Error(err)
 	} else if parsed != durExpected {
@@ -568,7 +716,7 @@ func TestParseDurationWithNanosecs(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
 	}
 	eOut, _ = time.ParseDuration("-1ns")
-	if rcv, err := ParseDurationWithNanosecs(UNLIMITED); err != nil {
+	if rcv, err := ParseDurationWithNanosecs(MetaUnlimited); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(rcv, eOut) {
 		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
@@ -593,43 +741,50 @@ func TestMinDuration(t *testing.T) {
 
 func TestParseZeroRatingSubject(t *testing.T) {
 	subj := []string{"", "*zero1024", "*zero1s", "*zero5m", "*zero10h"}
-	dur := []time.Duration{time.Second, time.Duration(1024),
+	dur := []time.Duration{time.Second, 1024,
 		time.Second, 5 * time.Minute, 10 * time.Hour}
 	dfltRatingSubject := map[string]string{
-		ANY:   "*zero1ns",
-		VOICE: "*zero1s",
+		MetaAny:   "*zero1ns",
+		MetaVoice: "*zero1s",
 	}
 	for i, s := range subj {
-		if d, err := ParseZeroRatingSubject(VOICE, s, dfltRatingSubject); err != nil || d != dur[i] {
-			t.Error("Error parsing rating subject: ", s, d, err)
+		if i == 0 {
+			if d, err := ParseZeroRatingSubject(MetaVoice, s, dfltRatingSubject, false); err == nil {
+				t.Error("Error parsing rating subject: ", s, d, err)
+			}
+
+		} else {
+			if d, err := ParseZeroRatingSubject(MetaVoice, s, dfltRatingSubject, true); err != nil || d != dur[i] {
+				t.Error("Error parsing rating subject: ", s, d, err)
+			}
+
+		}
+		if d, err := ParseZeroRatingSubject(MetaData, EmptyString, dfltRatingSubject, true); err != nil || d != time.Nanosecond {
+			t.Error("Error parsing rating subject: ", EmptyString, d, err)
+		}
+		if d, err := ParseZeroRatingSubject(MetaSMS, EmptyString, dfltRatingSubject, true); err != nil || d != time.Nanosecond {
+			t.Error("Error parsing rating subject: ", EmptyString, d, err)
+		}
+		if d, err := ParseZeroRatingSubject(MetaMMS, EmptyString, dfltRatingSubject, true); err != nil || d != time.Nanosecond {
+			t.Error("Error parsing rating subject: ", EmptyString, d, err)
+		}
+		if d, err := ParseZeroRatingSubject(MetaMonetary, EmptyString, dfltRatingSubject, true); err != nil || d != time.Nanosecond {
+			t.Error("Error parsing rating subject: ", EmptyString, d, err)
+		}
+		expecting := "malformed rating subject: test"
+		if _, err := ParseZeroRatingSubject(MetaMonetary, "test", dfltRatingSubject, true); err == nil || err.Error() != expecting {
+			t.Errorf("Expecting: %+v, received: %+v ", expecting, err)
 		}
 	}
-	if d, err := ParseZeroRatingSubject(DATA, EmptyString, dfltRatingSubject); err != nil || d != time.Nanosecond {
-		t.Error("Error parsing rating subject: ", EmptyString, d, err)
-	}
-	if d, err := ParseZeroRatingSubject(SMS, EmptyString, dfltRatingSubject); err != nil || d != time.Nanosecond {
-		t.Error("Error parsing rating subject: ", EmptyString, d, err)
-	}
-	if d, err := ParseZeroRatingSubject(MMS, EmptyString, dfltRatingSubject); err != nil || d != time.Nanosecond {
-		t.Error("Error parsing rating subject: ", EmptyString, d, err)
-	}
-	if d, err := ParseZeroRatingSubject(MONETARY, EmptyString, dfltRatingSubject); err != nil || d != time.Nanosecond {
-		t.Error("Error parsing rating subject: ", EmptyString, d, err)
-	}
-	expecting := "malformed rating subject: test"
-	if _, err := ParseZeroRatingSubject(MONETARY, "test", dfltRatingSubject); err == nil || err.Error() != expecting {
-		t.Errorf("Expecting: %+v, received: %+v ", expecting, err)
-	}
 }
-
 func TestConcatenatedKey(t *testing.T) {
 	if key := ConcatenatedKey("a"); key != "a" {
 		t.Error("Unexpected key value received: ", key)
 	}
-	if key := ConcatenatedKey("a", "b"); key != fmt.Sprintf("a%sb", CONCATENATED_KEY_SEP) {
+	if key := ConcatenatedKey("a", "b"); key != fmt.Sprintf("a%sb", ConcatenatedKeySep) {
 		t.Error("Unexpected key value received: ", key)
 	}
-	if key := ConcatenatedKey("a", "b", "c"); key != fmt.Sprintf("a%sb%sc", CONCATENATED_KEY_SEP, CONCATENATED_KEY_SEP) {
+	if key := ConcatenatedKey("a", "b", "c"); key != fmt.Sprintf("a%sb%sc", ConcatenatedKeySep, ConcatenatedKeySep) {
 		t.Error("Unexpected key value received: ", key)
 	}
 }
@@ -757,51 +912,6 @@ func TestFmtFieldWidth(t *testing.T) {
 	}
 }
 
-func TestCastIfToString(t *testing.T) {
-	v := interface{}("somestr")
-	if sOut, casts := CastIfToString(v); !casts {
-		t.Error("Does not cast")
-	} else if sOut != "somestr" {
-		t.Errorf("Received: %+v", sOut)
-	}
-	v = interface{}(1)
-	if sOut, casts := CastIfToString(v); !casts {
-		t.Error("Does not cast")
-	} else if sOut != "1" {
-		t.Errorf("Received: %+v", sOut)
-	}
-	v = interface{}((int64)(1))
-	if sOut, casts := CastIfToString(v); !casts {
-		t.Error("Does not cast")
-	} else if sOut != "1" {
-		t.Errorf("Received: %+v", sOut)
-	}
-	v = interface{}(true)
-	if sOut, casts := CastIfToString(v); !casts {
-		t.Error("Does not cast")
-	} else if sOut != "true" {
-		t.Errorf("Received: %+v", sOut)
-	}
-	v = interface{}([]byte("test"))
-	if sOut, casts := CastIfToString(v); !casts {
-		t.Error("Does not cast")
-	} else if sOut != "test" {
-		t.Errorf("Received: %+v", sOut)
-	}
-	v = interface{}(1.2)
-	if sOut, casts := CastIfToString(v); !casts {
-		t.Error("Does not cast")
-	} else if sOut != "1.2" {
-		t.Errorf("Received: %+v", sOut)
-	}
-	//default
-	v = interface{}([]string{"test"})
-	if _, casts := CastIfToString(v); casts {
-		t.Error("Does cast")
-	}
-
-}
-
 func TestEndOfMonth(t *testing.T) {
 	eom := GetEndOfMonth(time.Date(2016, time.February, 5, 10, 1, 2, 3, time.UTC))
 	expected := time.Date(2016, time.February, 29, 23, 59, 59, 0, time.UTC)
@@ -828,9 +938,11 @@ func TestEndOfMonth(t *testing.T) {
 	if !eom.Equal(expected) {
 		t.Errorf("Expected %v was %v", expected, eom)
 	}
+	// Date ref represents zero time instant, will return time.Now().
 	eom = GetEndOfMonth(time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC))
-	if time.Now().Add(-1).Before(eom) {
-		t.Errorf("Expected %v was %v", expected, eom)
+	if currentDateRef := time.Now(); currentDateRef.Before(eom) ||
+		time.Since(eom) > time.Millisecond {
+		t.Errorf("Expected GetEndOfMonth to return the current date info, received: %s", eom)
 	}
 }
 
@@ -900,7 +1012,22 @@ func TestHierarchyPathAsString(t *testing.T) {
 	if hpStr := hp.AsString(EmptyString, true); hpStr != EmptyString {
 		t.Errorf("Expecting: %q, received: %q", EmptyString, hpStr)
 	}
+}
 
+func TestParseHierarchyClone(t *testing.T) {
+	eHP := HierarchyPath([]string{"Root", "CGRateS"})
+	rcv := eHP.Clone()
+	if !reflect.DeepEqual(eHP, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", ToJSON(eHP), ToJSON(rcv))
+	}
+	if rcv[0] = ""; eHP[0] != "Root" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	eHP = nil
+	rcv = eHP.Clone()
+	if !reflect.DeepEqual(eHP, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", ToJSON(eHP), ToJSON(rcv))
+	}
 }
 
 func TestMaskSuffix(t *testing.T) {
@@ -948,31 +1075,35 @@ func TestClone(t *testing.T) {
 	}
 	// Clone from an interface
 	c := "mystr"
-	ifaceC := interface{}(c)
+	ifaceC := any(c)
 	clndIface := reflect.Indirect(reflect.New(reflect.TypeOf(ifaceC))).Interface().(string)
 	if err := Clone(ifaceC, &clndIface); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(ifaceC, clndIface) {
 		t.Errorf("Expecting: %+v, received: %+v", ifaceC, clndIface)
 	}
+
+	if err := Clone(math.NaN, nil); err == nil {
+		t.Error("Expected error")
+	}
 }
 
 func TestFib(t *testing.T) {
 	fib := Fib()
 	if tmp := fib(); tmp != 1 {
-		t.Error("Expecting: 1, received ", tmp)
+		t.Error("Expecting: 1s, received ", tmp)
 	}
 	if tmp := fib(); tmp != 1 {
-		t.Error("Expecting: 1, received ", tmp)
+		t.Error("Expecting: 1s, received ", tmp)
 	}
 	if tmp := fib(); tmp != 2 {
-		t.Error("Expecting: 2, received ", tmp)
+		t.Error("Expecting: 2s, received ", tmp)
 	}
 	if tmp := fib(); tmp != 3 {
-		t.Error("Expecting: 3, received ", tmp)
+		t.Error("Expecting: 3s, received ", tmp)
 	}
 	if tmp := fib(); tmp != 5 {
-		t.Error("Expecting: 5, received ", tmp)
+		t.Error("Expecting: 5s, received ", tmp)
 	}
 }
 
@@ -1055,12 +1186,22 @@ func TestTimePointer(t *testing.T) {
 }
 
 func TestDurationPointer(t *testing.T) {
-	duration := time.Duration(10)
+	duration := 10 * time.Nanosecond
 	result := DurationPointer(duration)
 	expected := &duration
 	if *expected != *result {
 		t.Errorf("Expected: %+q, received: %+q", expected, result)
 	}
+}
+
+func TestSliceStringPointer(t *testing.T) {
+	sl := []string{"test"}
+	result := SliceStringPointer(sl)
+	exp := result
+	if !reflect.DeepEqual(result, exp) {
+		t.Errorf("Expeced:%+q but received %+q", exp, result)
+	}
+
 }
 
 func TestToIJSON(t *testing.T) {
@@ -1098,20 +1239,16 @@ func TestLess(t *testing.T) {
 	}
 }
 
-func TestCapitalizedMessage(t *testing.T) {
-	if capMsg := CapitalizedMessage(ServiceAlreadyRunning); capMsg != "SERVICE_ALREADY_RUNNING" {
-		t.Errorf("Received: <%s>", capMsg)
-	}
-}
-
 func TestGetCGRVersion(t *testing.T) {
 	GitLastLog = `commit 73014daa0c1d7edcb532d5fe600b8a20d588cdf8
 Author: DanB <danb@cgrates.org>
-Date:   Fri Dec 30 19:48:09 2016 +0100
+AuthorDate:   Fri Dec 30 19:48:09 2016 +0100
+Commit: DanB <danb@cgrates.org>
+CommitDate:   Fri Dec 30 19:48:09 2016 +0100
 
 	Fixes for db driver to avoid returning new values in case of errors
 `
-	expVers := "CGRateS@" + VERSION
+	expVers := "CGRateS@" + Version
 	eVers := expVers + "-20161230184809-73014daa0c1d"
 	if vers, err := GetCGRVersion(); err != nil {
 		t.Error(err)
@@ -1137,14 +1274,14 @@ Date:   Fri Dec 30 19:48:09 2016 +0100
 	} else if vers != expVers {
 		t.Errorf("Expecting: <%s>, received: <%s>", expVers, vers)
 	}
-	GitLastLog = `Date: : :
+	GitLastLog = `CommitDate: : :
 `
 	if vers, err := GetCGRVersion(); err == nil || err.Error() != "Building version - cannot split commit date" {
 		t.Error(err)
 	} else if vers != expVers {
 		t.Errorf("Expecting: <%s>, received: <%s>", expVers, vers)
 	}
-	GitLastLog = `Date: wrong format
+	GitLastLog = `CommitDate: wrong format
 `
 	if vers, err := GetCGRVersion(); err == nil || err.Error() != `Building version - error: <parsing time "wrong format" as "Mon Jan 2 15:04:05 2006 -0700": cannot parse "wrong format" as "Mon"> compiling commit date` {
 		t.Error(err)
@@ -1154,13 +1291,45 @@ Date:   Fri Dec 30 19:48:09 2016 +0100
 	GitLastLog = `ommit 73014daa0c1d7edcb532d5fe600b8a20d588cdf8
 Author: DanB <danb@cgrates.org>
 Date:   Fri Dec 30 19:48:09 2016 +0100
-
+	
 	Fixes for db driver to avoid returning new values in case of errors
 `
 	if vers, err := GetCGRVersion(); err == nil || err.Error() != "Cannot find commitHash or commitDate information" {
 		t.Error(err)
 	} else if vers != expVers {
 		t.Errorf("Expecting: <%s>, received: <%s>", expVers, vers)
+	}
+
+	GitLastLog = `commit c34d5753cf5ae15a3b7ae9bea30a4900fb8191a0
+Author:     nickolasdaniel <nickolas.filip@itsyscom.com>
+AuthorDate: Wed Feb 2 16:54:59 2022 +0200
+Commit:     nickolasdaniel <nickolas.filip@itsyscom.com>
+CommitDate: Wed Feb 2 16:54:59 2022 +0200
+	
+		Changed the build script and GetCGRVersion() to get the CommitDate instead of AuthorDate
+`
+	expVers = "CGRateS@" + Version
+	eVers = expVers + "-20220202145459-c34d5753cf5a"
+	if vers, err := GetCGRVersion(); err != nil {
+		t.Error(err)
+	} else if vers != eVers {
+		t.Errorf("Expecting: <%s>, received: <%s>", eVers, vers)
+	}
+
+	GitLastLog = `commit c34d5753cf5ae15a3b7ae9bea30a4900fb8191a0
+Author:     nickolasdaniel <nickolas.filip@itsyscom.com>
+AuthorDate: Thu Jun 5 12:14:49 2026 +0800
+Commit:     nickolasdaniel <nickolas.filip@itsyscom.com>
+CommitDate: Wed Feb 2 16:54:59 2022 +0200
+	
+		Changed the build script and GetCGRVersion() to get the CommitDate instead of AuthorDate
+`
+	expVers = "CGRateS@" + Version
+	eVers = expVers + "-20220202145459-c34d5753cf5a"
+	if vers, err := GetCGRVersion(); err != nil {
+		t.Error(err)
+	} else if vers != eVers {
+		t.Errorf("Expecting: <%s>, received: <%s>", eVers, vers)
 	}
 }
 
@@ -1193,32 +1362,112 @@ func TestTenantID(t *testing.T) {
 }
 
 func TestTenantIDWithCache(t *testing.T) {
-	tID := &TenantIDWithCache{Tenant: EmptyString, ID: EmptyString}
+	tID := &TenantIDWithAPIOpts{TenantID: &TenantID{Tenant: EmptyString, ID: EmptyString}}
 	eOut := ":"
-	if rcv := tID.TenantID(); rcv != eOut {
+	if rcv := tID.TenantID.TenantID(); rcv != eOut {
 		t.Errorf("Expecting: %q, received: %q", eOut, rcv)
 	}
-	tID = &TenantIDWithCache{Tenant: "cgrates.org", ID: "id"}
+	tID = &TenantIDWithAPIOpts{TenantID: &TenantID{Tenant: "cgrates.org", ID: "id"}}
 	eOut = "cgrates.org:id"
-	if rcv := tID.TenantID(); rcv != eOut {
+	if rcv := tID.TenantID.TenantID(); rcv != eOut {
 		t.Errorf("Expecting: %q, received: %q", eOut, rcv)
 	}
 }
 
-type testRPC struct {
+type TestRPC struct {
 }
 
-func (tRPC *testRPC) Name(args interface{}, reply interface{}) error {
-	return errors.New("err_test")
+func (tRPC *TestRPC) V1Copy(args *string, reply *string) error {
+	*reply = *args
+	return nil
 }
-func (tRPC *testRPC) V1Name(args interface{}, reply interface{}) error {
+
+func (tRPC *TestRPC) V1Error(args *string, reply *string) error {
 	return errors.New("V1_err_test")
 }
+
+func (tRPC *TestRPC) Call(args any, reply any) error {
+	return nil
+}
+
+func (tRPC *TestRPC) V1Error2(args any, reply any) (int, error) {
+	return 0, nil
+}
+
+func (tRPC *TestRPC) V1Error3(args any, reply any) int {
+	return 0
+}
+
 func TestRPCCall(t *testing.T) {
 	if err := RPCCall("wrong", "test", nil, nil); err == nil || err != rpcclient.ErrUnsupporteServiceMethod {
 		t.Errorf("Expecting: %+v, received: %+v", rpcclient.ErrUnsupporteServiceMethod, err)
 	}
+	var reply string
+	if err := RPCCall(&TestRPC{}, "TestRPCV1.Copy", StringPointer("test"), &reply); err != nil {
+		t.Errorf("Expecting: <nil>, received: %+v", err)
+	}
+	if err := RPCCall(&TestRPC{}, "TestRPCV1.Error", StringPointer("test"), &reply); err == nil || err.Error() != "V1_err_test" {
+		t.Errorf("Expecting: <V1_err_test>, received: <%+v>", err)
+	}
+	if err := RPCCall(&TestRPC{}, "TestRPCV1.Unexist", StringPointer("test"), &reply); err == nil || err != rpcclient.ErrUnsupporteServiceMethod {
+		t.Errorf("Expecting: %+v, received: %+v", rpcclient.ErrUnsupporteServiceMethod, err)
+	}
 
+	if err := RPCCall(&TestRPC{}, "TestRPCV1.Error2", StringPointer("test"), &reply); err == nil || err != ErrServerError {
+		t.Errorf("Expecting: %+v, received: %+v", ErrServerError, err)
+	}
+
+	if err := RPCCall(&TestRPC{}, "TestRPCV1.Error3", StringPointer("test"), &reply); err == nil || err != ErrServerError {
+		t.Errorf("Expecting: %+v, received: %+v", ErrServerError, err)
+	}
+}
+
+type TestRPC2 struct {
+}
+
+func (tRPC *TestRPC2) Copy(args *string, reply *string) error {
+	*reply = *args
+	return nil
+}
+
+func (tRPC *TestRPC2) Error(args *string, reply *string) error {
+	return errors.New("V1_err_test")
+}
+
+func (tRPC *TestRPC2) Call(args any, reply any) error {
+	return nil
+}
+
+func (tRPC *TestRPC2) Error2(args any, reply any) (int, error) {
+	return 0, nil
+}
+
+func (tRPC *TestRPC2) Error3(args any, reply any) int {
+	return 0
+}
+
+func TestRPCAPICall(t *testing.T) {
+	if err := APIerRPCCall("wrong", "test", nil, nil); err == nil || err != rpcclient.ErrUnsupporteServiceMethod {
+		t.Errorf("Expecting: %+v, received: %+v", rpcclient.ErrUnsupporteServiceMethod, err)
+	}
+	var reply string
+	if err := APIerRPCCall(&TestRPC2{}, "TestRPC2.Copy", StringPointer("test"), &reply); err != nil {
+		t.Errorf("Expecting: <nil>, received: %+v", err)
+	}
+	if err := APIerRPCCall(&TestRPC2{}, "TestRPC2.Error", StringPointer("test"), &reply); err == nil || err.Error() != "V1_err_test" {
+		t.Errorf("Expecting: <V1_err_test>, received: <%+v>", err)
+	}
+	if err := APIerRPCCall(&TestRPC2{}, "TestRPC2.Unexist", StringPointer("test"), &reply); err == nil || err != rpcclient.ErrUnsupporteServiceMethod {
+		t.Errorf("Expecting: %+v, received: %+v", rpcclient.ErrUnsupporteServiceMethod, err)
+	}
+
+	if err := APIerRPCCall(&TestRPC2{}, "TestRPC2.Error2", StringPointer("test"), &reply); err == nil || err != ErrServerError {
+		t.Errorf("Expecting: %+v, received: %+v", ErrServerError, err)
+	}
+
+	if err := APIerRPCCall(&TestRPC2{}, "TestRPC2.Error3", StringPointer("test"), &reply); err == nil || err != ErrServerError {
+		t.Errorf("Expecting: %+v, received: %+v", ErrServerError, err)
+	}
 }
 
 func TestCounter(t *testing.T) {
@@ -1303,9 +1552,9 @@ func TestGetUrlRawArguments(t *testing.T) {
 
 func TestWarnExecTime(t *testing.T) {
 	//without Log
-	WarnExecTime(time.Now(), "MyTestFunc", time.Duration(1*time.Second))
+	WarnExecTime(time.Now(), "MyTestFunc", time.Second)
 	//With Log
-	WarnExecTime(time.Now(), "MyTestFunc", time.Duration(1*time.Nanosecond))
+	WarnExecTime(time.Now(), "MyTestFunc", time.Nanosecond)
 }
 
 func TestCastRPCErr(t *testing.T) {
@@ -1330,5 +1579,332 @@ func TestRandomInteger(t *testing.T) {
 	}
 	if a < 0 || b < 0 || c < 0 {
 		t.Errorf("one of the numbers are below min limit")
+	}
+}
+
+func TestGetPathIndex(t *testing.T) {
+	if rcv, _ := GetPathIndex(EmptyString); rcv != EmptyString {
+		t.Errorf("Expecting: \"\"(EmptyString), received: \"%+v\"", rcv)
+	}
+	eOut := "test"
+	if rcv, _ := GetPathIndex("test"); rcv != eOut {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+	if rcv, index := GetPathIndex("test[10]"); rcv != eOut {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	} else if *index != 10 {
+		t.Errorf("Expecting: %+v, received: %+v", 10, *index)
+	}
+	if rcv, index := GetPathIndex("test[0]"); rcv != eOut {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	} else if *index != 0 {
+		t.Errorf("Expecting: %+v, received: %+v", 0, *index)
+	}
+	eOut = "test[notanumber]"
+	if rcv, index := GetPathIndex("test[notanumber]"); rcv != eOut {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	} else if index != nil {
+		t.Errorf("Expecting: nil, received: %+v", *index)
+	}
+	eOut = "test[]"
+	if rcv, index := GetPathIndex("test[]"); rcv != eOut {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	} else if index != nil {
+		t.Errorf("Expecting: nil, received: %+v", *index)
+	}
+	eOut = "[]"
+	if rcv, index := GetPathIndex("[]"); rcv != eOut {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	} else if index != nil {
+		t.Errorf("Expecting: nil, received: %+v", *index)
+	}
+}
+
+func TestIsURL(t *testing.T) {
+	urls := map[string]bool{
+		"/etc/usr/":                           false,
+		"https://github.com/cgrates/cgrates/": true,
+		"http://github.com/cgrates/cgrates/i": true,
+	}
+	for url, expected := range urls {
+		if rply := IsURL(url); rply != expected {
+			t.Errorf("For: %q ,expected %v received: %v", url, expected, rply)
+		}
+	}
+}
+
+func TestComputeHashMatch(t *testing.T) {
+	lns, _ := ComputeHash("test1;test2;test3")
+	if err := VerifyHash(lns, "test1;test2;test3"); err != true {
+		t.Errorf("Expected <true> received: <%v>", err)
+	}
+}
+
+func TestVerifyHash(t *testing.T) {
+	lns, _ := ComputeHash("test1;test2;test3")
+	lns2, _ := ComputeHash("test1;test2;test3")
+	verify1 := VerifyHash(lns, "test1;test2;test3")
+	verify2 := bcrypt.CompareHashAndPassword([]byte(lns2), []byte(ConcatenatedKey("test1;test2;test3")))
+	verify3 := false
+	if verify2 == nil {
+		verify3 = true
+	}
+	if !reflect.DeepEqual(verify3, verify1) {
+		t.Errorf("Expecting: <%+v>, received: <%+v>", verify3, verify1)
+	}
+
+}
+
+func TestAESEncryptErrorNil(t *testing.T) {
+	encKey := "6368616e676520746869732070617373776f726420746f206120736563726574"
+	_, err := AESEncrypt("exampleText", encKey)
+	if err != nil {
+		t.Errorf("Expecting: <nil>, received: <%+v>", err)
+	}
+}
+
+func TestAESEncryptError1(t *testing.T) {
+	encKey := "1"
+	_, err := AESEncrypt("exampleText", encKey)
+	if err == nil || err.Error() != "crypto/aes: invalid key size 0" {
+		t.Errorf("Expecting error: <crypto/aes: invalid key size 0>, received: <%+v>", err)
+	}
+}
+
+func TestAESDecryptErrorNil(t *testing.T) {
+	encKey := "6368616e676520746869732070617373776f726420746f206120736563726574"
+	eString, _ := AESEncrypt("exampleText", encKey)
+	_, err := AESDecrypt(eString, encKey)
+	if err != nil {
+		t.Errorf("Expecting: <nil>, received: <%+v>", err)
+	}
+}
+
+func TestAESDecryptError1(t *testing.T) {
+	encKey := "1"
+	eString, _ := AESEncrypt("exampleText", encKey)
+	_, err := AESDecrypt(eString, encKey)
+	if err == nil || err.Error() != "crypto/aes: invalid key size 0" {
+		t.Errorf("Expecting: <crypto/aes: invalid key size 0>, received: <%+v>", err)
+	}
+}
+
+func TestAESEncryptDecrypt(t *testing.T) {
+	encKey := "6368616e676520746869732070617373776f726420746f206120736563726574"
+	eString, _ := AESEncrypt("exampleText", encKey)
+	dString, _ := AESDecrypt(eString, encKey)
+	if !reflect.DeepEqual("exampleText", dString) {
+		t.Errorf("Expecting: <exampleText>, received: <%+v>", dString)
+	}
+}
+
+func TestBoolGenerator(t *testing.T) {
+	boolTest := BoolGenerator().RandomBool()
+	if boolTest != true && boolTest != false {
+		t.Errorf("Needs to be bool")
+	}
+}
+
+func TestMonthlyEstimated(t *testing.T) {
+	t1 := time.Date(2021, 1, 31, 0, 0, 0, 0, time.UTC)
+	expectedTime := time.Date(2021, 2, 28, 0, 0, 0, 0, time.UTC)
+	if rcv, err := monthlyEstimated(t1); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(rcv, expectedTime) {
+		t.Errorf("Expected %+v, received %+v", expectedTime, rcv)
+	}
+}
+
+type server struct{}
+
+type client struct{}
+
+func (c client) Call(serviceMethod string, args any, reply any) (err error) {
+	err = ErrExists
+	return
+}
+
+func (srv *server) BiRPCv1ValidMethod(cl rpcclient.ClientConnector, args any, req any) error {
+	return nil
+}
+
+func (srv *server) BiRPCv1MultipleParams(cl rpcclient.ClientConnector, args any, req any) (int, error) {
+	return 1, nil
+}
+
+func (srv *server) BiRPCv1NoErrorReturn(cl rpcclient.ClientConnector, args any, req any) int {
+	return 1
+}
+
+func (srv *server) BiRPCv1FinalError(cl rpcclient.ClientConnector, args any, req any) (err error) {
+	err = ErrExists
+	return
+}
+
+func TestCoreUtilsBiRPCCall(t *testing.T) {
+	srv := new(server)
+	var clnt rpcclient.ClientConnector
+	var args int
+	var reply *int
+	serviceMethod := "testv1.v2.v3"
+
+	expected := rpcclient.ErrUnsupporteServiceMethod
+	err := BiRPCCall(srv, clnt, serviceMethod, args, reply)
+
+	if err == nil || err != expected {
+		t.Errorf("\nExpected: <%v>, \nReceived: <%v>", expected, err)
+	}
+
+	serviceMethod = "testv1.fail"
+
+	err = BiRPCCall(srv, clnt, serviceMethod, args, reply)
+
+	if err == nil || err != expected {
+		t.Errorf("\nExpected: <%v>, \nReceived: <%v>", expected, err)
+	}
+
+	serviceMethod = "Testv1.ValidMethod"
+
+	err = BiRPCCall(srv, clnt, serviceMethod, args, reply)
+
+	if err != nil {
+		t.Errorf("\nExpected: <%v>, \nReceived: <%v>", nil, err)
+	}
+
+	serviceMethod = "Testv1.MultipleParams"
+
+	expected = ErrServerError
+	err = BiRPCCall(srv, clnt, serviceMethod, args, reply)
+
+	if err == nil || err != expected {
+		t.Errorf("\nExpected: <%v>, \nReceived: <%v>", expected, err)
+	}
+
+	serviceMethod = "Testv1.NoErrorReturn"
+	err = BiRPCCall(srv, clnt, serviceMethod, args, reply)
+
+	expected = ErrServerError
+	if err == nil || err != expected {
+		t.Errorf("\nExpected: <%v>, \nReceived: <%v>", expected, err)
+	}
+
+	serviceMethod = "Testv1.FinalError"
+	err = BiRPCCall(srv, clnt, serviceMethod, args, reply)
+
+	expected = ErrExists
+	if err == nil || err != expected {
+		t.Errorf("\nExpected: <%v>, \nReceived: <%v>", expected, err)
+	}
+
+	var c client
+	c.Call("testString", args, reply)
+
+	err = BiRPCCall(srv, c, serviceMethod, args, reply)
+	if err == nil || err != expected {
+		t.Errorf("\nExpected: <%+v>, \nReceived: <%+v>", expected, err)
+	}
+}
+
+func TestCoreUtilsGenerateDBItemOpts(t *testing.T) {
+	apiKey := "testKey1"
+	routeID := "testKey2"
+	cache := "testKey3"
+	rmtHost := "testKey4"
+
+	expected := map[string]any{
+		OptsAPIKey:    apiKey,
+		OptsRouteID:   routeID,
+		CacheOpt:      cache,
+		RemoteHostOpt: rmtHost,
+	}
+	received := GenerateDBItemOpts(apiKey, routeID, cache, rmtHost)
+
+	if len(received) != len(expected) {
+		t.Fatalf("The maps differ in length")
+	}
+	for key, value := range received {
+		if expected[key] != value {
+			t.Errorf("\nExpected: <%+v>, \nReceived: <%+v>", expected[key], value)
+		}
+	}
+}
+
+func TestTenantIDConcatenated(t *testing.T) {
+	tnt := &TenantID{
+		Tenant: "cgrates.org",
+		ID:     "1",
+	}
+	tntOpts := &TenantIDWithAPIOpts{
+		TenantID: tnt,
+	}
+	rcvExpect := "cgrates.org:1"
+	concTnt := tntOpts.TenantIDConcatenated()
+	if concTnt != rcvExpect {
+		t.Errorf("\nExpected: <%+v>, \nReceived: <%+v>", rcvExpect, concTnt)
+	}
+}
+
+func TestCoreUtilsSplitPath(t *testing.T) {
+	exp := []string{"*string", "~*req.Account", "1001"}
+	if rcv := SplitPath("*string:~*req.Account:1001",
+		InInFieldSep[0], -1); !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	exp = []string{"~*req", "Account"}
+	if rcv := SplitPath("~*req.Account", NestingSep[0], -1); !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	exp = []string{"*exists", "~*vars.*processedProfileIDs[cgrates.org:ATTR]", ""}
+	if rcv := SplitPath("*exists:~*vars.*processedProfileIDs[cgrates.org:ATTR]:",
+		InInFieldSep[0], -1); !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	exp = []string{"~*vars", "*processedProfileIDs[cgrates.org:ATTR]"}
+	if rcv := SplitPath("~*vars.*processedProfileIDs[cgrates.org:ATTR]",
+		NestingSep[0], -1); !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	exp = []string{"*notexists", "~*vars.*processedProfileIDs[<~*vars.apTenantID>]", ""}
+	if rcv := SplitPath("*notexists:~*vars.*processedProfileIDs[<~*vars.apTenantID>]:", InInFieldSep[0], -1); !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	exp = []string{"~*vars", "*processedProfileIDs[<~*vars.apTenantID>]"}
+	if rcv := SplitPath("~*vars.*processedProfileIDs[<~*vars.apTenantID>]",
+		NestingSep[0], -1); !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+}
+
+func TestCoreUtilsFibSeqNrOverflow(t *testing.T) {
+	fib := Fib()
+	for i := 0; i < 92; i++ { // the 93rd fibonacci number in the sequence would normally overflow
+		fib()
+	}
+	exp := fib()
+	for i := 0; i < 100; i++ {
+		if rcv := fib(); rcv != exp {
+			t.Errorf("expected: <%+v>, \nreceived: <%+v>", exp, rcv)
+		}
+	}
+}
+
+func TestCoreUtilsFibDurationSeqNrOverflow(t *testing.T) {
+	fib := FibDuration(time.Second, 0)
+	for i := 0; i < 49; i++ { // the 50th fibonacci number in the sequence would normally overflow when multiplied with time.Second
+		fib()
+	}
+	for i := 0; i < 100; i++ {
+		if rcv := fib(); rcv != AbsoluteMaxDuration {
+			t.Errorf("expected: <%+v>, \nreceived: <%+v>", AbsoluteMaxDuration, rcv)
+		}
+	}
+	fib = FibDuration(time.Second, 6)
+	if rcv := fib(); rcv != 6 {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", AbsoluteMaxDuration, rcv)
 	}
 }

@@ -59,18 +59,15 @@ var (
 func TestSessionsData(t *testing.T) {
 	switch *dbType {
 	case utils.MetaInternal:
-		dataCfgDIR = "smg_internal"
+		dataCfgDIR = "sessions_internal"
 	case utils.MetaMySQL:
-		dataCfgDIR = "smg_mysql"
+		dataCfgDIR = "sessions_mysql"
 	case utils.MetaMongo:
-		dataCfgDIR = "smg_mongo"
+		dataCfgDIR = "sessions_mongo"
 	case utils.MetaPostgres:
 		t.SkipNow()
 	default:
 		t.Fatal("Unknown Database type")
-	}
-	if *encoding == utils.MetaGOB {
-		dataCfgDIR += "_gob"
 	}
 	for _, stest := range SessionsDataTests {
 		t.Run(dataCfgDIR, stest)
@@ -85,8 +82,6 @@ func testSessionsDataInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	dataCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(dataCfg)
 }
 
 // Remove data in both rating and accounting db
@@ -135,9 +130,9 @@ func testSessionsDataLastUsedData(t *testing.T) {
 	eAcntVal := 102400.0
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.DATA].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaData].GetTotalValue() != eAcntVal {
 		t.Errorf("Expected: %f, received: %f",
-			eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+			eAcntVal, acnt.BalanceMap[utils.MetaData].GetTotalValue())
 	}
 	tStart, _ := utils.ParseTimeDetectLayout("2016-01-05T18:31:05Z", "")
 	cd := engine.CallDescriptor{
@@ -145,13 +140,13 @@ func testSessionsDataLastUsedData(t *testing.T) {
 		Tenant:      "cgrates.org",
 		Subject:     "1001",
 		Account:     "1001",
-		Destination: utils.DATA,
+		Destination: utils.MetaData,
 		TimeStart:   tStart,
-		TimeEnd:     tStart.Add(time.Duration(1024)),
+		TimeEnd:     tStart.Add(1024),
 	}
 	var cc engine.CallCost
 	// Make sure the cost is what we expect to be for 1MB of data
-	if err := sDataRPC.Call(utils.ResponderGetCost, &engine.CallDescriptorWithArgDispatcher{CallDescriptor: &cd}, &cc); err != nil {
+	if err := sDataRPC.Call(utils.ResponderGetCost, &engine.CallDescriptorWithAPIOpts{CallDescriptor: &cd}, &cc); err != nil {
 		t.Error("Got error on Responder.GetCost: ", err.Error())
 	} else if cc.Cost != 1024 {
 		t.Errorf("Calling Responder.GetCost got callcost: %v", cc.Cost)
@@ -163,19 +158,19 @@ func testSessionsDataLastUsedData(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedData",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123491",
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "5120", // 5MB
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123491",
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "5120", // 5MB
 			},
 		},
 	}
@@ -192,9 +187,9 @@ func testSessionsDataLastUsedData(t *testing.T) {
 	eAcntVal = 97280.0 // 100 -5
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.DATA].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaData].GetTotalValue() != eAcntVal {
 		t.Errorf("Expected: %f, received: %f",
-			eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+			eAcntVal, acnt.BalanceMap[utils.MetaData].GetTotalValue())
 	}
 
 	updateArgs := &V1UpdateSessionArgs{
@@ -202,20 +197,20 @@ func testSessionsDataLastUsedData(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedData",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123491",
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "5120",
-				utils.LastUsed:    "4096",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123491",
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "5120",
+				utils.LastUsed:     "4096",
 			},
 		},
 	}
@@ -231,8 +226,8 @@ func testSessionsDataLastUsedData(t *testing.T) {
 	eAcntVal = 93184.0 // 100-9
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.DATA].GetTotalValue() != eAcntVal {
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaData].GetTotalValue() != eAcntVal {
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaData].GetTotalValue())
 	}
 
 	termArgs := &V1TerminateSessionArgs{
@@ -240,19 +235,19 @@ func testSessionsDataLastUsedData(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedData",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123491",
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 49, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.LastUsed:    "0",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123491",
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 49, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.LastUsed:     "0",
 			},
 		},
 	}
@@ -264,9 +259,9 @@ func testSessionsDataLastUsedData(t *testing.T) {
 	eAcntVal = 98304.0 //100-4
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.DATA].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaData].GetTotalValue() != eAcntVal {
 		t.Errorf("Expected: %f, received: %f",
-			eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+			eAcntVal, acnt.BalanceMap[utils.MetaData].GetTotalValue())
 	}
 }
 
@@ -277,9 +272,9 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	eAcntVal := 102400.0
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant: acntAttrs.Tenant, Account: acntAttrs.Account,
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       eAcntVal,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestSessionsDataLastUsedMultipleData",
 		},
 	}
@@ -291,7 +286,7 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	}
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 
@@ -301,19 +296,19 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedMultipleUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123492",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      acntAttrs.Tenant,
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "6144", // 6MB
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123492",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       acntAttrs.Tenant,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "6144", // 5MB
 			},
 		},
 	}
@@ -330,15 +325,15 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	eAcntVal = 96256 // 100-6
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 	aSessions := make([]*ExternalSession, 0)
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions, new(utils.SessionFilter), &aSessions); err != nil {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
-		aSessions[0].Usage != time.Duration(6144) {
-		t.Errorf("wrong active sessions: %d", aSessions[0].Usage)
+		aSessions[0].Usage != 6144 {
+		t.Errorf("wrong active sessions: %f", aSessions[0].Usage.Seconds())
 	}
 
 	usage = int64(8192)
@@ -347,21 +342,21 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedMultipleUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123492",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      acntAttrs.Tenant,
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "8192", // 8 MB
-				utils.LastUsed:    "7168", // 7 MB
-				"Extra1":          "other",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123492",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       acntAttrs.Tenant,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "8192", // 8 MB
+				utils.LastUsed:     "7168",
+				"Extra1":           "other",
 			},
 		},
 	}
@@ -377,13 +372,13 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	eAcntVal = 87040.000000 // 15MB used
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions, new(utils.SessionFilter), &aSessions); err != nil {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
-		aSessions[0].Usage != time.Duration(15360) {
+		aSessions[0].Usage != 15360 {
 		t.Errorf("wrong active sessions: %v", aSessions[0].Usage)
 	} else if aSessions[0].ExtraFields["Extra1"] != "other" {
 		t.Errorf("Expected: \"other\", received: %v", aSessions[0].ExtraFields["Extra1"])
@@ -395,22 +390,22 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedMultipleUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123492",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      acntAttrs.Tenant,
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "1024", // 1 MB
-				utils.LastUsed:    "5120", // 5 MB
-				"Extra1":          "other2",
-				"Extra2":          "other",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123492",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       acntAttrs.Tenant,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "1024", // 8 MB
+				utils.LastUsed:     "5120", // 5 MB
+				"Extra1":           "other2",
+				"Extra2":           "other",
 			},
 		},
 	}
@@ -425,14 +420,14 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	eAcntVal = 87040.000000 // the amount is not modified and there will be 1024 extra left in SMG
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions, new(utils.SessionFilter), &aSessions); err != nil {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
-		aSessions[0].Usage != time.Duration(13312) { // 14MB in used, 2MB extra reserved
-		t.Errorf("wrong active sessions: %d", aSessions[0].Usage)
+		aSessions[0].Usage != 13312 { // 14MB in used, 2MB extra reserved
+		t.Errorf("wrong active sessions: %+v", aSessions[0].Usage)
 	} else if aSessions[0].ExtraFields["Extra1"] != "other2" {
 		t.Errorf("Expected: \"other2\", received: %v", aSessions[0].ExtraFields["Extra1"])
 	} else if _, has := aSessions[0].ExtraFields["Extra"]; has {
@@ -445,19 +440,19 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedMultipleUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123492",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      acntAttrs.Tenant,
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "1024", // 1 MB
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123492",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       acntAttrs.Tenant,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "1024", // 8 MB
 			},
 		},
 	}
@@ -472,14 +467,14 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	eAcntVal = 87040.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions, new(utils.SessionFilter), &aSessions); err != nil {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
-		aSessions[0].Usage != time.Duration(14336) { // 14MB in use
-		t.Errorf("wrong active sessions: %d", aSessions[0].Usage)
+		aSessions[0].Usage != 14336 { // 14MB in use
+		t.Errorf("wrong active sessions: %v", aSessions[0].Usage)
 	}
 
 	termArgs := &V1TerminateSessionArgs{
@@ -487,20 +482,20 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataLastUsedMultipleUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123492",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      acntAttrs.Tenant,
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 49, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.LastUsed:    "0", // refund 1024 (extra used) + 1024 (extra reserved)
-				"Extra1":          "done",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123492",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       acntAttrs.Tenant,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 49, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.LastUsed:     "0", // refund 1024 (extra used) + 1024 (extra reserved)
+				"Extra1":           "done",
 			},
 		},
 	}
@@ -513,25 +508,25 @@ func testSessionsDataLastUsedMultipleUpdates(t *testing.T) {
 	eAcntVal = 89088.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions,
 		new(utils.SessionFilter), &aSessions); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err, aSessions)
 	}
-	if err := sDataRPC.Call(utils.SessionSv1ProcessCDR, &utils.CGREventWithArgDispatcher{CGREvent: termArgs.CGREvent}, &reply); err != nil {
+	if err := sDataRPC.Call(utils.SessionSv1ProcessCDR, termArgs.CGREvent, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Errorf("Received reply: %s", reply)
 	}
 
-	time.Sleep(time.Duration(20) * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 
 	var cdrs []*engine.ExternalCDR
 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault},
 		Accounts: []string{acntAttrs.Account}}
-	if err := sDataRPC.Call(utils.APIerSv2GetCDRs, req, &cdrs); err != nil {
+	if err := sDataRPC.Call(utils.APIerSv2GetCDRs, &req, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -552,9 +547,9 @@ func testSessionsDataTTLExpired(t *testing.T) {
 	eAcntVal := 102400.0
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant: acntAttrs.Tenant, Account: acntAttrs.Account,
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       eAcntVal,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestSessionsDataTTLExpired",
 		},
 	}
@@ -566,7 +561,7 @@ func testSessionsDataTTLExpired(t *testing.T) {
 	}
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 
@@ -576,20 +571,22 @@ func testSessionsDataTTLExpired(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataTTLExpired",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:      "TEST_EVENT",
-				utils.ToR:             utils.DATA,
-				utils.OriginID:        "TestSessionsDataTTLExpired",
-				utils.Account:         acntAttrs.Account,
-				utils.Subject:         acntAttrs.Account,
-				utils.Destination:     utils.DATA,
-				utils.Category:        "data",
-				utils.Tenant:          "cgrates.org",
-				utils.RequestType:     utils.META_PREPAID,
-				utils.SetupTime:       time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:      time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:           "1024",
-				utils.SessionTTLUsage: "2048", // will be charged on TTL
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "TestSessionsDataTTLExpired",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "1024",
+			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTLUsage: "2048", // will be charged on TTL
 			},
 		},
 	}
@@ -606,7 +603,7 @@ func testSessionsDataTTLExpired(t *testing.T) {
 	eAcntVal = 101376.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	time.Sleep(70 * time.Millisecond)
@@ -614,7 +611,7 @@ func testSessionsDataTTLExpired(t *testing.T) {
 	eAcntVal = 100352.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 
@@ -642,9 +639,9 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 	eAcntVal := 102400.0
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant: acntAttrs.Tenant, Account: acntAttrs.Account,
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       eAcntVal,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestSessionsDataTTLExpMultiUpdates",
 		},
 	}
@@ -656,7 +653,7 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 	}
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 
@@ -666,19 +663,19 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataTTLExpMultiUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123495",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "4096", // 4MB
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "4096", // 4MB
 			},
 		},
 	}
@@ -686,7 +683,7 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 	var initRpl *V1InitSessionReply
 	if err := sDataRPC.Call(utils.SessionSv1InitiateSession,
 		initArgs, &initRpl); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	time.Sleep(10 * time.Millisecond) // give some time to allow the session to be created
 	if initRpl.MaxUsage.Nanoseconds() != usage {
@@ -696,7 +693,7 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 	eAcntVal = 98304.000000 //96MB
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	aSessions := make([]*ExternalSession, 0)
@@ -704,31 +701,34 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
 		int64(aSessions[0].Usage) != 4096 {
-		t.Errorf("wrong active sessions: %d", aSessions[0].Usage)
+		t.Errorf("wrong active sessions: %d", int64(aSessions[0].Usage))
 	}
 
 	usage = int64(4096)
 	updateArgs := &V1UpdateSessionArgs{
 		UpdateSession: true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataTTLExpMultiUpdates",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:         "TEST_EVENT",
-				utils.ToR:                utils.DATA,
-				utils.OriginID:           "123495",
-				utils.Account:            acntAttrs.Account,
-				utils.Subject:            acntAttrs.Account,
-				utils.Destination:        utils.DATA,
-				utils.Category:           "data",
-				utils.Tenant:             "cgrates.org",
-				utils.RequestType:        utils.META_PREPAID,
-				utils.SetupTime:          time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:         time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.LastUsed:           "1024",
-				utils.Usage:              "4096",
-				utils.SessionTTLUsage:    "2048", // will be charged on TTL
-				utils.SessionTTLLastUsed: "1024",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.LastUsed:     "1024",
+				utils.Usage:        "4096",
+			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTLUsage:    "2048", // will be charged on TTL
+				utils.OptsSessionsTTLLastUsed: "1024",
 			},
 		},
 	}
@@ -744,15 +744,15 @@ func testSessionsDataTTLExpMultiUpdates(t *testing.T) {
 	eAcntVal = 97280.000000 // 20480
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.DATA].GetTotalValue() != eAcntVal {
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaData].GetTotalValue() != eAcntVal {
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaData].GetTotalValue())
 	}
 	time.Sleep(60 * time.Millisecond) // TTL will kick in
 
 	eAcntVal = 100352.000000 // initial balance ( 102400 ) - SessionTTLUsage from update ( 2048 )
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions,
@@ -781,9 +781,9 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 	eAcntVal := 102400.0
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant: acntAttrs.Tenant, Account: acntAttrs.Account,
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       eAcntVal,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestSessionsDataTTLExpMultiUpdates",
 		},
 	}
@@ -795,7 +795,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 	}
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 
@@ -805,19 +805,19 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataMultipleDataNoUsage",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123495",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "2048",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "2048",
 			},
 		},
 	}
@@ -825,7 +825,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 	var initRpl *V1InitSessionReply
 	if err := sDataRPC.Call(utils.SessionSv1InitiateSession,
 		initArgs, &initRpl); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if initRpl.MaxUsage.Nanoseconds() != usage {
 		t.Errorf("Expecting : %+v, received: %+v", usage, initRpl.MaxUsage.Nanoseconds())
@@ -834,7 +834,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 	eAcntVal = 100352.000000 // 1054720
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	aSessions := make([]*ExternalSession, 0)
@@ -842,7 +842,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
 		int64(aSessions[0].Usage) != 2048 {
-		t.Errorf("wrong active sessions usage: %d", aSessions[0].Usage)
+		t.Errorf("wrong active sessions usage: %d", int64(aSessions[0].Usage))
 	}
 
 	usage = int64(1024)
@@ -851,28 +851,30 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataMultipleDataNoUsage",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123495",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.SessionTTL:  "1h", // cancel timeout since usage 0 will not update it
-				utils.Usage:       "1024",
-				utils.LastUsed:    "1024",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "1024",
+				utils.LastUsed:     "1024",
+			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTL: "0", // cancel timeout since usage 0 will not update it
 			},
 		},
 	}
 
 	var updateRpl *V1UpdateSessionReply
 	if err := sDataRPC.Call(utils.SessionSv1UpdateSession, updateArgs, &updateRpl); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if updateRpl.MaxUsage.Nanoseconds() != usage {
 		t.Errorf("Expected: %+v, received: %+v", usage, updateRpl.MaxUsage.Nanoseconds())
@@ -881,7 +883,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 	eAcntVal = 100352.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	aSessions = make([]*ExternalSession, 0)
@@ -889,7 +891,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
 		int64(aSessions[0].Usage) != 2048 {
-		t.Errorf("wrong active sessions usage: %d", aSessions[0].Usage)
+		t.Errorf("wrong active sessions usage: %d", int64(aSessions[0].Usage))
 	}
 
 	usage = int64(0)
@@ -898,37 +900,45 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataMultipleDataNoUsage",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123495",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.SessionTTL:  "1h", // cancel timeout since usage 0 will not update it
-				utils.Usage:       "0",
-				utils.LastUsed:    "0",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "0",
+				utils.LastUsed:     "0",
+			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTL: "1h", // cancel timeout since usage 0 will not update it
 			},
 		},
 	}
 
 	updateRpl = new(V1UpdateSessionReply) // because gob doesn't overwrite 0 value fields
 	if err := sDataRPC.Call(utils.SessionSv1UpdateSession, updateArgs, &updateRpl); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
-	if updateRpl.MaxUsage.Nanoseconds() != usage {
-		t.Errorf("Expected: %+v, received: %+v", usage, updateRpl.MaxUsage.Nanoseconds())
+	if *encoding != utils.MetaGOB {
+		if updateRpl.MaxUsage.Nanoseconds() != usage {
+			t.Errorf("Expected: %+v, received: %+v", usage, updateRpl.MaxUsage.Nanoseconds())
+		}
+	} else {
+		if updateRpl.MaxUsage != nil { // gob returns 0 values as nil
+			t.Errorf("Expected: nil, received: %+v", updateRpl.MaxUsage)
+		}
 	}
 
 	eAcntVal = 100352.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	aSessions = make([]*ExternalSession, 0)
@@ -936,7 +946,7 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
 		int64(aSessions[0].Usage) != 1024 {
-		t.Errorf("wrong active sessions usage: %d", aSessions[0].Usage)
+		t.Errorf("wrong active sessions usage: %d", int64(aSessions[0].Usage))
 	}
 
 	termArgs := &V1TerminateSessionArgs{
@@ -944,19 +954,19 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataMultipleDataNoUsage",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123495",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 49, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.LastUsed:    "0",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 49, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.LastUsed:     "0",
 			},
 		},
 	}
@@ -969,9 +979,9 @@ func testSessionsDataMultipleDataNoUsage(t *testing.T) {
 	eAcntVal = 101376.000000 // refunded last 1MB reserved and unused
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.DATA].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaData].GetTotalValue() != eAcntVal {
 		t.Errorf("Expected: %f, received: %f",
-			eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+			eAcntVal, acnt.BalanceMap[utils.MetaData].GetTotalValue())
 	}
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions,
 		new(utils.SessionFilter), &aSessions); err == nil ||
@@ -989,9 +999,9 @@ func testSessionsDataTTLUsageProtection(t *testing.T) {
 	eAcntVal := 102400.0
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant: acntAttrs.Tenant, Account: acntAttrs.Account,
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       eAcntVal,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestSessionsDataTTLUsageProtection",
 		},
 	}
@@ -1003,7 +1013,7 @@ func testSessionsDataTTLUsageProtection(t *testing.T) {
 	}
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 
@@ -1013,19 +1023,19 @@ func testSessionsDataTTLUsageProtection(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataTTLUsageProtection",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.DATA,
-				utils.OriginID:    "123495",
-				utils.Account:     acntAttrs.Account,
-				utils.Subject:     acntAttrs.Account,
-				utils.Destination: utils.DATA,
-				utils.Category:    "data",
-				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
-				utils.SetupTime:   time.Date(2016, time.January, 5, 18, 30, 53, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:       "2048",
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "123495",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 53, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "2048",
 			},
 		},
 	}
@@ -1033,7 +1043,7 @@ func testSessionsDataTTLUsageProtection(t *testing.T) {
 	var initRpl *V1InitSessionReply
 	if err := sDataRPC.Call(utils.SessionSv1InitiateSession,
 		initArgs, &initRpl); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if initRpl.MaxUsage.Nanoseconds() != usage {
 		t.Errorf("Expecting : %+v, received: %+v", usage, initRpl.MaxUsage.Nanoseconds())
@@ -1042,7 +1052,7 @@ func testSessionsDataTTLUsageProtection(t *testing.T) {
 	eAcntVal = 100352.000000 // 1054720
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	aSessions := make([]*ExternalSession, 0)
@@ -1050,7 +1060,7 @@ func testSessionsDataTTLUsageProtection(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 ||
 		int64(aSessions[0].Usage) != 2048 {
-		t.Errorf("wrong active sessions usage: %d", aSessions[0].Usage)
+		t.Errorf("wrong active sessions usage: %d", int64(aSessions[0].Usage))
 	}
 	time.Sleep(60 * time.Millisecond)
 	if err := sDataRPC.Call(utils.SessionSv1GetActiveSessions,
@@ -1066,9 +1076,9 @@ func testSessionsDataTTLLastUsage(t *testing.T) {
 	eAcntVal := 102400.0
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant: acntAttrs.Tenant, Account: acntAttrs.Account,
-		BalanceType: utils.DATA,
+		BalanceType: utils.MetaData,
 		Value:       eAcntVal,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "testSessionsDataTTLLastUsage",
 		},
 	}
@@ -1080,7 +1090,7 @@ func testSessionsDataTTLLastUsage(t *testing.T) {
 	}
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if totalVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); totalVal != eAcntVal {
+	} else if totalVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); totalVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, totalVal)
 	}
 
@@ -1090,20 +1100,22 @@ func testSessionsDataTTLLastUsage(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionsDataTTLLastUsage",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:          "testSessionsDataTTLLastUsage",
-				utils.ToR:                 utils.DATA,
-				utils.OriginID:            "testSessionsDataTTLLastUsage",
-				utils.Account:             acntAttrs.Account,
-				utils.Subject:             acntAttrs.Account,
-				utils.Destination:         utils.DATA,
-				utils.Category:            "data",
-				utils.Tenant:              "cgrates.org",
-				utils.RequestType:         utils.META_PREPAID,
-				utils.SetupTime:           time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
-				utils.AnswerTime:          time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
-				utils.Usage:               "1024",
-				utils.SessionTTLLastUsage: "2048",
+			Event: map[string]any{
+				utils.EventName:    "testSessionsDataTTLLastUsage",
+				utils.ToR:          utils.MetaData,
+				utils.OriginID:     "testSessionsDataTTLLastUsage",
+				utils.AccountField: acntAttrs.Account,
+				utils.Subject:      acntAttrs.Account,
+				utils.Destination:  utils.MetaData,
+				utils.Category:     "data",
+				utils.Tenant:       "cgrates.org",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.SetupTime:    time.Date(2016, time.January, 5, 18, 30, 59, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				utils.Usage:        "1024",
+			},
+			APIOpts: map[string]any{
+				utils.OptsSessionsTTLLastUsage: "2048",
 			},
 		},
 	}
@@ -1120,7 +1132,7 @@ func testSessionsDataTTLLastUsage(t *testing.T) {
 	eAcntVal = 101376.000000
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 	time.Sleep(70 * time.Millisecond)
@@ -1128,7 +1140,7 @@ func testSessionsDataTTLLastUsage(t *testing.T) {
 	eAcntVal = 99328.000000 // 101376.000000 ( units remains after init session ) - SessionTTLLastUsage ( 2048 )
 	if err := sDataRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 		t.Error(err)
-	} else if dataVal := acnt.BalanceMap[utils.DATA].GetTotalValue(); dataVal != eAcntVal {
+	} else if dataVal := acnt.BalanceMap[utils.MetaData].GetTotalValue(); dataVal != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal, dataVal)
 	}
 

@@ -44,6 +44,7 @@ var sTestsCdrIT = []func(t *testing.T){
 	testCdrITConnect,
 	testCdrITFlush,
 	testCdrITMigrateAndMove,
+	testMongoGetCdrsRemoveErr,
 }
 
 func TestCdrITMongo(t *testing.T) {
@@ -76,27 +77,25 @@ func testCdrITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(cdrCfgIn.StorDbCfg().Type,
 		cdrCfgIn.StorDbCfg().Host, cdrCfgIn.StorDbCfg().Port,
 		cdrCfgIn.StorDbCfg().Name, cdrCfgIn.StorDbCfg().User,
-		cdrCfgIn.StorDbCfg().Password, cdrCfgIn.GeneralCfg().DBDataEncoding, cdrCfgIn.StorDbCfg().SSLMode,
-		cdrCfgIn.StorDbCfg().MaxOpenConns, cdrCfgIn.StorDbCfg().MaxIdleConns,
-		cdrCfgIn.StorDbCfg().ConnMaxLifetime, cdrCfgIn.StorDbCfg().StringIndexedFields,
-		cdrCfgIn.StorDbCfg().PrefixIndexedFields, cdrCfgIn.StorDbCfg().Items)
+		cdrCfgIn.StorDbCfg().Password, cdrCfgIn.GeneralCfg().DBDataEncoding,
+		cdrCfgIn.StorDbCfg().StringIndexedFields, cdrCfgIn.StorDbCfg().PrefixIndexedFields,
+		cdrCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		t.Error(err)
 	}
 	storDBOut, err := NewMigratorStorDB(cdrCfgIn.StorDbCfg().Type,
 		cdrCfgIn.StorDbCfg().Host, cdrCfgIn.StorDbCfg().Port,
 		cdrCfgIn.StorDbCfg().Name, cdrCfgIn.StorDbCfg().User,
-		cdrCfgIn.StorDbCfg().Password, cdrCfgIn.GeneralCfg().DBDataEncoding, cdrCfgIn.StorDbCfg().SSLMode,
-		cdrCfgIn.StorDbCfg().MaxOpenConns, cdrCfgIn.StorDbCfg().MaxIdleConns,
-		cdrCfgIn.StorDbCfg().ConnMaxLifetime, cdrCfgIn.StorDbCfg().StringIndexedFields,
-		cdrCfgIn.StorDbCfg().PrefixIndexedFields, cdrCfgIn.StorDbCfg().Items)
+		cdrCfgIn.StorDbCfg().Password, cdrCfgIn.GeneralCfg().DBDataEncoding,
+		cdrCfgIn.StorDbCfg().StringIndexedFields, cdrCfgIn.StorDbCfg().PrefixIndexedFields,
+		cdrCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		t.Error(err)
 	}
 
 	cdrMigrator, err = NewMigrator(nil, nil,
 		storDBIn, storDBOut,
-		false, false, false, false)
+		false, true, false, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -120,7 +119,7 @@ func testCdrITMigrateAndMove(t *testing.T) {
 				RateInterval: &engine.RateInterval{
 					Rating: &engine.RIRate{
 						Rates: engine.RateGroups{
-							&engine.Rate{
+							&engine.RGRate{
 								GroupIntervalStart: 0,
 								Value:              100,
 								RateIncrement:      10 * time.Second,
@@ -131,16 +130,16 @@ func testCdrITMigrateAndMove(t *testing.T) {
 				},
 			},
 		},
-		ToR: utils.VOICE,
+		ToR: utils.MetaVoice,
 	}
 	v1Cdr := &v1Cdrs{
 		CGRID:       utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 20, 0, time.UTC).String()),
 		OrderID:     123,
-		ToR:         utils.VOICE,
+		ToR:         utils.MetaVoice,
 		OriginID:    "dsafdsaf",
 		OriginHost:  "192.168.1.1",
-		Source:      utils.UNIT_TEST,
-		RequestType: utils.META_RATED,
+		Source:      utils.UnitTest,
+		RequestType: utils.MetaRated,
 		Tenant:      "cgrates.org",
 		Category:    "call",
 		Account:     "1001",
@@ -149,7 +148,7 @@ func testCdrITMigrateAndMove(t *testing.T) {
 		SetupTime:   time.Date(2013, 11, 7, 8, 42, 20, 0, time.UTC),
 		AnswerTime:  time.Date(2013, 11, 7, 8, 42, 26, 0, time.UTC),
 		RunID:       utils.MetaDefault,
-		Usage:       time.Duration(10),
+		Usage:       10,
 		ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"},
 		Cost:        1.01,
 		Rated:       true,
@@ -163,11 +162,11 @@ func testCdrITMigrateAndMove(t *testing.T) {
 		utils.CostDetails: 2,
 		utils.CDRs:        1,
 	}
-	err = cdrMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err = cdrMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for CDRs ", err.Error())
 	}
-	if vrs, err := cdrMigrator.storDBOut.StorDB().GetVersions(""); err != nil {
+	if vrs, err := cdrMigrator.storDBIn.StorDB().GetVersions(""); err != nil {
 		t.Error(err)
 	} else if vrs[utils.CDRs] != 1 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.CDRs])
@@ -186,4 +185,20 @@ func testCdrITMigrateAndMove(t *testing.T) {
 	} else if vrs[utils.CDRs] != 2 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.CDRs])
 	}
+	//  else if cdrMigrator.stats[utils.CDRs] != 1 {
+	// 	t.Errorf("Expected 1, received: %v", cdrMigrator.stats[utils.CDRs])
+	// }
+}
+
+func testMongoGetCdrsRemoveErr(t *testing.T) {
+	cdrMigrator.Close()
+
+	expErr := "client is disconnected"
+	if cdrPathIn == "/usr/share/cgrates/conf/samples/tutmongo" {
+		_, _, err := cdrMigrator.storDBOut.StorDB().GetCDRs(new(utils.CDRsFilter), true)
+		if err == nil || err.Error() != expErr {
+			t.Errorf("Expected error <%v>, Received <%v>", expErr, err)
+		}
+	}
+
 }

@@ -20,101 +20,140 @@ package config
 import (
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
-func TestThresholdSCfgloadFromJsonCfg(t *testing.T) {
-	var thscfg, expected ThresholdSCfg
-	if err := thscfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(thscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, thscfg)
+func TestThresholdSCfgloadFromJsonCfgCase1(t *testing.T) {
+	cfgJSON := &ThresholdSJsonCfg{
+		Enabled:               utils.BoolPointer(true),
+		Indexed_selects:       utils.BoolPointer(true),
+		Store_interval:        utils.StringPointer("2"),
+		String_indexed_fields: &[]string{"*req.prefix"},
+		Prefix_indexed_fields: &[]string{"*req.index1"},
+		Suffix_indexed_fields: &[]string{"*req.index1"},
+		Nested_fields:         utils.BoolPointer(true),
+		Opts: &ThresholdsOptsJson{
+			ProfileIDs:           &[]string{},
+			ProfileIgnoreFilters: utils.BoolPointer(false),
+		},
 	}
-	if err := thscfg.loadFromJsonCfg(new(ThresholdSJsonCfg)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(thscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, thscfg)
+	expected := &ThresholdSCfg{
+		Enabled:             true,
+		IndexedSelects:      true,
+		StoreInterval:       2,
+		StringIndexedFields: &[]string{"*req.prefix"},
+		PrefixIndexedFields: &[]string{"*req.index1"},
+		SuffixIndexedFields: &[]string{"*req.index1"},
+		NestedFields:        true,
+		Opts: &ThresholdsOpts{
+			ProfileIDs:           []string{},
+			ProfileIgnoreFilters: false,
+		},
 	}
-	cfgJSONStr := `{
-"thresholds": {								// Threshold service (*new)
-	"enabled": false,						// starts ThresholdS service: <true|false>.
-	"store_interval": "2h",					// dump cache regularly to dataDB, 0 - dump at start/shutdown: <""|$dur>
-	//"string_indexed_fields": [],			// query indexes based on these fields for faster processing
-	"prefix_indexed_fields": ["index1", "index2"],			// query indexes based on these fields for faster processing
-	},		
-}`
-	expected = ThresholdSCfg{
-		StoreInterval:       time.Duration(time.Hour * 2),
-		PrefixIndexedFields: &[]string{"index1", "index2"},
+	jsonCfg := NewDefaultCGRConfig()
+	if err = jsonCfg.thresholdSCfg.loadFromJSONCfg(cfgJSON); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, jsonCfg.thresholdSCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(jsonCfg.thresholdSCfg))
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
-		t.Error(err)
-	} else if jsnThSCfg, err := jsnCfg.ThresholdSJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = thscfg.loadFromJsonCfg(jsnThSCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, thscfg) {
-		t.Errorf("Expected: %+v , recived: %+v", expected, thscfg)
+	var optsCfg *ThresholdsOpts
+	var jsonOpt *ThresholdsOptsJson
+	optsCfg.loadFromJSONCfg(jsonOpt)
+	if reflect.DeepEqual(nil, optsCfg) {
+		t.Error("expected nil")
 	}
 }
 
-func TestThresholdSCfgAsMapInterface(t *testing.T) {
-	var thscfg ThresholdSCfg
+func TestThresholdSCfgloadFromJsonCfgCase2(t *testing.T) {
+	cfgJSON := &ThresholdSJsonCfg{
+		Store_interval: utils.StringPointer("1ss"),
+	}
+	expected := "time: unknown unit \"ss\" in duration \"1ss\""
+	jsonCfg := NewDefaultCGRConfig()
+	if err = jsonCfg.thresholdSCfg.loadFromJSONCfg(cfgJSON); err == nil || err.Error() != expected {
+		t.Errorf("Expected %+v, received %+v", expected, err)
+	}
+}
 
+func TestThresholdSCfgAsMapInterfaceCase1(t *testing.T) {
 	cfgJSONStr := `{
-		"thresholds": {								
-			"enabled": false,						
-			"store_interval": "",					
-			"indexed_selects":true,					
-			"prefix_indexed_fields": [],			
-			"nested_fields": false,					
-		},		
+		"thresholds": {},		
 }`
-	eMap := map[string]interface{}{
-		"enabled":               false,
-		"store_interval":        "",
-		"indexed_selects":       true,
-		"string_indexed_fields": []string{},
-		"prefix_indexed_fields": []string{},
-		"nested_fields":         false,
+	eMap := map[string]any{
+		utils.EnabledCfg:             false,
+		utils.StoreIntervalCfg:       "",
+		utils.IndexedSelectsCfg:      true,
+		utils.PrefixIndexedFieldsCfg: []string{},
+		utils.SuffixIndexedFieldsCfg: []string{},
+		utils.NestedFieldsCfg:        false,
+		utils.OptsCfg: map[string]any{
+			utils.MetaProfileIDs:              []string{},
+			utils.MetaProfileIgnoreFiltersCfg: false,
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnThSCfg, err := jsnCfg.ThresholdSJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = thscfg.loadFromJsonCfg(jsnThSCfg); err != nil {
-		t.Error(err)
-	} else if rcv := thscfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.thresholdSCfg.AsMapInterface(); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expextec %+v \n, recevied %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
 	}
+}
 
-	cfgJSONStr = `{
+func TestThresholdSCfgAsMapInterfaceCase2(t *testing.T) {
+	cfgJSONStr := `{
 		"thresholds": {								
 			"enabled": true,						
 			"store_interval": "96h",					
-			"indexed_selects":true,
-			"string_indexed_fields": ["string","indexed","fields"],					
-			"prefix_indexed_fields": ["prefix_indexed_fields1","prefix_indexed_fields2"],			
+			"indexed_selects": false,	
+            "string_indexed_fields": ["*req.string"],
+			"prefix_indexed_fields": ["*req.prefix","*req.indexed","*req.fields"],	
+            "suffix_indexed_fields": ["*req.suffix_indexed_fields1", "*req.suffix_indexed_fields2"],		
 			"nested_fields": true,					
 		},		
 }`
-	eMap = map[string]interface{}{
-		"enabled":               true,
-		"store_interval":        "96h0m0s",
-		"indexed_selects":       true,
-		"string_indexed_fields": []string{"string", "indexed", "fields"},
-		"prefix_indexed_fields": []string{"prefix_indexed_fields1", "prefix_indexed_fields2"},
-		"nested_fields":         true,
+	eMap := map[string]any{
+		utils.EnabledCfg:             true,
+		utils.StoreIntervalCfg:       "96h0m0s",
+		utils.IndexedSelectsCfg:      false,
+		utils.StringIndexedFieldsCfg: []string{"*req.string"},
+		utils.PrefixIndexedFieldsCfg: []string{"*req.prefix", "*req.indexed", "*req.fields"},
+		utils.SuffixIndexedFieldsCfg: []string{"*req.suffix_indexed_fields1", "*req.suffix_indexed_fields2"},
+		utils.NestedFieldsCfg:        true,
+		utils.OptsCfg: map[string]any{
+			utils.MetaProfileIDs:              []string{},
+			utils.MetaProfileIgnoreFiltersCfg: false,
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnThSCfg, err := jsnCfg.ThresholdSJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = thscfg.loadFromJsonCfg(jsnThSCfg); err != nil {
-		t.Error(err)
-	} else if rcv := thscfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.thresholdSCfg.AsMapInterface(); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expextec %+v \n, recevied %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+}
+func TestThresholdSCfgClone(t *testing.T) {
+	ban := &ThresholdSCfg{
+		Enabled:             true,
+		IndexedSelects:      true,
+		StoreInterval:       2,
+		StringIndexedFields: &[]string{"*req.index1"},
+		PrefixIndexedFields: &[]string{"*req.index1"},
+		SuffixIndexedFields: &[]string{"*req.index1"},
+		NestedFields:        true,
+		Opts: &ThresholdsOpts{
+			ProfileIDs: []string{},
+		},
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if (*rcv.StringIndexedFields)[0] = ""; (*ban.StringIndexedFields)[0] != "*req.index1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.PrefixIndexedFields)[0] = ""; (*ban.PrefixIndexedFields)[0] != "*req.index1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.SuffixIndexedFields)[0] = ""; (*ban.SuffixIndexedFields)[0] != "*req.index1" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

@@ -22,18 +22,20 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewChargerService returns the Charger Service
 func NewChargerService(cfg *config.CGRConfig, dm *DataDBService,
-	cacheS *engine.CacheS, filterSChan chan *engine.FilterS, server *utils.Server,
-	internalChargerSChan chan birpc.ClientConnector, connMgr *engine.ConnManager) servmanager.Service {
+	cacheS *engine.CacheS, filterSChan chan *engine.FilterS, server *cores.Server,
+	internalChargerSChan chan rpcclient.ClientConnector, connMgr *engine.ConnManager,
+	anz *AnalyzerService, srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &ChargerService{
 		connChan:    internalChargerSChan,
 		cfg:         cfg,
@@ -42,6 +44,8 @@ func NewChargerService(cfg *config.CGRConfig, dm *DataDBService,
 		filterSChan: filterSChan,
 		server:      server,
 		connMgr:     connMgr,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -52,12 +56,14 @@ type ChargerService struct {
 	dm          *DataDBService
 	cacheS      *engine.CacheS
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 	connMgr     *engine.ConnManager
 
 	chrS     *engine.ChargerService
 	rpc      *v1.ChargerSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -77,18 +83,13 @@ func (chrS *ChargerService) Start() (err error) {
 
 	chrS.Lock()
 	defer chrS.Unlock()
-	if chrS.chrS, err = engine.NewChargerService(datadb, filterS, chrS.cfg, chrS.connMgr); err != nil {
-		utils.Logger.Crit(
-			fmt.Sprintf("<%s> Could not init, error: %s",
-				utils.ChargerS, err.Error()))
-		return
-	}
+	chrS.chrS = engine.NewChargerService(datadb, filterS, chrS.cfg, chrS.connMgr)
 	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.ChargerS))
 	cSv1 := v1.NewChargerSv1(chrS.chrS)
 	if !chrS.cfg.DispatcherSCfg().Enabled {
 		chrS.server.RpcRegister(cSv1)
 	}
-	chrS.connChan <- cSv1
+	chrS.connChan <- chrS.anz.GetInternalCodec(cSv1, utils.ChargerS)
 	return
 }
 
@@ -101,9 +102,7 @@ func (chrS *ChargerService) Reload() (err error) {
 func (chrS *ChargerService) Shutdown() (err error) {
 	chrS.Lock()
 	defer chrS.Unlock()
-	if err = chrS.chrS.Shutdown(); err != nil {
-		return
-	}
+	chrS.chrS.Shutdown()
 	chrS.chrS = nil
 	chrS.rpc = nil
 	<-chrS.connChan

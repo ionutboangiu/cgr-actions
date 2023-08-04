@@ -24,10 +24,8 @@ import (
 )
 
 type internalMigrator struct {
-	dm       *engine.DataManager
-	iDB      *engine.InternalDB
-	dataKeys []string
-	qryIdx   *int
+	dm  *engine.DataManager
+	iDB *engine.InternalDB
 }
 
 func newInternalMigrator(dm *engine.DataManager) (iDBMig *internalMigrator) {
@@ -85,6 +83,11 @@ func (iDBMig *internalMigrator) setV1ActionPlans(x *v1ActionPlans) (err error) {
 	return utils.ErrNotImplemented
 }
 
+// rem
+func (iDBMig *internalMigrator) remV1ActionPlans(x *v1ActionPlans) (err error) {
+	return utils.ErrNotImplemented
+}
+
 // Actions methods
 // get
 func (iDBMig *internalMigrator) getV1Actions() (v1acs *v1Actions, err error) {
@@ -96,6 +99,11 @@ func (iDBMig *internalMigrator) setV1Actions(x *v1Actions) (err error) {
 	return utils.ErrNotImplemented
 }
 
+// rem
+func (iDBMig *internalMigrator) remV1Actions(x v1Actions) (err error) {
+	return utils.ErrNotImplemented
+}
+
 // ActionTriggers methods
 // get
 func (iDBMig *internalMigrator) getV1ActionTriggers() (v1acts *v1ActionTriggers, err error) {
@@ -104,6 +112,11 @@ func (iDBMig *internalMigrator) getV1ActionTriggers() (v1acts *v1ActionTriggers,
 
 // set
 func (iDBMig *internalMigrator) setV1ActionTriggers(x *v1ActionTriggers) (err error) {
+	return utils.ErrNotImplemented
+}
+
+// rem
+func (iDBMig *internalMigrator) remV1ActionTriggers(x *v1ActionTriggers) (err error) {
 	return utils.ErrNotImplemented
 }
 
@@ -124,8 +137,21 @@ func (iDBMig *internalMigrator) getV1Stats() (v1st *v1Stat, err error) {
 	return nil, utils.ErrNotImplemented
 }
 
+func (iDBMig *internalMigrator) getV3Stats() (v1st *engine.StatQueueProfile, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
 // set
 func (iDBMig *internalMigrator) setV1Stats(x *v1Stat) (err error) {
+	return utils.ErrNotImplemented
+}
+
+func (iDBMig *internalMigrator) getV2Stats() (v2 *engine.StatQueue, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+// set
+func (iDBMig *internalMigrator) setV2Stats(v2 *engine.StatQueue) (err error) {
 	return utils.ErrNotImplemented
 }
 
@@ -154,6 +180,10 @@ func (iDBMig *internalMigrator) setV1AttributeProfile(x *v1AttributeProfile) (er
 // ThresholdProfile methods
 // get
 func (iDBMig *internalMigrator) getV2ThresholdProfile() (v2T *v2Threshold, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+func (iDBMig *internalMigrator) getV3ThresholdProfile() (v2T *engine.ThresholdProfile, err error) {
 	return nil, utils.ErrNotImplemented
 }
 
@@ -252,6 +282,9 @@ func (iDBMig *internalMigrator) remV3AttributeProfile(tenant, id string) (err er
 func (iDBMig *internalMigrator) getV4AttributeProfile() (v4attrPrf *v4AttributeProfile, err error) {
 	return nil, utils.ErrNotImplemented
 }
+func (iDBMig *internalMigrator) getV5AttributeProfile() (v4attrPrf *engine.AttributeProfile, err error) {
+	return nil, utils.ErrNotImplemented
+}
 
 // set
 func (iDBMig *internalMigrator) setV4AttributeProfile(x *v4AttributeProfile) (err error) {
@@ -269,6 +302,10 @@ func (iDBMig *internalMigrator) getV1Filter() (v1Fltr *v1Filter, err error) {
 	return nil, utils.ErrNotImplemented
 }
 
+func (iDBMig *internalMigrator) getV4Filter() (v1Fltr *engine.Filter, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
 // set
 func (iDBMig *internalMigrator) setV1Filter(x *v1Filter) (err error) {
 	return utils.ErrNotImplemented
@@ -279,4 +316,32 @@ func (iDBMig *internalMigrator) remV1Filter(tenant, id string) (err error) {
 	return utils.ErrNotImplemented
 }
 
+// Supplier Methods
+// get
+func (iDBMig *internalMigrator) getSupplier() (spl *SupplierProfile, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+// set
+func (iDBMig *internalMigrator) setSupplier(spl *SupplierProfile) (err error) {
+	return utils.ErrNotImplemented
+}
+
+// rem
+func (iDBMig *internalMigrator) remSupplier(tenant, id string) (err error) {
+	return utils.ErrNotImplemented
+}
+
 func (iDBMig *internalMigrator) close() {}
+
+func (iDBMig *internalMigrator) getV1ChargerProfile() (v1chrPrf *engine.ChargerProfile, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+func (iDBMig *internalMigrator) getV1DispatcherProfile() (v1chrPrf *engine.DispatcherProfile, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+func (iDBMig *internalMigrator) getV1RouteProfile() (v1chrPrf *engine.RouteProfile, err error) {
+	return nil, utils.ErrNotImplemented
+}

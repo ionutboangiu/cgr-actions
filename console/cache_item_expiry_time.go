@@ -28,7 +28,7 @@ func init() {
 	c := &CmdCacheGetItemExpiryTime{
 		name:      "cache_item_expiry_time",
 		rpcMethod: utils.CacheSv1GetItemExpiryTime,
-		rpcParams: &utils.ArgsGetCacheItemWithArgDispatcher{},
+		rpcParams: &utils.ArgsGetCacheItemWithAPIOpts{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -38,7 +38,7 @@ func init() {
 type CmdCacheGetItemExpiryTime struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.ArgsGetCacheItemWithArgDispatcher
+	rpcParams *utils.ArgsGetCacheItemWithAPIOpts
 	*CommandExecuter
 }
 
@@ -50,9 +50,9 @@ func (self *CmdCacheGetItemExpiryTime) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdCacheGetItemExpiryTime) RpcParams(reset bool) interface{} {
+func (self *CmdCacheGetItemExpiryTime) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.ArgsGetCacheItemWithArgDispatcher{}
+		self.rpcParams = &utils.ArgsGetCacheItemWithAPIOpts{}
 	}
 	return self.rpcParams
 }
@@ -61,7 +61,7 @@ func (self *CmdCacheGetItemExpiryTime) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdCacheGetItemExpiryTime) RpcResult() interface{} {
+func (self *CmdCacheGetItemExpiryTime) RpcResult() any {
 	var reply time.Time
 	return &reply
 }

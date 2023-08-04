@@ -76,11 +76,12 @@ type Session struct {
 	ClientConnID  string          // connection ID towards the client so we can recover from passive
 	EventStart    engine.MapEvent // Event which started the session
 	DebitInterval time.Duration   // execute debits for *prepaid runs
+	Chargeable    bool            // used in case of pausing debit
 	SRuns         []*SRun         // forked based on ChargerS
+	OptsStart     engine.MapEvent
 
 	debitStop   chan struct{}
 	sTerminator *sTerminator // automatic timeout for the session
-	*utils.ArgDispatcher
 }
 
 // Lock exported function from sync.RWMutex
@@ -142,11 +143,11 @@ func (s *Session) AsExternalSessions(tmz, nodeID string) (aSs []*ExternalSession
 			ToR:           sr.Event.GetStringIgnoreErrors(utils.ToR),
 			OriginID:      s.EventStart.GetStringIgnoreErrors(utils.OriginID),
 			OriginHost:    s.EventStart.GetStringIgnoreErrors(utils.OriginHost),
-			Source:        utils.SessionS + "_" + s.EventStart.GetStringIgnoreErrors(utils.EVENT_NAME),
+			Source:        utils.SessionS + "_" + s.EventStart.GetStringIgnoreErrors(utils.EventName),
 			RequestType:   sr.Event.GetStringIgnoreErrors(utils.RequestType),
 			Tenant:        s.Tenant,
 			Category:      sr.Event.GetStringIgnoreErrors(utils.Category),
-			Account:       sr.Event.GetStringIgnoreErrors(utils.Account),
+			Account:       sr.Event.GetStringIgnoreErrors(utils.AccountField),
 			Subject:       sr.Event.GetStringIgnoreErrors(utils.Subject),
 			Destination:   sr.Event.GetStringIgnoreErrors(utils.Destination),
 			SetupTime:     sr.Event.GetTimeIgnoreErrors(utils.SetupTime, tmz),
@@ -179,11 +180,11 @@ func (s *Session) AsExternalSession(sr *SRun, tmz, nodeID string) (aS *ExternalS
 		ToR:           sr.Event.GetStringIgnoreErrors(utils.ToR),
 		OriginID:      s.EventStart.GetStringIgnoreErrors(utils.OriginID),
 		OriginHost:    s.EventStart.GetStringIgnoreErrors(utils.OriginHost),
-		Source:        utils.SessionS + "_" + s.EventStart.GetStringIgnoreErrors(utils.EVENT_NAME),
+		Source:        utils.SessionS + "_" + s.EventStart.GetStringIgnoreErrors(utils.EventName),
 		RequestType:   sr.Event.GetStringIgnoreErrors(utils.RequestType),
 		Tenant:        s.Tenant,
 		Category:      sr.Event.GetStringIgnoreErrors(utils.Category),
-		Account:       sr.Event.GetStringIgnoreErrors(utils.Account),
+		Account:       sr.Event.GetStringIgnoreErrors(utils.AccountField),
 		Subject:       sr.Event.GetStringIgnoreErrors(utils.Subject),
 		Destination:   sr.Event.GetStringIgnoreErrors(utils.Destination),
 		SetupTime:     sr.Event.GetTimeIgnoreErrors(utils.SetupTime, tmz),
@@ -221,13 +222,14 @@ func (s *Session) totalUsage() (tDur time.Duration) {
 
 // AsCGREvents is a  method to return the Session as CGREvents
 // AsCGREvents is not thread safe since it is supposed to run by the time Session is closed
-func (s *Session) asCGREvents() (cgrEvs []*utils.CGREvent, err error) {
+func (s *Session) asCGREvents() (cgrEvs []*utils.CGREvent) {
 	cgrEvs = make([]*utils.CGREvent, len(s.SRuns)) // so we can gather all cdr info while under lock
 	for i, sr := range s.SRuns {
 		cgrEvs[i] = &utils.CGREvent{
-			Tenant: s.Tenant,
-			ID:     utils.UUIDSha1Prefix(),
-			Event:  sr.Event,
+			Tenant:  s.Tenant,
+			ID:      utils.UUIDSha1Prefix(),
+			Event:   sr.Event,
+			APIOpts: s.OptsStart,
 		}
 	}
 	return

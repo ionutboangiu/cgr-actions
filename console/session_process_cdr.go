@@ -28,7 +28,7 @@ func init() {
 	c := &CmdSessionsProcessCDR{
 		name:      "session_process_cdr",
 		rpcMethod: utils.SessionSv1ProcessCDR,
-		rpcParams: &utils.CGREventWithArgDispatcher{},
+		rpcParams: &utils.CGREvent{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -37,7 +37,7 @@ func init() {
 type CmdSessionsProcessCDR struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.CGREventWithArgDispatcher
+	rpcParams *utils.CGREvent
 	*CommandExecuter
 }
 
@@ -49,12 +49,9 @@ func (self *CmdSessionsProcessCDR) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdSessionsProcessCDR) RpcParams(reset bool) interface{} {
+func (self *CmdSessionsProcessCDR) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.CGREventWithArgDispatcher{
-			CGREvent:      new(utils.CGREvent),
-			ArgDispatcher: new(utils.ArgDispatcher),
-		}
+		self.rpcParams = new(utils.CGREvent)
 	}
 	return self.rpcParams
 }
@@ -66,7 +63,7 @@ func (self *CmdSessionsProcessCDR) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdSessionsProcessCDR) RpcResult() interface{} {
-	var atr *string
+func (self *CmdSessionsProcessCDR) RpcResult() any {
+	var atr string
 	return &atr
 }

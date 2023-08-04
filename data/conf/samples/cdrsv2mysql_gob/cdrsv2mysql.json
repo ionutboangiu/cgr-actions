@@ -29,6 +29,8 @@
 
 "schedulers": {
 	"enabled": true,
+	"thresholds_conns": ["*localhost"],
+	"dynaprepaid_actionplans": ["PACKAGE_1001"]
 },
 
 "cdrs": {
@@ -38,6 +40,7 @@
 	"rals_conns": ["conn1"],
 	"stats_conns": ["conn1"],
 	"thresholds_conns": ["conn1"],
+	"scheduler_conns": ["*localhost"],
 },
 
 "attributes": {

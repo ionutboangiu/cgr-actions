@@ -22,35 +22,43 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	"github.com/cgrates/cgrates/analyzers"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/servmanager"
+	"github.com/cgrates/cgrates/cores"
+	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewAnalyzerService returns the Analyzer Service
-func NewAnalyzerService(cfg *config.CGRConfig, server *utils.Server, exitChan chan bool,
-	internalAnalyzerSChan chan birpc.ClientConnector) servmanager.Service {
+func NewAnalyzerService(cfg *config.CGRConfig, server *cores.Server,
+	filterSChan chan *engine.FilterS, shdChan *utils.SyncedChan,
+	internalAnalyzerSChan chan rpcclient.ClientConnector,
+	srvDep map[string]*sync.WaitGroup) *AnalyzerService {
 	return &AnalyzerService{
-		connChan: internalAnalyzerSChan,
-		cfg:      cfg,
-		server:   server,
-		exitChan: exitChan,
+		connChan:    internalAnalyzerSChan,
+		cfg:         cfg,
+		server:      server,
+		filterSChan: filterSChan,
+		shdChan:     shdChan,
+		srvDep:      srvDep,
 	}
 }
 
 // AnalyzerService implements Service interface
 type AnalyzerService struct {
 	sync.RWMutex
-	cfg      *config.CGRConfig
-	server   *utils.Server
-	exitChan chan bool
+	cfg         *config.CGRConfig
+	server      *cores.Server
+	filterSChan chan *engine.FilterS
+	stopChan    chan struct{}
+	shdChan     *utils.SyncedChan
 
 	anz      *analyzers.AnalyzerService
 	rpc      *v1.AnalyzerSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -58,26 +66,45 @@ func (anz *AnalyzerService) Start() (err error) {
 	if anz.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
 	}
-	if anz.anz, err = analyzers.NewAnalyzerService(); err != nil {
+
+	anz.Lock()
+	defer anz.Unlock()
+	if anz.anz, err = analyzers.NewAnalyzerService(anz.cfg); err != nil {
 		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.AnalyzerS, err.Error()))
-		anz.exitChan <- true
 		return
 	}
-	go func() {
-		if err := anz.anz.ListenAndServe(anz.exitChan); err != nil {
+	anz.stopChan = make(chan struct{})
+	go func(a *analyzers.AnalyzerService) {
+		if err := a.ListenAndServe(anz.stopChan); err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<%s> Error: %s listening for packets", utils.AnalyzerS, err.Error()))
+			anz.shdChan.CloseOnce()
 		}
-		anz.anz.Shutdown()
-		anz.exitChan <- true
 		return
-	}()
+	}(anz.anz)
+	anz.server.SetAnalyzer(anz.anz)
 	anz.rpc = v1.NewAnalyzerSv1(anz.anz)
+	go anz.start()
+	return
+}
+
+func (anz *AnalyzerService) start() {
+	var fS *engine.FilterS
+	select {
+	case <-anz.stopChan:
+		return
+	case fS = <-anz.filterSChan:
+		if !anz.IsRunning() {
+			return
+		}
+		anz.Lock()
+		defer anz.Unlock()
+		anz.filterSChan <- fS
+		anz.anz.SetFilterS(fS)
+	}
 	if !anz.cfg.DispatcherSCfg().Enabled {
 		anz.server.RpcRegister(anz.rpc)
 	}
 	anz.connChan <- anz.rpc
-
-	return
 }
 
 // Reload handles the change of config
@@ -88,6 +115,8 @@ func (anz *AnalyzerService) Reload() (err error) {
 // Shutdown stops the service
 func (anz *AnalyzerService) Shutdown() (err error) {
 	anz.Lock()
+	close(anz.stopChan)
+	anz.server.SetAnalyzer(nil)
 	anz.anz.Shutdown()
 	anz.anz = nil
 	anz.rpc = nil
@@ -111,4 +140,25 @@ func (anz *AnalyzerService) ServiceName() string {
 // ShouldRun returns if the service should be running
 func (anz *AnalyzerService) ShouldRun() bool {
 	return anz.cfg.AnalyzerSCfg().Enabled
+}
+
+// GetAnalyzerS returns the analyzer object
+func (anz *AnalyzerService) GetAnalyzerS() *analyzers.AnalyzerService {
+	return anz.anz
+}
+
+// GetInternalCodec returns the connection wrapped in analyzer connector
+func (anz *AnalyzerService) GetInternalCodec(c rpcclient.ClientConnector, to string) rpcclient.ClientConnector {
+	if !anz.IsRunning() {
+		return c
+	}
+	return anz.anz.NewAnalyzerConnector(c, utils.MetaInternal, utils.EmptyString, to)
+}
+
+// GetInternalCodec returns the connection wrapped in analyzer connector
+func (anz *AnalyzerService) GetInternalBiRPCCodec(c rpcclient.BiRPCConector, to string) rpcclient.BiRPCConector {
+	if !anz.IsRunning() {
+		return c
+	}
+	return anz.anz.NewAnalyzerBiRPCConnector(c, rpcclient.BiRPCInternal, utils.EmptyString, to)
 }

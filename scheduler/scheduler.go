@@ -34,13 +34,12 @@ type Scheduler struct {
 	sync.RWMutex
 	queue                           engine.ActionTimingPriorityList
 	timer                           *time.Timer
-	restartLoop                     chan bool
+	restartLoop                     chan struct{}
 	dm                              *engine.DataManager
 	cfg                             *config.CGRConfig
 	fltrS                           *engine.FilterS
 	schedulerStarted                bool
 	actStatsInterval                time.Duration                 // How long time to keep the stats in memory
-	actSucessChan, actFailedChan    chan *engine.Action           // ActionPlan will pass actions via these channels
 	aSMux, aFMux                    sync.RWMutex                  // protect schedStats
 	actSuccessStats, actFailedStats map[string]map[time.Time]bool // keep here stats regarding executed actions, map[actionType]map[execTime]bool
 }
@@ -48,7 +47,7 @@ type Scheduler struct {
 func NewScheduler(dm *engine.DataManager, cfg *config.CGRConfig,
 	fltrS *engine.FilterS) (s *Scheduler) {
 	s = &Scheduler{
-		restartLoop: make(chan bool),
+		restartLoop: make(chan struct{}),
 		dm:          dm,
 		cfg:         cfg,
 		fltrS:       fltrS,
@@ -58,10 +57,10 @@ func NewScheduler(dm *engine.DataManager, cfg *config.CGRConfig,
 }
 
 func (s *Scheduler) updateActStats(act *engine.Action, isFailed bool) {
-	mux := s.aSMux
+	mux := &s.aSMux
 	statsMp := s.actSuccessStats
 	if isFailed {
-		mux = s.aFMux
+		mux = &s.aFMux
 		statsMp = s.actFailedStats
 	}
 	now := time.Now()
@@ -102,7 +101,7 @@ func (s *Scheduler) Loop() {
 		now := time.Now()
 		start := a0.GetNextStartTime(now)
 		if start.Equal(now) || start.Before(now) {
-			go a0.Execute(s.actSucessChan, s.actFailedChan)
+			go a0.Execute(s.fltrS)
 			// if after execute the next start time is in the past then
 			// do not add it to the queue
 			a0.ResetStartTimeCache()
@@ -137,11 +136,15 @@ func (s *Scheduler) Reload() {
 	s.restart()
 }
 
-func (s *Scheduler) loadActionPlans() {
-	s.Lock()
-	defer s.Unlock()
+// loadTasks loads the tasks
+// this will push the tasks that did not match
+// the filters before exiting the function
+func (s *Scheduler) loadTasks() {
 	// limit the number of concurrent tasks
-	limit := make(chan bool, 10)
+	limit := make(chan struct{}, 10)
+	// if some task don't mach the filter save them in this slice
+	// in oreder to push them back when finish executing them
+	var unexecutedTasks []*engine.Task
 	// execute existing tasks
 	for {
 		task, err := s.dm.DataDB().PopTask()
@@ -149,32 +152,40 @@ func (s *Scheduler) loadActionPlans() {
 			break
 		}
 		if pass, err := s.fltrS.Pass(s.cfg.GeneralCfg().DefaultTenant,
-			s.cfg.SchedulerCfg().Filters, task); err != nil {
-			utils.Logger.Warning(
-				fmt.Sprintf("<%s> error: <%s> querying filters for path: <%+v>, not executing task <%s> on account <%s>",
-					utils.SchedulerS, err.Error(), s.cfg.SchedulerCfg().Filters, task.ActionsID, task.AccountID))
-			if err := s.dm.DataDB().PushTask(task); err != nil {
+			s.cfg.SchedulerCfg().Filters, task); err != nil || !pass {
+			if err != nil {
 				utils.Logger.Warning(
-					fmt.Sprintf("<%s> failed pushing task <%s> back to DataDB, err <%s>",
-						utils.SchedulerS, task.ActionsID, err.Error()))
+					fmt.Sprintf("<%s> error: <%s> querying filters for path: <%+v>, not executing task <%s> on account <%s>",
+						utils.SchedulerS, err.Error(), s.cfg.SchedulerCfg().Filters, task.ActionsID, task.AccountID))
 			}
-			continue
-		} else if !pass {
-			if err := s.dm.DataDB().PushTask(task); err != nil { // put the task back so it can be processed by another scheduler
-				utils.Logger.Warning(
-					fmt.Sprintf("<%s> failed pushing task <%s> back to DataDB, err <%s>",
-						utils.SchedulerS, task.ActionsID, err.Error()))
-			}
+			// we do not push the task back as this may cause an infinite loop
+			// push it when the function is done and we stopped the for
+			// do not use defer here as the functions are exeucted
+			// from the last one to the first
+			unexecutedTasks = append(unexecutedTasks, task)
 			continue
 		}
-		limit <- true
+		limit <- struct{}{}
 		go func() {
 			utils.Logger.Info(fmt.Sprintf("<%s> executing task %s on account %s",
 				utils.SchedulerS, task.ActionsID, task.AccountID))
-			task.Execute()
+			task.Execute(s.fltrS)
 			<-limit
 		}()
 	}
+	for _, t := range unexecutedTasks {
+		if err := s.dm.DataDB().PushTask(t); err != nil {
+			utils.Logger.Warning(
+				fmt.Sprintf("<%s> failed pushing task <%s> back to DataDB, err <%s>",
+					utils.SchedulerS, t.ActionsID, err.Error()))
+		}
+	}
+}
+
+func (s *Scheduler) loadActionPlans() {
+	s.Lock()
+	defer s.Unlock()
+	s.loadTasks()
 
 	actionPlans, err := s.dm.GetAllActionPlans()
 	if err != nil && err != utils.ErrNotFound {
@@ -222,7 +233,7 @@ func (s *Scheduler) loadActionPlans() {
 
 func (s *Scheduler) restart() {
 	if s.schedulerStarted {
-		s.restartLoop <- true
+		s.restartLoop <- struct{}{}
 	}
 	if s.timer != nil {
 		s.timer.Stop()
@@ -256,7 +267,7 @@ func (s *Scheduler) GetScheduledActions(fltr ArgsGetScheduledActions) (schedActi
 		if fltr.Tenant != nil || fltr.Account != nil {
 			found := false
 			for accID := range at.GetAccountIDs() {
-				split := strings.Split(accID, utils.CONCATENATED_KEY_SEP)
+				split := strings.Split(accID, utils.ConcatenatedKeySep)
 				if len(split) != 2 {
 					continue // malformed account id
 				}
@@ -290,8 +301,8 @@ func (s *Scheduler) GetScheduledActions(fltr ArgsGetScheduledActions) (schedActi
 }
 
 func (s *Scheduler) Shutdown() {
-	s.schedulerStarted = false // disable loop on next run
-	s.restartLoop <- true      // cancel waiting tasks
+	s.schedulerStarted = false  // disable loop on next run
+	s.restartLoop <- struct{}{} // cancel waiting tasks
 	if s.timer != nil {
 		s.timer.Stop()
 	}

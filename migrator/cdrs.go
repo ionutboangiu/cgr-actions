@@ -39,6 +39,7 @@ func (m *Migrator) migrateCurrentCDRs() (err error) {
 		if err := m.storDBOut.StorDB().SetCDR(cdr, true); err != nil {
 			return err
 		}
+		m.stats[utils.CDRs]++
 	}
 	return
 }
@@ -46,61 +47,63 @@ func (m *Migrator) migrateCurrentCDRs() (err error) {
 func (m *Migrator) migrateCDRs() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentStorDBVersions()
-	vrs, err = m.storDBOut.StorDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for Actions")
+	if vrs, err = m.getVersions(utils.CDRs); err != nil {
+		return
 	}
-	switch vrs[utils.CDRs] {
-	case 1:
-		if err = m.migrateV1CDRs(); err != nil {
-			return err
+	migrated := true
+	var v2 *engine.CDR
+	for {
+		version := vrs[utils.CDRs]
+		for {
+			switch version {
+			default:
+				return fmt.Errorf("Unsupported version %v", version)
+			case current[utils.CDRs]:
+				migrated = false
+				if m.sameStorDB {
+					break
+				}
+				if err = m.migrateCurrentCDRs(); err != nil {
+					return
+				}
+			case 1:
+				if v2, err = m.migrateV1CDRs(); err != nil && err != utils.ErrNoMoreData {
+					return
+				}
+				version = 2
+			}
+			if version == current[utils.CDRs] || err == utils.ErrNoMoreData {
+				break
+			}
 		}
-	case current[utils.CDRs]:
-		if err = m.migrateCurrentCDRs(); err != nil {
-			return err
+		if err == utils.ErrNoMoreData || !migrated {
+			break
 		}
+
+		if !m.dryRun {
+			//set action plan
+			if err = m.storDBOut.StorDB().SetCDR(v2, true); err != nil {
+				return
+			}
+		}
+		m.stats[utils.CDRs]++
+	}
+	// All done, update version wtih current one
+	if err = m.setVersions(utils.CDRs); err != nil {
+		return
 	}
 	return m.ensureIndexesStorDB(engine.ColCDRs)
 }
 
-func (m *Migrator) migrateV1CDRs() (err error) {
+func (m *Migrator) migrateV1CDRs() (cdr *engine.CDR, err error) {
 	var v1CDR *v1Cdrs
-	for {
-		v1CDR, err = m.storDBIn.getV1CDR()
-		if err != nil && err != utils.ErrNoMoreData {
-			return err
-		}
-		if err == utils.ErrNoMoreData {
-			break
-		}
-		if v1CDR == nil || m.dryRun {
-			continue
-		}
-		cdr := v1CDR.V1toV2Cdr()
-		if err = m.storDBOut.StorDB().SetCDR(cdr, true); err != nil {
-			return err
-		}
-		m.stats[utils.CDRs] += 1
+	if v1CDR, err = m.storDBIn.getV1CDR(); err != nil {
+		return nil, err
 	}
-	if m.dryRun {
+	if v1CDR == nil {
 		return
 	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.CDRs: engine.CurrentStorDBVersions()[utils.CDRs]}
-	if err = m.storDBOut.StorDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating CDRs version into StorDB", err.Error()))
-	}
+	cdr = v1CDR.V1toV2Cdr()
 	return
 }
 
@@ -180,7 +183,9 @@ func NewV1CDRFromCDRSql(cdrSql *engine.CDRsql) (cdr *v1Cdrs, err error) {
 	cdr.Subject = cdrSql.Subject
 	cdr.Destination = cdrSql.Destination
 	cdr.SetupTime = cdrSql.SetupTime
-	cdr.AnswerTime = cdrSql.AnswerTime
+	if cdrSql.AnswerTime != nil {
+		cdr.AnswerTime = *cdrSql.AnswerTime
+	}
 	cdr.Usage = time.Duration(cdrSql.Usage)
 	cdr.CostSource = cdrSql.CostSource
 	cdr.Cost = cdrSql.Cost
@@ -213,7 +218,9 @@ func (cdr *v1Cdrs) AsCDRsql() (cdrSql *engine.CDRsql) {
 	cdrSql.Subject = cdr.Subject
 	cdrSql.Destination = cdr.Destination
 	cdrSql.SetupTime = cdr.SetupTime
-	cdrSql.AnswerTime = cdr.AnswerTime
+	if !cdr.AnswerTime.IsZero() {
+		cdrSql.AnswerTime = utils.TimePointer(cdr.AnswerTime)
+	}
 	cdrSql.Usage = cdr.Usage.Nanoseconds()
 	cdrSql.ExtraFields = utils.ToJSON(cdr.ExtraFields)
 	cdrSql.CostSource = cdr.CostSource

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,10 +53,10 @@ type Balance struct {
 
 func (b *Balance) Equal(o *Balance) bool {
 	if len(b.DestinationIDs) == 0 {
-		b.DestinationIDs = utils.StringMap{utils.ANY: true}
+		b.DestinationIDs = utils.StringMap{utils.MetaAny: true}
 	}
 	if len(o.DestinationIDs) == 0 {
-		o.DestinationIDs = utils.StringMap{utils.ANY: true}
+		o.DestinationIDs = utils.StringMap{utils.MetaAny: true}
 	}
 	return b.Uuid == o.Uuid &&
 		b.ID == o.ID &&
@@ -145,15 +146,15 @@ func (b *Balance) IsActiveAt(t time.Time) bool {
 }
 
 func (b *Balance) MatchCategory(category string) bool {
-	return len(b.Categories) == 0 || b.Categories[category] == true
+	return len(b.Categories) == 0 || b.Categories[category]
 }
 
 func (b *Balance) HasDestination() bool {
-	return len(b.DestinationIDs) > 0 && b.DestinationIDs[utils.ANY] == false
+	return len(b.DestinationIDs) > 0 && !b.DestinationIDs[utils.MetaAny]
 }
 
 func (b *Balance) MatchDestination(destinationID string) bool {
-	return !b.HasDestination() || b.DestinationIDs[destinationID] == true
+	return !b.HasDestination() || b.DestinationIDs[destinationID]
 }
 
 func (b *Balance) MatchActionTrigger(at *ActionTrigger) bool {
@@ -185,12 +186,12 @@ func (b *Balance) Clone() *Balance {
 	return n
 }
 
-func (b *Balance) getMatchingPrefixAndDestID(dest string) (prefix, destId string) {
-	if len(b.DestinationIDs) != 0 && b.DestinationIDs[utils.ANY] == false {
+func (b *Balance) getMatchingPrefixAndDestID(dest string) (prefix, destID string) {
+	if len(b.DestinationIDs) != 0 && !b.DestinationIDs[utils.MetaAny] {
 		for _, p := range utils.SplitPrefix(dest, MIN_PREFIX_MATCH) {
-			if destIDs, err := dm.GetReverseDestination(p, false, utils.NonTransactional); err == nil {
+			if destIDs, err := dm.GetReverseDestination(p, true, true, utils.NonTransactional); err == nil {
 				for _, dID := range destIDs {
-					if b.DestinationIDs[dID] == true {
+					if b.DestinationIDs[dID] {
 						return p, dID
 					}
 				}
@@ -252,7 +253,7 @@ func (b *Balance) GetCost(cd *CallDescriptor, getStandardIfEmpty bool) (*CallCos
 	if cd.testCallcost != nil {
 		return cd.testCallcost, nil
 	}
-	if b.RatingSubject != "" && !strings.HasPrefix(b.RatingSubject, utils.ZERO_RATING_SUBJECT_PREFIX) {
+	if b.RatingSubject != "" && !strings.HasPrefix(b.RatingSubject, utils.MetaRatingSubjectPrefix) {
 		origSubject := cd.Subject
 		cd.Subject = b.RatingSubject
 		origAccount := cd.Account
@@ -267,11 +268,10 @@ func (b *Balance) GetCost(cd *CallDescriptor, getStandardIfEmpty bool) (*CallCos
 	if getStandardIfEmpty {
 		cd.RatingInfos = nil
 		return cd.getCost()
-	} else {
-		cc := cd.CreateCallCost()
-		cc.Cost = 0
-		return cc, nil
 	}
+	cc := cd.CreateCallCost()
+	cc.Cost = 0
+	return cc, nil
 }
 
 func (b *Balance) GetValue() float64 {
@@ -288,7 +288,7 @@ func (b *Balance) SubstractValue(amount float64) {
 
 func (b *Balance) SetValue(amount float64) {
 	b.Value = amount
-	b.Value = utils.Round(b.GetValue(), globalRoundingDecimals, utils.ROUNDING_MIDDLE)
+	b.Value = utils.Round(b.GetValue(), globalRoundingDecimals, utils.MetaRoundingMiddle)
 	b.dirty = true
 }
 
@@ -298,11 +298,11 @@ func (b *Balance) SetDirty() {
 
 // debitUnits will debit units for call descriptor.
 // returns the amount debited within cc
-func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Balances, count bool, dryRun, debitConnectFee bool) (cc *CallCost, err error) {
+func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Balances, count bool, dryRun, debitConnectFee bool, fltrS *FilterS) (cc *CallCost, err error) {
 	if !b.IsActiveAt(cd.TimeStart) || b.GetValue() <= 0 {
 		return
 	}
-	if duration, err := utils.ParseZeroRatingSubject(cd.ToR, b.RatingSubject, config.CgrConfig().RalsCfg().BalanceRatingSubject); err == nil {
+	if duration, err := utils.ParseZeroRatingSubject(cd.ToR, b.RatingSubject, config.CgrConfig().RalsCfg().BalanceRatingSubject, true); err == nil {
 		// we have *zero based units
 		cc = cd.CreateCallCost()
 		cc.Timespans = append(cc.Timespans, &TimeSpan{
@@ -314,7 +314,7 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 		ts.RateInterval = &RateInterval{
 			Rating: &RIRate{
 				Rates: RateGroups{
-					&Rate{
+					&RGRate{
 						GroupIntervalStart: 0,
 						Value:              0,
 						RateIncrement:      duration,
@@ -328,13 +328,13 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 			prefix = cd.Destination
 		}
 		if destid == "" {
-			destid = utils.ANY
+			destid = utils.MetaAny
 		}
 		ts.setRatingInfo(&RatingInfo{
 			MatchedSubject: b.Uuid,
 			MatchedPrefix:  prefix,
 			MatchedDestId:  destid,
-			RatingPlanId:   utils.META_NONE,
+			RatingPlanId:   utils.MetaNone,
 		})
 		ts.createIncrementsSlice()
 		//log.Printf("CC: %+v", ts)
@@ -344,7 +344,7 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 			amount := float64(inc.Duration.Nanoseconds())
 			if b.Factor != nil {
 				amount = utils.Round(amount/b.Factor.GetValue(cd.ToR),
-					globalRoundingDecimals, utils.ROUNDING_UP)
+					globalRoundingDecimals, utils.MetaRoundingUp)
 			}
 			if b.GetValue() >= amount {
 				b.SubstractValue(amount)
@@ -359,12 +359,10 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 				}
 				inc.BalanceInfo.AccountID = ub.ID
 				inc.Cost = 0
-				inc.paid = true
 				if count {
-					ub.countUnits(amount, cc.ToR, cc, b)
+					ub.countUnits(amount, cc.ToR, cc, b, fltrS)
 				}
 			} else {
-				inc.paid = false
 				// delete the rest of the unpiad increments/timespans
 				if incIndex == 0 {
 					// cut the entire current timespan
@@ -389,7 +387,7 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 		}
 		if debitConnectFee {
 			// this is the first add, debit the connect fee
-			if ok, debitedConnectFeeBalance = ub.DebitConnectionFee(cc, moneyBalances, count, true); !ok {
+			if ok, debitedConnectFeeBalance = ub.DebitConnectionFee(cc, moneyBalances, count, true, fltrS); !ok {
 				// found blocker balance
 				return nil, nil
 			}
@@ -435,11 +433,10 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 				// debit minutes and money
 				amount := float64(inc.Duration.Nanoseconds())
 				if b.Factor != nil {
-					amount = utils.Round(amount/b.Factor.GetValue(cd.ToR), globalRoundingDecimals, utils.ROUNDING_UP)
+					amount = utils.Round(amount/b.Factor.GetValue(cd.ToR), globalRoundingDecimals, utils.MetaRoundingUp)
 				}
 				cost := inc.Cost
-				inc.paid = false
-				if strategy == utils.MAX_COST_DISCONNECT && cd.MaxCostSoFar >= maxCost {
+				if strategy == utils.MetaMaxCostDisconnect && cd.MaxCostSoFar >= maxCost {
 					// cut the entire current timespan
 					cc.maxCostDisconect = true
 					if dryRun {
@@ -453,7 +450,7 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 						return cc, nil
 					}
 				}
-				if strategy == utils.MAX_COST_FREE && cd.MaxCostSoFar >= maxCost {
+				if strategy == utils.MetaMaxCostFree && cd.MaxCostSoFar >= maxCost {
 					cost, inc.Cost = 0.0, 0.0
 					inc.BalanceInfo.Monetary = &MonetaryInfo{
 						UUID:         b.Uuid,
@@ -462,9 +459,8 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 						RateInterval: ts.RateInterval,
 					}
 					inc.BalanceInfo.AccountID = ub.ID
-					inc.paid = true
 					if count {
-						ub.countUnits(cost, utils.MONETARY, cc, b)
+						ub.countUnits(cost, utils.MetaMonetary, cc, b, fltrS)
 					}
 					// go to nextincrement
 					continue
@@ -501,15 +497,13 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 						}
 						cd.MaxCostSoFar += cost
 					}
-					inc.paid = true
 					if count {
-						ub.countUnits(amount, cc.ToR, cc, b)
+						ub.countUnits(amount, cc.ToR, cc, b, fltrS)
 						if cost != 0 {
-							ub.countUnits(cost, utils.MONETARY, cc, moneyBal)
+							ub.countUnits(cost, utils.MetaMonetary, cc, moneyBal, fltrS)
 						}
 					}
 				} else {
-					inc.paid = false
 					// delete the rest of the unpaid increments/timespans
 					if incIndex == 0 {
 						// cut the entire current timespan
@@ -529,7 +523,7 @@ func (b *Balance) debitUnits(cd *CallDescriptor, ub *Account, moneyBalances Bala
 	return
 }
 
-func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Balances, count bool, dryRun, debitConnectFee bool) (cc *CallCost, err error) {
+func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Balances, count bool, dryRun, debitConnectFee bool, fltrS *FilterS) (cc *CallCost, err error) {
 	if !b.IsActiveAt(cd.TimeStart) || b.GetValue() <= 0 {
 		return
 	}
@@ -544,9 +538,8 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 	var ok bool
 	//log.Print("cc: " + utils.ToJSON(cc))
 	if debitConnectFee {
-
 		// this is the first add, debit the connect fee
-		if ok, debitedConnectFeeBalance = ub.DebitConnectionFee(cc, moneyBalances, count, true); !ok {
+		if ok, debitedConnectFeeBalance = ub.DebitConnectionFee(cc, moneyBalances, count, true, fltrS); !ok {
 			// balance is blocker
 			return nil, nil
 		}
@@ -567,7 +560,11 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 			return nil, errors.New("timespan with no rate interval assigned")
 		}
 
-		if tsIndex == 0 && ts.RateInterval.Rating.ConnectFee > 0 && debitConnectFee && cc.deductConnectFee && ok {
+		if tsIndex == 0 &&
+			ts.RateInterval.Rating.ConnectFee > 0 &&
+			debitConnectFee &&
+			cc.deductConnectFee &&
+			ok {
 
 			inc := &Increment{
 				Duration: 0,
@@ -588,19 +585,22 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 
 		maxCost, strategy := ts.RateInterval.GetMaxCost()
 		//log.Printf("Timing: %+v", ts.RateInterval.Timing)
-		//log.Printf("Rate: %+v", ts.RateInterval.Rating)
+		//log.Printf("RGRate: %+v", ts.RateInterval.Rating)
 		for incIndex, inc := range ts.Increments {
 			// check standard subject tags
 			//log.Printf("INC: %+v", inc)
 
-			if tsIndex == 0 && incIndex == 0 && ts.RateInterval.Rating.ConnectFee > 0 && cc.deductConnectFee && ok {
+			if tsIndex == 0 &&
+				incIndex == 0 &&
+				ts.RateInterval.Rating.ConnectFee > 0 &&
+				cc.deductConnectFee &&
+				ok {
 				// go to nextincrement
 				continue
 			}
 
 			amount := inc.Cost
-			inc.paid = false
-			if strategy == utils.MAX_COST_DISCONNECT && cd.MaxCostSoFar >= maxCost {
+			if strategy == utils.MetaMaxCostDisconnect && cd.MaxCostSoFar >= maxCost {
 				// cut the entire current timespan
 				cc.maxCostDisconect = true
 				if dryRun {
@@ -614,7 +614,7 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 					return cc, nil
 				}
 			}
-			if strategy == utils.MAX_COST_FREE && cd.MaxCostSoFar >= maxCost {
+			if strategy == utils.MetaMaxCostFree && cd.MaxCostSoFar >= maxCost {
 				amount, inc.Cost = 0.0, 0.0
 				inc.BalanceInfo.Monetary = &MonetaryInfo{
 					UUID:  b.Uuid,
@@ -625,9 +625,8 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 				if b.RatingSubject != "" {
 					inc.BalanceInfo.Monetary.RateInterval = ts.RateInterval
 				}
-				inc.paid = true
 				if count {
-					ub.countUnits(amount, utils.MONETARY, cc, b)
+					ub.countUnits(amount, utils.MetaMonetary, cc, b, fltrS)
 				}
 
 				//log.Printf("TS: %+v", cc.Cost)
@@ -647,12 +646,10 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 				if b.RatingSubject != "" {
 					inc.BalanceInfo.Monetary.RateInterval = ts.RateInterval
 				}
-				inc.paid = true
 				if count {
-					ub.countUnits(amount, utils.MONETARY, cc, b)
+					ub.countUnits(amount, utils.MetaMonetary, cc, b, fltrS)
 				}
 			} else {
-				inc.paid = false
 				// delete the rest of the unpiad increments/timespans
 				if incIndex == 0 {
 					// cut the entire current timespan
@@ -675,57 +672,13 @@ func (b *Balance) debitMoney(cd *CallDescriptor, ub *Account, moneyBalances Bala
 	return cc, nil
 }
 
-// Converts the balance towards compressed information to be displayed
+// AsBalanceSummary converts the balance towards compressed information to be displayed
 func (b *Balance) AsBalanceSummary(typ string) *BalanceSummary {
 	bd := &BalanceSummary{UUID: b.Uuid, ID: b.ID, Type: typ, Value: b.Value, Disabled: b.Disabled}
 	if bd.ID == "" {
 		bd.ID = b.Uuid
 	}
 	return bd
-}
-
-func (b *Balance) Publish() {
-	if b.account == nil {
-		return
-	}
-	accountId := b.account.ID
-	acntTnt := utils.NewTenantID(accountId)
-	cgrEv := &utils.CGREvent{
-		Tenant: acntTnt.Tenant,
-		ID:     utils.GenUUID(),
-		Event: map[string]interface{}{
-			utils.EventType:   utils.BalanceUpdate,
-			utils.EventSource: utils.AccountService,
-			utils.Account:     acntTnt.ID,
-			utils.BalanceID:   b.ID,
-			utils.Units:       b.Value}}
-	if !b.ExpirationDate.IsZero() {
-		cgrEv.Event[utils.ExpiryTime] = b.ExpirationDate.Format(time.RFC3339)
-	}
-	if len(config.CgrConfig().RalsCfg().StatSConns) != 0 {
-		go func() {
-			var reply []string
-			if err := connMgr.Call(config.CgrConfig().RalsCfg().StatSConns, nil,
-				utils.StatSv1ProcessEvent, &StatsArgsProcessEvent{CGREvent: cgrEv}, &reply); err != nil &&
-				err.Error() != utils.ErrNotFound.Error() {
-				utils.Logger.Warning(
-					fmt.Sprintf("<AccountS> error: %s processing balance event %+v with StatS.",
-						err.Error(), cgrEv))
-			}
-		}()
-	}
-	if len(config.CgrConfig().RalsCfg().ThresholdSConns) != 0 {
-		go func() {
-			var tIDs []string
-			if err := connMgr.Call(config.CgrConfig().RalsCfg().ThresholdSConns, nil,
-				utils.ThresholdSv1ProcessEvent, &ArgsProcessEvent{CGREvent: cgrEv}, &tIDs); err != nil &&
-				err.Error() != utils.ErrNotFound.Error() {
-				utils.Logger.Warning(
-					fmt.Sprintf("<AccountS> error: %s processing balance event %+v with ThresholdS.",
-						err.Error(), cgrEv))
-			}
-		}()
-	}
 }
 
 /*
@@ -757,7 +710,7 @@ func (bc Balances) GetTotalValue() (total float64) {
 			total += b.GetValue()
 		}
 	}
-	total = utils.Round(total, globalRoundingDecimals, utils.ROUNDING_MIDDLE)
+	total = utils.Round(total, globalRoundingDecimals, utils.MetaRoundingMiddle)
 	return
 }
 
@@ -801,66 +754,17 @@ func (bc Balances) HasBalance(balance *Balance) bool {
 	return false
 }
 
-func (bc Balances) SaveDirtyBalances(acc *Account) {
-	savedAccounts := make(map[string]*Account)
+func (bc Balances) SaveDirtyBalances(acc *Account, initBal map[string]float64) {
+	savedAccounts := utils.StringSet{}
 	for _, b := range bc {
-		if b.dirty {
-			// publish event
-			if b.account == nil { // only publish modifications for balances with account set
-				continue
-			}
-			acntTnt := utils.NewTenantID(b.account.ID)
-			thEv := &ArgsProcessEvent{
-				CGREvent: &utils.CGREvent{
-					Tenant: acntTnt.Tenant,
-					ID:     utils.GenUUID(),
-					Event: map[string]interface{}{
-						utils.EventType:   utils.BalanceUpdate,
-						utils.EventSource: utils.AccountService,
-						utils.Account:     acntTnt.ID,
-						utils.BalanceID:   b.ID,
-						utils.Units:       b.Value}}}
-			if !b.ExpirationDate.IsZero() {
-				thEv.Event[utils.ExpiryTime] = b.ExpirationDate.Format(time.RFC3339)
-			}
-			if len(config.CgrConfig().RalsCfg().ThresholdSConns) != 0 {
-				var tIDs []string
-				if err := connMgr.Call(config.CgrConfig().RalsCfg().ThresholdSConns, nil,
-					utils.ThresholdSv1ProcessEvent, thEv, &tIDs); err != nil &&
-					err.Error() != utils.ErrNotFound.Error() {
-					utils.Logger.Warning(
-						fmt.Sprintf("<AccountS> error: %s processing balance event %+v with ThresholdS.",
-							err.Error(), thEv))
-				}
-			}
+		if b.account == nil || !b.dirty || savedAccounts.Has(b.account.ID) {
+			continue
 		}
-		if b.account != nil && b.account != acc && b.dirty && savedAccounts[b.account.ID] == nil {
+		savedAccounts.Add(b.account.ID)
+		if b.account != acc {
 			dm.SetAccount(b.account)
-			savedAccounts[b.account.ID] = b.account
 		}
-	}
-	if len(savedAccounts) != 0 && len(config.CgrConfig().RalsCfg().ThresholdSConns) != 0 {
-		for _, acnt := range savedAccounts {
-			acntTnt := utils.NewTenantID(acnt.ID)
-			thEv := &ArgsProcessEvent{
-				CGREvent: &utils.CGREvent{
-					Tenant: acntTnt.Tenant,
-					ID:     utils.GenUUID(),
-					Event: map[string]interface{}{
-						utils.EventType:     utils.AccountUpdate,
-						utils.EventSource:   utils.AccountService,
-						utils.Account:       acntTnt.ID,
-						utils.AllowNegative: acnt.AllowNegative,
-						utils.Disabled:      acnt.Disabled}}}
-			var tIDs []string
-			if err := connMgr.Call(config.CgrConfig().RalsCfg().ThresholdSConns, nil,
-				utils.ThresholdSv1ProcessEvent, thEv, &tIDs); err != nil &&
-				err.Error() != utils.ErrNotFound.Error() {
-				utils.Logger.Warning(
-					fmt.Sprintf("<AccountS> error: %s processing account event %+v with ThresholdS.", err.Error(), thEv))
-			}
-		}
-
+		b.account.Publish(initBal)
 	}
 }
 
@@ -875,9 +779,10 @@ func (f ValueFactor) GetValue(tor string) float64 {
 
 // BalanceSummary represents compressed information about a balance
 type BalanceSummary struct {
-	UUID     string // Balance UUID
-	ID       string // Balance ID  if not defined
-	Type     string // *voice, *data, etc
+	UUID     string  // Balance UUID
+	ID       string  // Balance ID  if not defined
+	Type     string  // *voice, *data, etc
+	Initial  float64 // initial value before the debit operation
 	Value    float64
 	Disabled bool
 }
@@ -897,7 +802,7 @@ func (bs BalanceSummaries) BalanceSummaryWithUUD(bsUUID string) (b *BalanceSumma
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (bl *BalanceSummary) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (bl *BalanceSummary) FieldAsInterface(fldPath []string) (val any, err error) {
 	if bl == nil || len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -914,5 +819,501 @@ func (bl *BalanceSummary) FieldAsInterface(fldPath []string) (val interface{}, e
 		return bl.Value, nil
 	case utils.Disabled:
 		return bl.Disabled, nil
+	case utils.Initial:
+		return bl.Initial, nil
 	}
+}
+
+// debitUnits will debit units for call descriptor.
+// returns the amount debited within cc
+func (b *Balance) debit(cd *CallDescriptor, ub *Account, moneyBalances Balances,
+	count, dryRun, debitConnectFee, isUnitBal bool, fltrS *FilterS) (cc *CallCost, err error) {
+	if !b.IsActiveAt(cd.TimeStart) || b.GetValue() <= 0 {
+		return
+	}
+	tor := cd.ToR
+	if !isUnitBal {
+		tor = utils.MetaMonetary
+	}
+	if duration, err_ := utils.ParseZeroRatingSubject(tor, b.RatingSubject,
+		config.CgrConfig().RalsCfg().BalanceRatingSubject, isUnitBal); err_ == nil {
+		// we have *zero based units
+		cc = cd.CreateCallCost()
+		ts := &TimeSpan{
+			TimeStart: cd.TimeStart,
+			TimeEnd:   cd.TimeEnd,
+		}
+		cc.Timespans = TimeSpans{ts}
+		ts.RoundToDuration(duration)
+		ts.RateInterval = &RateInterval{
+			Rating: &RIRate{
+				Rates: RateGroups{
+					&RGRate{
+						GroupIntervalStart: 0,
+						Value:              0,
+						RateIncrement:      duration,
+						RateUnit:           duration,
+					},
+				},
+			},
+		}
+		prefix, destid := b.getMatchingPrefixAndDestID(cd.Destination)
+		if prefix == utils.EmptyString {
+			prefix = cd.Destination
+		}
+		if destid == utils.EmptyString {
+			destid = utils.MetaAny
+		}
+		ts.setRatingInfo(&RatingInfo{
+			MatchedSubject: b.Uuid,
+			MatchedPrefix:  prefix,
+			MatchedDestId:  destid,
+			RatingPlanId:   utils.MetaNone,
+		})
+		ts.createIncrementsSlice()
+		//log.Printf("CC: %+v", ts)
+		for incIndex, inc := range ts.Increments {
+			//log.Printf("INCREMENET: %+v", inc)
+			amount := float64(inc.Duration)
+			if b.Factor != nil {
+				amount = utils.Round(amount/b.Factor.GetValue(tor),
+					globalRoundingDecimals, utils.MetaRoundingUp)
+			}
+			if b.GetValue() >= amount {
+				b.SubstractValue(amount)
+				inc.BalanceInfo.Unit = &UnitInfo{
+					UUID:          b.Uuid,
+					ID:            b.ID,
+					Value:         b.Value,
+					DestinationID: cc.Destination,
+					Consumed:      amount,
+					ToR:           tor, //aici
+					RateInterval:  nil,
+				}
+				inc.BalanceInfo.AccountID = ub.ID
+				inc.Cost = 0
+				if count {
+					ub.countUnits(amount, tor, cc, b, fltrS)
+				}
+				continue
+			}
+			// delete the rest of the unpiad increments/timespans
+			if incIndex == 0 {
+				// cut the entire current timespan
+				return nil, nil
+			}
+			ts.SplitByIncrement(incIndex)
+			if len(cc.Timespans) == 0 {
+				cc = nil
+			}
+			return
+		}
+		return
+	}
+	// no rating subject
+	//log.Print("B: ", utils.ToJSON(b))
+	//log.Printf("}}}}}}} %+v", cd.testCallcost)
+	cc, err = b.GetCost(cd, true)
+	if err != nil {
+		return nil, err
+	}
+
+	var debitedConnectFeeBalance Balance
+	var connectFeeDebited bool
+	//log.Print("cc: " + utils.ToJSON(cc))
+	if debitConnectFee {
+		// this is the first add, debit the connect fee
+		if connectFeeDebited, debitedConnectFeeBalance = ub.DebitConnectionFee(cc, moneyBalances, count, true, fltrS); !connectFeeDebited {
+			// balance is blocker
+			return nil, nil
+		}
+	}
+
+	cc.Timespans.Decompress()
+	//log.Printf("CallCost In Debit: %+v", cc)
+	//for _, ts := range cc.Timespans {
+	//	log.Printf("CC_TS: %+v", ts.RateInterval.Rating.Rates[0])
+	//}
+	for tsIndex, ts := range cc.Timespans {
+		if ts.RateInterval == nil {
+			utils.Logger.Err(fmt.Sprintf("Nil RateInterval ERROR on TS: %+v, CC: %+v, from CD: %+v", ts, cc, cd))
+			return nil, errors.New("timespan with no rate interval assigned")
+		}
+		if ts.Increments == nil {
+			ts.createIncrementsSlice()
+		}
+		//log.Printf("TS: %+v", ts)
+
+		if tsIndex == 0 &&
+			ts.RateInterval.Rating.ConnectFee > 0 &&
+			debitConnectFee &&
+			cc.deductConnectFee &&
+			connectFeeDebited {
+
+			ts.Increments = append([]*Increment{{
+				Duration: 0,
+				Cost:     ts.RateInterval.Rating.ConnectFee,
+				BalanceInfo: &DebitInfo{
+					Monetary: &MonetaryInfo{
+						UUID:  debitedConnectFeeBalance.Uuid,
+						ID:    debitedConnectFeeBalance.ID,
+						Value: debitedConnectFeeBalance.Value,
+					},
+					AccountID: ub.ID,
+				},
+			}}, ts.Increments...)
+		}
+
+		maxCost, strategy := ts.RateInterval.GetMaxCost()
+		//log.Printf("Timing: %+v", ts.RateInterval.Timing)
+		//log.Printf("RGRate: %+v", ts.RateInterval.Rating)
+		for incIndex, inc := range ts.Increments {
+			// check standard subject tags
+			//log.Printf("INC: %+v", inc)
+
+			if tsIndex == 0 &&
+				incIndex == 0 &&
+				ts.RateInterval.Rating.ConnectFee > 0 &&
+				cc.deductConnectFee &&
+				connectFeeDebited {
+				// go to nextincrement
+				continue
+			}
+			if cd.MaxCostSoFar >= maxCost {
+				if strategy == utils.MetaMaxCostFree {
+					inc.Cost = 0.0
+					inc.BalanceInfo.Monetary = &MonetaryInfo{
+						UUID:  b.Uuid,
+						ID:    b.ID,
+						Value: b.Value,
+					}
+					inc.BalanceInfo.AccountID = ub.ID
+					if b.RatingSubject != utils.EmptyString || isUnitBal {
+						inc.BalanceInfo.Monetary.RateInterval = ts.RateInterval
+					}
+					if count {
+						ub.countUnits(inc.Cost, utils.MetaMonetary, cc, b, fltrS)
+					}
+
+					//log.Printf("TS: %+v", cc.Cost)
+					// go to nextincrement
+					continue
+				} else if cc.maxCostDisconect = strategy == utils.MetaMaxCostDisconnect; cc.maxCostDisconect && dryRun {
+					// cut the entire current timespan
+					if incIndex == 0 {
+						// cut the entire current timespan
+						cc.Timespans = cc.Timespans[:tsIndex]
+					} else {
+						ts.SplitByIncrement(incIndex)
+						cc.Timespans = cc.Timespans[:tsIndex+1]
+					}
+					return
+				}
+			}
+
+			// debit minutes and money
+			amount := float64(inc.Duration)
+			cost := inc.Cost
+
+			canDebitCost := b.GetValue() >= cost
+			var moneyBal *Balance
+			if isUnitBal {
+				if b.Factor != nil {
+					amount = utils.Round(amount/b.Factor.GetValue(cd.ToR), globalRoundingDecimals, utils.MetaRoundingUp)
+				}
+				for _, mb := range moneyBalances {
+					if mb.GetValue() >= cost {
+						moneyBal = mb
+						break
+					}
+				}
+				if cost != 0 && moneyBal == nil && (!dryRun || ub.AllowNegative) { // Fix for issue #685
+					utils.Logger.Warning(fmt.Sprintf("<RALs> Going negative on account %s with AllowNegative: false", cd.GetAccountKey()))
+					moneyBal = ub.GetDefaultMoneyBalance()
+				}
+				canDebitCost = b.GetValue() >= amount && (moneyBal != nil || cost == 0)
+			}
+			if !canDebitCost {
+				// delete the rest of the unpaid increments/timespans
+				if incIndex == 0 {
+					// cut the entire current timespan
+					cc.Timespans = cc.Timespans[:tsIndex]
+				} else {
+					ts.SplitByIncrement(incIndex)
+					cc.Timespans = cc.Timespans[:tsIndex+1]
+				}
+				if len(cc.Timespans) == 0 {
+					cc = nil
+				}
+				return
+			}
+
+			if isUnitBal { // unit balance
+				b.SubstractValue(amount)
+				inc.BalanceInfo.Unit = &UnitInfo{
+					UUID:          b.Uuid,
+					ID:            b.ID,
+					Value:         b.Value,
+					DestinationID: cc.Destination,
+					Consumed:      amount,
+					ToR:           cc.ToR,
+					RateInterval:  ts.RateInterval,
+				}
+				inc.BalanceInfo.AccountID = ub.ID
+				if cost != 0 {
+					moneyBal.SubstractValue(cost)
+					inc.BalanceInfo.Monetary = &MonetaryInfo{
+						UUID:  moneyBal.Uuid,
+						ID:    moneyBal.ID,
+						Value: moneyBal.Value,
+					}
+					cd.MaxCostSoFar += cost
+				}
+				if count {
+					ub.countUnits(amount, cc.ToR, cc, b, fltrS)
+					if cost != 0 {
+						ub.countUnits(cost, utils.MetaMonetary, cc, moneyBal, fltrS)
+					}
+				}
+			} else { // monetary balance
+				b.SubstractValue(cost)
+				cd.MaxCostSoFar += cost
+				inc.BalanceInfo.Monetary = &MonetaryInfo{
+					UUID:  b.Uuid,
+					ID:    b.ID,
+					Value: b.Value,
+				}
+				inc.BalanceInfo.AccountID = ub.ID
+				if b.RatingSubject != "" {
+					inc.BalanceInfo.Monetary.RateInterval = ts.RateInterval
+				}
+				if count {
+					ub.countUnits(cost, utils.MetaMonetary, cc, b, fltrS)
+				}
+			}
+		}
+	}
+	if !isUnitBal && len(cc.Timespans) == 0 {
+		cc = nil
+	}
+	return
+}
+
+func (bc Balances) String() string {
+	return utils.ToJSON(bc)
+}
+
+func (bc Balances) FieldAsInterface(fldPath []string) (val any, err error) {
+	if bc == nil || len(fldPath) == 0 {
+		return nil, utils.ErrNotFound
+	}
+
+	if fldPath[0] == utils.GetTotalValue {
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return bc.GetTotalValue(), nil
+	}
+	for _, at := range bc {
+		if at.ID == fldPath[0] {
+			if len(fldPath) == 1 {
+				return at, nil
+			}
+			return at.FieldAsInterface(fldPath[1:])
+		}
+	}
+	var indx int
+	if indx, err = strconv.Atoi(fldPath[0]); err != nil {
+		return
+	}
+	if len(bc) <= indx {
+		return nil, utils.ErrNotFound
+	}
+	c := bc[indx]
+	if len(fldPath) == 1 {
+		return c, nil
+	}
+	return c.FieldAsInterface(fldPath[1:])
+}
+
+func (bc Balances) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = bc.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return utils.IfaceAsString(iface), nil
+}
+
+func (b *Balance) String() string {
+	return utils.ToJSON(b)
+}
+
+func (b *Balance) FieldAsInterface(fldPath []string) (val any, err error) {
+	if b == nil || len(fldPath) == 0 {
+		return nil, utils.ErrNotFound
+	}
+	switch fldPath[0] {
+	default:
+		opath, indx := utils.GetPathIndexString(fldPath[0])
+		if indx != nil {
+			switch opath {
+			case utils.DestinationIDs:
+				val, has := b.DestinationIDs[*indx]
+				if !has || len(fldPath) != 1 {
+					return nil, utils.ErrNotFound
+				}
+				return val, nil
+			case utils.Categories:
+				val, has := b.Categories[*indx]
+				if !has || len(fldPath) != 1 {
+					return nil, utils.ErrNotFound
+				}
+				return val, nil
+			case utils.SharedGroups:
+				val, has := b.SharedGroups[*indx]
+				if !has || len(fldPath) != 1 {
+					return nil, utils.ErrNotFound
+				}
+				return val, nil
+			case utils.TimingIDs:
+				val, has := b.TimingIDs[*indx]
+				if !has || len(fldPath) != 1 {
+					return nil, utils.ErrNotFound
+				}
+				return val, nil
+			case utils.Timings:
+				var idx int
+				if idx, err = strconv.Atoi(*indx); err != nil {
+					return
+				}
+				if len(b.Timings) <= idx {
+					return nil, utils.ErrNotFound
+				}
+				tm := b.Timings[idx]
+				if len(fldPath) == 1 {
+					return tm, nil
+				}
+				return tm.FieldAsInterface(fldPath[1:])
+			case utils.Factor:
+				val, has := b.Factor[*indx]
+				if !has || len(fldPath) != 1 {
+					return nil, utils.ErrNotFound
+				}
+				return val, nil
+			}
+		}
+		return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
+	case utils.Uuid:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.Uuid, nil
+	case utils.ID:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.ID, nil
+	case utils.Value:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.Value, nil
+	case utils.ExpirationDate:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.ExpirationDate, nil
+	case utils.Weight:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.Weight, nil
+	case utils.DestinationIDs:
+		if len(fldPath) == 1 {
+			return b.DestinationIDs, nil
+		}
+		return b.DestinationIDs.FieldAsInterface(fldPath[1:])
+	case utils.RatingSubject:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.RatingSubject, nil
+	case utils.Categories:
+		if len(fldPath) == 1 {
+			return b.Categories, nil
+		}
+		return b.Categories.FieldAsInterface(fldPath[1:])
+	case utils.SharedGroups:
+		if len(fldPath) == 1 {
+			return b.SharedGroups, nil
+		}
+		return b.SharedGroups.FieldAsInterface(fldPath[1:])
+	case utils.Timings:
+		if len(fldPath) == 1 {
+			return b.Timings, nil
+		}
+		for _, tm := range b.Timings {
+			if tm.ID == fldPath[1] {
+				if len(fldPath) == 2 {
+					return tm, nil
+				}
+				return tm.FieldAsInterface(fldPath[2:])
+			}
+		}
+		return nil, utils.ErrNotFound
+	case utils.TimingIDs:
+		if len(fldPath) == 1 {
+			return b.TimingIDs, nil
+		}
+		return b.TimingIDs.FieldAsInterface(fldPath[1:])
+	case utils.Disabled:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.Disabled, nil
+	case utils.Factor:
+		if len(fldPath) == 1 {
+			return b.Factor, nil
+		}
+		return b.Factor.FieldAsInterface(fldPath[1:])
+	case utils.Blocker:
+		if len(fldPath) != 1 {
+			return nil, utils.ErrNotFound
+		}
+		return b.Blocker, nil
+	}
+}
+
+func (b *Balance) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = b.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return utils.IfaceAsString(iface), nil
+}
+
+func (f ValueFactor) String() string {
+	return utils.ToJSON(f)
+}
+
+func (f ValueFactor) FieldAsInterface(fldPath []string) (val any, err error) {
+	if f == nil || len(fldPath) != 1 {
+		return nil, utils.ErrNotFound
+	}
+	c, has := f[fldPath[0]]
+	if !has {
+		return nil, utils.ErrNotFound
+	}
+	return c, nil
+}
+
+func (f ValueFactor) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = f.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return utils.IfaceAsString(iface), nil
 }

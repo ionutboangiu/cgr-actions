@@ -27,6 +27,16 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
+type StorDBOpts struct {
+	SQLMaxOpenConns    int
+	SQLMaxIdleConns    int
+	SQLConnMaxLifetime time.Duration
+	MongoQueryTimeout  time.Duration
+	PgSSLMode          string
+	MySQLLocation      string
+	MySQLDSNParams     map[string]string
+}
+
 // StorDbCfg StroreDb config
 type StorDbCfg struct {
 	Type                string // Should reflect the database type used to store logs
@@ -35,28 +45,58 @@ type StorDbCfg struct {
 	Name                string // The name of the database to connect to.
 	User                string // The user to sign in as.
 	Password            string // The user's password.
-	MaxOpenConns        int    // Maximum database connections opened
-	MaxIdleConns        int    // Maximum idle connections to keep opened
-	ConnMaxLifetime     int
 	StringIndexedFields []string
 	PrefixIndexedFields []string
-	QueryTimeout        time.Duration
-	SSLMode             string // for PostgresDB used to change default sslmode
+	RmtConns            []string // Remote DataDB  connIDs
+	RplConns            []string // Replication connIDs
 	Items               map[string]*ItemOpt
+	Opts                *StorDBOpts
 }
 
-// loadFromJsonCfg loads StoreDb config from JsonCfg
-func (dbcfg *StorDbCfg) loadFromJsonCfg(jsnDbCfg *DbJsonCfg) (err error) {
+func (dbOpts *StorDBOpts) loadFromJSONCfg(jsnCfg *DBOptsJson) (err error) {
+	if jsnCfg == nil {
+		return
+	}
+	if jsnCfg.SQLMaxOpenConns != nil {
+		dbOpts.SQLMaxOpenConns = *jsnCfg.SQLMaxOpenConns
+	}
+	if jsnCfg.SQLMaxIdleConns != nil {
+		dbOpts.SQLMaxIdleConns = *jsnCfg.SQLMaxIdleConns
+	}
+	if jsnCfg.SQLConnMaxLifetime != nil {
+		if dbOpts.SQLConnMaxLifetime, err = utils.ParseDurationWithNanosecs(*jsnCfg.SQLConnMaxLifetime); err != nil {
+			return
+		}
+	}
+	if jsnCfg.MySQLDSNParams != nil {
+		dbOpts.MySQLDSNParams = make(map[string]string)
+		dbOpts.MySQLDSNParams = jsnCfg.MySQLDSNParams
+	}
+	if jsnCfg.MongoQueryTimeout != nil {
+		if dbOpts.MongoQueryTimeout, err = utils.ParseDurationWithNanosecs(*jsnCfg.MongoQueryTimeout); err != nil {
+			return
+		}
+	}
+	if jsnCfg.PgSSLMode != nil {
+		dbOpts.PgSSLMode = *jsnCfg.PgSSLMode
+	}
+	if jsnCfg.MySQLLocation != nil {
+		dbOpts.MySQLLocation = *jsnCfg.MySQLLocation
+	}
+	return
+}
+
+// loadFromJSONCfg loads StoreDb config from JsonCfg
+func (dbcfg *StorDbCfg) loadFromJSONCfg(jsnDbCfg *DbJsonCfg) (err error) {
 	if jsnDbCfg == nil {
 		return nil
 	}
 	if jsnDbCfg.Db_type != nil {
 		if !strings.HasPrefix(*jsnDbCfg.Db_type, "*") {
-			dbcfg.Type = fmt.Sprintf("*%s", *jsnDbCfg.Db_type)
+			dbcfg.Type = fmt.Sprintf("*%v", *jsnDbCfg.Db_type)
 		} else {
 			dbcfg.Type = *jsnDbCfg.Db_type
 		}
-
 	}
 	if jsnDbCfg.Db_host != nil {
 		dbcfg.Host = *jsnDbCfg.Db_host
@@ -77,86 +117,133 @@ func (dbcfg *StorDbCfg) loadFromJsonCfg(jsnDbCfg *DbJsonCfg) (err error) {
 	if jsnDbCfg.Db_password != nil {
 		dbcfg.Password = *jsnDbCfg.Db_password
 	}
-	if jsnDbCfg.Max_open_conns != nil {
-		dbcfg.MaxOpenConns = *jsnDbCfg.Max_open_conns
-	}
-	if jsnDbCfg.Max_idle_conns != nil {
-		dbcfg.MaxIdleConns = *jsnDbCfg.Max_idle_conns
-	}
-	if jsnDbCfg.Conn_max_lifetime != nil {
-		dbcfg.ConnMaxLifetime = *jsnDbCfg.Conn_max_lifetime
-	}
 	if jsnDbCfg.String_indexed_fields != nil {
 		dbcfg.StringIndexedFields = *jsnDbCfg.String_indexed_fields
 	}
 	if jsnDbCfg.Prefix_indexed_fields != nil {
 		dbcfg.PrefixIndexedFields = *jsnDbCfg.Prefix_indexed_fields
 	}
-	if jsnDbCfg.Query_timeout != nil {
-		if dbcfg.QueryTimeout, err = utils.ParseDurationWithNanosecs(*jsnDbCfg.Query_timeout); err != nil {
-			return err
+	if jsnDbCfg.Remote_conns != nil {
+		dbcfg.RmtConns = make([]string, len(*jsnDbCfg.Remote_conns))
+		for i, item := range *jsnDbCfg.Remote_conns {
+			if item == utils.MetaInternal {
+				return fmt.Errorf("Remote connection ID needs to be different than *internal")
+			}
+			dbcfg.RmtConns[i] = item
 		}
 	}
-	if jsnDbCfg.Sslmode != nil {
-		dbcfg.SSLMode = *jsnDbCfg.Sslmode
+	if jsnDbCfg.Replication_conns != nil {
+		dbcfg.RplConns = make([]string, len(*jsnDbCfg.Replication_conns))
+		for i, item := range *jsnDbCfg.Replication_conns {
+			if item == utils.MetaInternal {
+				return fmt.Errorf("Replication connection ID needs to be different than *internal")
+			}
+			dbcfg.RplConns[i] = item
+		}
 	}
 	if jsnDbCfg.Items != nil {
 		for kJsn, vJsn := range *jsnDbCfg.Items {
 			val := new(ItemOpt)
-			if err := val.loadFromJsonCfg(vJsn); err != nil {
-				return err
+			if err = val.loadFromJSONCfg(vJsn); err != nil {
+				return
 			}
 			dbcfg.Items[kJsn] = val
 		}
 	}
+	if jsnDbCfg.Opts != nil {
+		err = dbcfg.Opts.loadFromJSONCfg(jsnDbCfg.Opts)
+	}
 	return nil
 }
 
-// Clone returns the cloned object
-func (dbcfg *StorDbCfg) Clone() *StorDbCfg {
-	return &StorDbCfg{
-		Type:                dbcfg.Type,
-		Host:                dbcfg.Host,
-		Port:                dbcfg.Port,
-		Name:                dbcfg.Name,
-		User:                dbcfg.User,
-		Password:            dbcfg.Password,
-		MaxOpenConns:        dbcfg.MaxOpenConns,
-		MaxIdleConns:        dbcfg.MaxIdleConns,
-		ConnMaxLifetime:     dbcfg.ConnMaxLifetime,
-		StringIndexedFields: dbcfg.StringIndexedFields,
-		PrefixIndexedFields: dbcfg.PrefixIndexedFields,
-		QueryTimeout:        dbcfg.QueryTimeout,
-		SSLMode:             dbcfg.SSLMode,
-		Items:               dbcfg.Items,
+func (dbOpts *StorDBOpts) Clone() *StorDBOpts {
+	return &StorDBOpts{
+		SQLMaxOpenConns:    dbOpts.SQLMaxOpenConns,
+		SQLMaxIdleConns:    dbOpts.SQLMaxIdleConns,
+		SQLConnMaxLifetime: dbOpts.SQLConnMaxLifetime,
+		MySQLDSNParams:     dbOpts.MySQLDSNParams,
+		MongoQueryTimeout:  dbOpts.MongoQueryTimeout,
+		PgSSLMode:          dbOpts.PgSSLMode,
+		MySQLLocation:      dbOpts.MySQLLocation,
 	}
 }
 
-func (dbcfg *StorDbCfg) AsMapInterface() map[string]interface{} {
-	items := make(map[string]interface{})
-	for key, item := range dbcfg.Items {
-		items[key] = item.AsMapInterface()
-	}
-	var queryTimeout string = "0"
-	if dbcfg.QueryTimeout != 0 {
-		queryTimeout = dbcfg.QueryTimeout.String()
-	}
-	dbPort, _ := strconv.Atoi(dbcfg.Port)
+// Clone returns the cloned object
+func (dbcfg *StorDbCfg) Clone() (cln *StorDbCfg) {
+	cln = &StorDbCfg{
+		Type:     dbcfg.Type,
+		Host:     dbcfg.Host,
+		Port:     dbcfg.Port,
+		Name:     dbcfg.Name,
+		User:     dbcfg.User,
+		Password: dbcfg.Password,
 
-	return map[string]interface{}{
+		Items: make(map[string]*ItemOpt),
+		Opts:  dbcfg.Opts.Clone(),
+	}
+	for key, item := range dbcfg.Items {
+		cln.Items[key] = item.Clone()
+	}
+	if dbcfg.StringIndexedFields != nil {
+		cln.StringIndexedFields = make([]string, len(dbcfg.StringIndexedFields))
+		for i, idx := range dbcfg.StringIndexedFields {
+			cln.StringIndexedFields[i] = idx
+		}
+	}
+	if dbcfg.PrefixIndexedFields != nil {
+		cln.PrefixIndexedFields = make([]string, len(dbcfg.PrefixIndexedFields))
+		for i, idx := range dbcfg.PrefixIndexedFields {
+			cln.PrefixIndexedFields[i] = idx
+		}
+	}
+	if dbcfg.RmtConns != nil {
+		cln.RmtConns = make([]string, len(dbcfg.RmtConns))
+		for i, conn := range dbcfg.RmtConns {
+			cln.RmtConns[i] = conn
+		}
+	}
+	if dbcfg.RplConns != nil {
+		cln.RplConns = make([]string, len(dbcfg.RplConns))
+		for i, conn := range dbcfg.RplConns {
+			cln.RplConns[i] = conn
+		}
+	}
+	return
+}
+
+// AsMapInterface returns the config as a map[string]any
+func (dbcfg *StorDbCfg) AsMapInterface() (mp map[string]any) {
+	opts := map[string]any{
+		utils.SQLMaxOpenConnsCfg:   dbcfg.Opts.SQLMaxOpenConns,
+		utils.SQLMaxIdleConnsCfg:   dbcfg.Opts.SQLMaxIdleConns,
+		utils.SQLConnMaxLifetime:   dbcfg.Opts.SQLConnMaxLifetime.String(),
+		utils.MYSQLDSNParams:       dbcfg.Opts.MySQLDSNParams,
+		utils.MongoQueryTimeoutCfg: dbcfg.Opts.MongoQueryTimeout.String(),
+		utils.PgSSLModeCfg:         dbcfg.Opts.PgSSLMode,
+		utils.MysqlLocation:        dbcfg.Opts.MySQLLocation,
+	}
+	mp = map[string]any{
 		utils.DataDbTypeCfg:          dbcfg.Type,
 		utils.DataDbHostCfg:          dbcfg.Host,
-		utils.DataDbPortCfg:          dbPort,
 		utils.DataDbNameCfg:          dbcfg.Name,
 		utils.DataDbUserCfg:          dbcfg.User,
 		utils.DataDbPassCfg:          dbcfg.Password,
-		utils.MaxOpenConnsCfg:        dbcfg.MaxOpenConns,
-		utils.MaxIdleConnsCfg:        dbcfg.MaxIdleConns,
-		utils.ConnMaxLifetimeCfg:     dbcfg.ConnMaxLifetime,
 		utils.StringIndexedFieldsCfg: dbcfg.StringIndexedFields,
 		utils.PrefixIndexedFieldsCfg: dbcfg.PrefixIndexedFields,
-		utils.QueryTimeoutCfg:        queryTimeout,
-		utils.SSLModeCfg:             dbcfg.SSLMode,
-		utils.ItemsCfg:               items,
+		utils.RemoteConnsCfg:         dbcfg.RmtConns,
+		utils.ReplicationConnsCfg:    dbcfg.RplConns,
+		utils.OptsCfg:                opts,
 	}
+	if dbcfg.Items != nil {
+		items := make(map[string]any)
+		for key, item := range dbcfg.Items {
+			items[key] = item.AsMapInterface()
+		}
+		mp[utils.ItemsCfg] = items
+	}
+	if dbcfg.Port != utils.EmptyString {
+		dbPort, _ := strconv.Atoi(dbcfg.Port)
+		mp[utils.DataDbPortCfg] = dbPort
+	}
+	return
 }

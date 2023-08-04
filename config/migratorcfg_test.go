@@ -20,157 +20,301 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
 func TestMigratorCgrCfgloadFromJsonCfg(t *testing.T) {
-	var migcfg, expected MigratorCgrCfg
-	if err := migcfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(migcfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, migcfg)
+	cfgJSON := &MigratorCfgJson{
+		Out_dataDB_type:     utils.StringPointer(utils.MetaRedis),
+		Out_dataDB_host:     utils.StringPointer("127.0.0.1"),
+		Out_dataDB_port:     utils.StringPointer("6379"),
+		Out_dataDB_name:     utils.StringPointer("10"),
+		Out_dataDB_user:     utils.StringPointer(utils.CGRateSLwr),
+		Out_dataDB_password: utils.StringPointer(utils.EmptyString),
+		Out_dataDB_encoding: utils.StringPointer(utils.MsgPack),
+		Out_storDB_type:     utils.StringPointer(utils.MetaMySQL),
+		Out_storDB_host:     utils.StringPointer("127.0.0.1"),
+		Out_storDB_port:     utils.StringPointer("3306"),
+		Out_storDB_name:     utils.StringPointer(utils.CGRateSLwr),
+		Out_storDB_user:     utils.StringPointer(utils.CGRateSLwr),
+		Out_storDB_password: utils.StringPointer(utils.EmptyString),
+		Out_dataDB_opts: &DBOptsJson{
+			RedisCluster:     utils.BoolPointer(true),
+			RedisClusterSync: utils.StringPointer("10s"),
+		},
+		Out_storDB_opts: &DBOptsJson{
+			SQLMaxOpenConns: utils.IntPointer(100),
+		},
 	}
-	if err := migcfg.loadFromJsonCfg(new(MigratorCfgJson)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(migcfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, migcfg)
-	}
-	cfgJSONStr := `{
-"migrator": {
-	"out_datadb_type": "redis",
-	"out_datadb_host": "127.0.0.1",
-	"out_datadb_port": "6379",
-	"out_datadb_name": "10",
-	"out_datadb_user": "cgrates",
-	"out_datadb_password": "",
-	"out_datadb_encoding" : "msgpack",
-	"out_stordb_type": "mysql",
-	"out_stordb_host": "127.0.0.1",
-	"out_stordb_port": "3306",
-	"out_stordb_name": "cgrates",
-	"out_stordb_user": "cgrates",
-	"out_stordb_password": "",
-},	
-}`
-	expected = MigratorCgrCfg{
-		OutDataDBType:     "*redis",
+	expected := &MigratorCgrCfg{
+		OutDataDBType:     utils.MetaRedis,
 		OutDataDBHost:     "127.0.0.1",
 		OutDataDBPort:     "6379",
 		OutDataDBName:     "10",
-		OutDataDBUser:     "cgrates",
-		OutDataDBPassword: "",
-		OutDataDBEncoding: "msgpack",
-		OutStorDBType:     "*mysql",
+		OutDataDBUser:     utils.CGRateSLwr,
+		OutDataDBPassword: utils.EmptyString,
+		OutDataDBEncoding: utils.MsgPack,
+		OutStorDBType:     utils.MetaMySQL,
 		OutStorDBHost:     "127.0.0.1",
 		OutStorDBPort:     "3306",
-		OutStorDBName:     "cgrates",
-		OutStorDBUser:     "cgrates",
-		OutStorDBPassword: "",
+		OutStorDBName:     utils.CGRateSLwr,
+		OutStorDBUser:     utils.CGRateSLwr,
+		OutStorDBPassword: utils.EmptyString,
+		OutDataDBOpts: &DataDBOpts{
+			RedisMaxConns:           10,
+			RedisConnectAttempts:    20,
+			RedisSentinel:           utils.EmptyString,
+			RedisCluster:            true,
+			RedisClusterSync:        10 * time.Second,
+			RedisClusterOndownDelay: 0,
+			RedisConnectTimeout:     0,
+			RedisReadTimeout:        0,
+			RedisWriteTimeout:       0,
+			RedisTLS:                false,
+		},
+		OutStorDBOpts: &StorDBOpts{
+			SQLMaxOpenConns: 100,
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	cfg := NewDefaultCGRConfig()
+	if err = cfg.migratorCgrCfg.loadFromJSONCfg(cfgJSON); err != nil {
 		t.Error(err)
-	} else if jsnThSCfg, err := jsnCfg.MigratorCfgJson(); err != nil {
-		t.Error(err)
-	} else if err = migcfg.loadFromJsonCfg(jsnThSCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, migcfg) {
-		t.Errorf("Expected: %+v , recived: %+v", expected, migcfg)
+	} else if !reflect.DeepEqual(expected, cfg.migratorCgrCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(cfg.migratorCgrCfg))
 	}
 }
 
 func TestMigratorCgrCfgAsMapInterface(t *testing.T) {
-	var migcfg MigratorCgrCfg
 	cfgJSONStr := `{
 	"migrator": {
-		"out_datadb_type": "redis",
-		"out_datadb_host": "127.0.0.1",
-		"out_datadb_port": "6379",
-		"out_datadb_name": "10",
-		"out_datadb_user": "cgrates",
-		"out_datadb_password": "",
-		"out_datadb_encoding" : "msgpack",
-		"out_stordb_type": "mysql",
-		"out_stordb_host": "127.0.0.1",
-		"out_stordb_port": "3306",
-		"out_stordb_name": "cgrates",
-		"out_stordb_user": "cgrates",
-		"out_stordb_password": "",
-		"users_filters":[],
+		"out_datadb_host": "127.0.0.19",
+		"out_datadb_port": "8865",
+		"out_datadb_name": "12",
+		"out_stordb_host": "127.0.0.19",
+		"out_stordb_port": "1234",
+        "users_filters":["users","filters","Account"],
+        "out_datadb_opts":{	
+		   "redisCluster": true,					
+		   "redisClusterSync": "2s",					
+		   "redisClusterOndownDelay": "1",
+		   "redisReadTimeout": "3s",
+		   "redisWriteTimeout": "3s",	
+		   "redisMaxConns": 5,
+		   "redisConnectAttempts": 15,
+		},
+		"out_stordb_opts":{	
+			"mysqlDSNParams": {
+				"key": "value",
+			},
+			"pgSSLMode": "disable"					
+		 },
 	},
 }`
-	var users_filters []string
-	eMap := map[string]interface{}{
-		"out_datadb_type":           "*redis",
-		"out_datadb_host":           "127.0.0.1",
-		"out_datadb_port":           "6379",
-		"out_datadb_name":           "10",
-		"out_datadb_user":           "cgrates",
-		"out_datadb_password":       "",
-		"out_datadb_encoding":       "msgpack",
-		"out_stordb_type":           "*mysql",
-		"out_stordb_host":           "127.0.0.1",
-		"out_stordb_port":           "3306",
-		"out_stordb_name":           "cgrates",
-		"out_stordb_user":           "cgrates",
-		"out_stordb_password":       "",
-		"users_filters":             users_filters,
-		"out_datadb_redis_sentinel": "",
+	eMap := map[string]any{
+		utils.OutDataDBTypeCfg:     "*redis",
+		utils.OutDataDBHostCfg:     "127.0.0.19",
+		utils.OutDataDBPortCfg:     "8865",
+		utils.OutDataDBNameCfg:     "12",
+		utils.OutDataDBUserCfg:     "cgrates",
+		utils.OutDataDBPasswordCfg: "",
+		utils.OutDataDBEncodingCfg: "msgpack",
+		utils.OutStorDBTypeCfg:     "*mysql",
+		utils.OutStorDBHostCfg:     "127.0.0.19",
+		utils.OutStorDBPortCfg:     "1234",
+		utils.OutStorDBNameCfg:     "cgrates",
+		utils.OutStorDBUserCfg:     "cgrates",
+		utils.OutStorDBPasswordCfg: "",
+		utils.UsersFiltersCfg:      []string{"users", "filters", "Account"},
+		utils.OutStorDBOptsCfg: map[string]any{
+			utils.MongoQueryTimeoutCfg: "0s",
+			utils.MYSQLDSNParams: map[string]string{
+				"key": "value",
+			},
+			utils.MysqlLocation:         utils.EmptyString,
+			utils.PgSSLModeCfg:          "disable",
+			utils.SQLConnMaxLifetimeCfg: "0s",
+			utils.SQLMaxIdleConnsCfg:    0,
+			utils.SQLMaxOpenConnsCfg:    0,
+		},
+		utils.OutDataDBOptsCfg: map[string]any{
+			utils.MongoQueryTimeoutCfg:       "0s",
+			utils.RedisMaxConnsCfg:           5,
+			utils.RedisConnectAttemptsCfg:    15,
+			utils.RedisSentinelNameCfg:       "",
+			utils.RedisClusterCfg:            true,
+			utils.RedisClusterSyncCfg:        "2s",
+			utils.RedisClusterOnDownDelayCfg: "1ns",
+			utils.RedisConnectTimeoutCfg:     "0s",
+			utils.RedisReadTimeoutCfg:        "3s",
+			utils.RedisWriteTimeoutCfg:       "3s",
+			utils.RedisTLS:                   false,
+			utils.RedisClientCertificate:     "",
+			utils.RedisClientKey:             "",
+			utils.RedisCACertificate:         "",
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnThSCfg, err := jsnCfg.MigratorCfgJson(); err != nil {
-		t.Error(err)
-	} else if err = migcfg.loadFromJsonCfg(jsnThSCfg); err != nil {
-		t.Error(err)
-	} else if rcv := migcfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.migratorCgrCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
 	}
-	cfgJSONStr = `{
+}
+func TestMigratorCgrCfgAsMapInterface1(t *testing.T) {
+	cfgJSONStr := `{
 		"migrator": {
-			"out_datadb_type": "redis",
-			"out_datadb_host": "127.0.0.1",
-			"out_datadb_port": "6379",
-			"out_datadb_name": "10",
-			"out_datadb_user": "cgrates",
-			"out_datadb_password": "out_datadb_password",
-			"out_datadb_encoding" : "msgpack",
-			"out_stordb_type": "mysql",
-			"out_stordb_host": "127.0.0.1",
-			"out_stordb_port": "3306",
-			"out_stordb_name": "cgrates",
-			"out_stordb_user": "cgrates",
 			"out_stordb_password": "out_stordb_password",
 			"users_filters":["users","filters","Account"],
-			"out_datadb_redis_sentinel": "out_datadb_redis_sentinel",
+			"out_datadb_opts": {
+				"redisSentinel": "out_datadb_redis_sentinel",
+				"redisConnectTimeout": "5s",
+			},
 		},
 	}`
-
-	eMap = map[string]interface{}{
-		"out_datadb_type":           "*redis",
-		"out_datadb_host":           "127.0.0.1",
-		"out_datadb_port":           "6379",
-		"out_datadb_name":           "10",
-		"out_datadb_user":           "cgrates",
-		"out_datadb_password":       "out_datadb_password",
-		"out_datadb_encoding":       "msgpack",
-		"out_stordb_type":           "*mysql",
-		"out_stordb_host":           "127.0.0.1",
-		"out_stordb_port":           "3306",
-		"out_stordb_name":           "cgrates",
-		"out_stordb_user":           "cgrates",
-		"out_stordb_password":       "out_stordb_password",
-		"users_filters":             []string{"users", "filters", "Account"},
-		"out_datadb_redis_sentinel": "out_datadb_redis_sentinel",
+	eMap := map[string]any{
+		utils.OutDataDBTypeCfg:     "*redis",
+		utils.OutDataDBHostCfg:     "127.0.0.1",
+		utils.OutDataDBPortCfg:     "6379",
+		utils.OutDataDBNameCfg:     "10",
+		utils.OutDataDBUserCfg:     "cgrates",
+		utils.OutDataDBPasswordCfg: "",
+		utils.OutDataDBEncodingCfg: "msgpack",
+		utils.OutStorDBTypeCfg:     "*mysql",
+		utils.OutStorDBHostCfg:     "127.0.0.1",
+		utils.OutStorDBPortCfg:     "3306",
+		utils.OutStorDBNameCfg:     "cgrates",
+		utils.OutStorDBUserCfg:     "cgrates",
+		utils.OutStorDBPasswordCfg: "out_stordb_password",
+		utils.UsersFiltersCfg:      []string{"users", "filters", "Account"},
+		utils.OutStorDBOptsCfg: map[string]any{
+			utils.MongoQueryTimeoutCfg:  "0s",
+			utils.MYSQLDSNParams:        map[string]string(nil),
+			utils.MysqlLocation:         utils.EmptyString,
+			utils.PgSSLModeCfg:          utils.EmptyString,
+			utils.SQLConnMaxLifetimeCfg: "0s",
+			utils.SQLMaxIdleConnsCfg:    0,
+			utils.SQLMaxOpenConnsCfg:    0,
+		},
+		utils.OutDataDBOptsCfg: map[string]any{
+			utils.MongoQueryTimeoutCfg:       "0s",
+			utils.RedisMaxConnsCfg:           10,
+			utils.RedisConnectAttemptsCfg:    20,
+			utils.RedisSentinelNameCfg:       "out_datadb_redis_sentinel",
+			utils.RedisClusterCfg:            false,
+			utils.RedisClusterSyncCfg:        "5s",
+			utils.RedisClusterOnDownDelayCfg: "0s",
+			utils.RedisConnectTimeoutCfg:     "5s",
+			utils.RedisReadTimeoutCfg:        "0s",
+			utils.RedisWriteTimeoutCfg:       "0s",
+			utils.RedisTLS:                   false,
+			utils.RedisClientCertificate:     "",
+			utils.RedisClientKey:             "",
+			utils.RedisCACertificate:         "",
+		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnThSCfg, err := jsnCfg.MigratorCfgJson(); err != nil {
+	} else if rcv := cgrCfg.migratorCgrCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+}
+
+func TestMigratorCgrCfgAsMapInterface2(t *testing.T) {
+	cfgJSONStr := `{
+		"migrator": {},
+	}`
+	eMap := map[string]any{
+		utils.OutDataDBTypeCfg:     "*redis",
+		utils.OutDataDBHostCfg:     "127.0.0.1",
+		utils.OutDataDBPortCfg:     "6379",
+		utils.OutDataDBNameCfg:     "10",
+		utils.OutDataDBUserCfg:     "cgrates",
+		utils.OutDataDBPasswordCfg: "",
+		utils.OutDataDBEncodingCfg: "msgpack",
+		utils.OutStorDBTypeCfg:     "*mysql",
+		utils.OutStorDBHostCfg:     "127.0.0.1",
+		utils.OutStorDBPortCfg:     "3306",
+		utils.OutStorDBNameCfg:     "cgrates",
+		utils.OutStorDBUserCfg:     "cgrates",
+		utils.OutStorDBPasswordCfg: "",
+		utils.UsersFiltersCfg:      []string{},
+		utils.OutStorDBOptsCfg: map[string]any{
+			utils.MongoQueryTimeoutCfg:  "0s",
+			utils.MYSQLDSNParams:        map[string]string(nil),
+			utils.MysqlLocation:         utils.EmptyString,
+			utils.PgSSLModeCfg:          utils.EmptyString,
+			utils.SQLConnMaxLifetimeCfg: "0s",
+			utils.SQLMaxIdleConnsCfg:    0,
+			utils.SQLMaxOpenConnsCfg:    0,
+		},
+		utils.OutDataDBOptsCfg: map[string]any{
+			utils.MongoQueryTimeoutCfg:       "0s",
+			utils.RedisMaxConnsCfg:           10,
+			utils.RedisConnectAttemptsCfg:    20,
+			utils.RedisSentinelNameCfg:       "",
+			utils.RedisClusterCfg:            false,
+			utils.RedisClusterSyncCfg:        "5s",
+			utils.RedisClusterOnDownDelayCfg: "0s",
+			utils.RedisConnectTimeoutCfg:     "0s",
+			utils.RedisReadTimeoutCfg:        "0s",
+			utils.RedisWriteTimeoutCfg:       "0s",
+			utils.RedisTLS:                   false,
+			utils.RedisClientCertificate:     "",
+			utils.RedisClientKey:             "",
+			utils.RedisCACertificate:         "",
+		},
+	}
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if err = migcfg.loadFromJsonCfg(jsnThSCfg); err != nil {
-		t.Error(err)
-	} else if rcv := migcfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.migratorCgrCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
 	}
 
+}
+
+func TestMigratorCgrCfgClone(t *testing.T) {
+	sa := &MigratorCgrCfg{
+		OutDataDBType:     utils.MetaRedis,
+		OutDataDBHost:     "127.0.0.1",
+		OutDataDBPort:     "6379",
+		OutDataDBName:     "10",
+		OutDataDBUser:     utils.CGRateSLwr,
+		OutDataDBPassword: utils.EmptyString,
+		OutDataDBEncoding: utils.MsgPack,
+		OutStorDBType:     utils.MetaMySQL,
+		OutStorDBHost:     "127.0.0.1",
+		OutStorDBPort:     "3306",
+		OutStorDBName:     utils.CGRateSLwr,
+		OutStorDBUser:     utils.CGRateSLwr,
+		OutStorDBPassword: utils.EmptyString,
+		UsersFilters:      []string{utils.AccountField},
+		OutDataDBOpts: &DataDBOpts{
+			RedisMaxConns:           10,
+			RedisConnectAttempts:    20,
+			RedisSentinel:           utils.EmptyString,
+			RedisCluster:            true,
+			RedisClusterSync:        10 * time.Second,
+			RedisClusterOndownDelay: 0,
+			RedisConnectTimeout:     0,
+			RedisReadTimeout:        0,
+			RedisWriteTimeout:       0,
+			MongoQueryTimeout:       10 * time.Second,
+			RedisTLS:                false,
+		},
+		OutStorDBOpts: &StorDBOpts{},
+	}
+	rcv := sa.Clone()
+	if !reflect.DeepEqual(sa, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(sa), utils.ToJSON(rcv))
+	}
+	if rcv.UsersFilters[0] = ""; sa.UsersFilters[0] != utils.AccountField {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.OutDataDBOpts.RedisSentinel = "1"; sa.OutDataDBOpts.RedisSentinel != "" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.OutStorDBOpts.PgSSLMode = "1"; sa.OutStorDBOpts.PgSSLMode != "" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
 }

@@ -26,7 +26,7 @@ func init() {
 	c := &CmdGetFilterIDs{
 		name:      "filter_ids",
 		rpcMethod: utils.APIerSv1GetFilterIDs,
-		rpcParams: &utils.TenantArgWithPaginator{},
+		rpcParams: &utils.PaginatorWithTenant{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +36,7 @@ func init() {
 type CmdGetFilterIDs struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.TenantArgWithPaginator
+	rpcParams *utils.PaginatorWithTenant
 	*CommandExecuter
 }
 
@@ -48,9 +48,9 @@ func (self *CmdGetFilterIDs) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdGetFilterIDs) RpcParams(reset bool) interface{} {
+func (self *CmdGetFilterIDs) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.TenantArgWithPaginator{}
+		self.rpcParams = &utils.PaginatorWithTenant{}
 	}
 	return self.rpcParams
 }
@@ -59,7 +59,7 @@ func (self *CmdGetFilterIDs) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdGetFilterIDs) RpcResult() interface{} {
+func (self *CmdGetFilterIDs) RpcResult() any {
 	var atr []string
 	return &atr
 }

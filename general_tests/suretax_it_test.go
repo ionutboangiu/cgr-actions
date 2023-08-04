@@ -24,7 +24,6 @@ package general_tests
 import (
 	"flag"
 	"net/rpc"
-	"net/rpc/jsonrpc"
 	"reflect"
 	"testing"
 	"time"
@@ -131,25 +130,25 @@ func testSTICacheStats(t *testing.T) {
 
 // Test CDR from external sources
 func testSTIProcessExternalCdr(t *testing.T) {
-	cdr := &engine.ExternalCDR{ToR: utils.VOICE,
-		OriginID: "teststicdr1", OriginHost: "192.168.1.1", Source: "STI_TEST", RequestType: utils.META_RATED,
+	cdr := &engine.ExternalCDR{ToR: utils.MetaVoice,
+		OriginID: "teststicdr1", OriginHost: "192.168.1.1", Source: "STI_TEST", RequestType: utils.MetaRated,
 		Tenant: "cgrates.org", Category: "call", Account: "1001", Subject: "+14082342500", Destination: "+16268412300", Supplier: "SUPPL1",
 		SetupTime: "2015-10-18T13:00:00Z", AnswerTime: "2015-10-18T13:00:00Z",
 		Usage: "15s", PDD: "7.0", ExtraFields: map[string]string{"CustomerNumber": "000000534", "ZipCode": ""},
 	}
 	var reply string
-	if err := stiRpc.Call(utils.CdrsV2ProcessExternalCdr, cdr, &reply); err != nil {
+	if err := stiRpc.Call(utils.CDRsV1ProcessExternalCDR, cdr, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(2) * time.Second)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testSTIGetCdrs(t *testing.T) {
 	var cdrs []*engine.ExternalCDR
 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}, Accounts: []string{"1001"}}
-	if err := stiRpc.Call(utils.APIerSv2GetCDRs, req, &cdrs); err != nil {
+	if err := stiRpc.Call(utils.APIerSv2GetCDRs, &req, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -158,8 +157,8 @@ func testSTIGetCdrs(t *testing.T) {
 			t.Errorf("Unexpected Cost for CDR: %+v", cdrs[0])
 		}
 	}
-	req = utils.RPCCDRsFilter{RunIDs: []string{utils.META_SURETAX}, Accounts: []string{"1001"}}
-	if err := stiRpc.Call(utils.APIerSv2GetCDRs, req, &cdrs); err != nil {
+	req = utils.RPCCDRsFilter{RunIDs: []string{utils.MetaSureTax}, Accounts: []string{"1001"}}
+	if err := stiRpc.Call(utils.APIerSv2GetCDRs, &req, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))

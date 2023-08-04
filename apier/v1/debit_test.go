@@ -35,7 +35,7 @@ var (
 )
 
 func init() {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	config.SetCgrConfig(cfg)
 	apierDebitStorage = engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 
@@ -50,11 +50,11 @@ func init() {
 }
 
 func TestDebitUsageWithOptionsSetConfig(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	config.SetCgrConfig(cfg)
 	apierDebitStorage = engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	responder := &engine.Responder{MaxComputedUsage: cfg.RalsCfg().MaxComputedUsage}
-	dm = engine.NewDataManager(apierDebitStorage, config.CgrConfig().CacheCfg(), nil)
+	dm = engine.NewDataManager(apierDebitStorage, cfg.CacheCfg(), nil)
 	engine.SetDataStorage(dm)
 	apierDebit = &APIerSv1{
 		DataManager: dm,
@@ -69,7 +69,7 @@ func TestDebitUsageWithOptions(t *testing.T) {
 	cgrAcnt1 := &engine.Account{
 		ID: utils.ConcatenatedKey(cgrTenant, "account1"),
 		BalanceMap: map[string]engine.Balances{
-			utils.MONETARY: {b10},
+			utils.MetaMonetary: {b10},
 		},
 	}
 	if err := apierDebitStorage.SetAccountDrv(cgrAcnt1); err != nil {
@@ -80,7 +80,7 @@ func TestDebitUsageWithOptions(t *testing.T) {
 	if err := apierDebitStorage.SetDestinationDrv(dstDe, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
-	if err := apierDebitStorage.SetReverseDestinationDrv(dstDe, utils.NonTransactional); err != nil {
+	if err := apierDebitStorage.SetReverseDestinationDrv(dstDe.Id, dstDe.Prefixes, utils.NonTransactional); err != nil {
 		t.Error(err)
 	}
 	rp1 := &engine.RatingPlan{
@@ -97,7 +97,7 @@ func TestDebitUsageWithOptions(t *testing.T) {
 		Ratings: map[string]*engine.RIRate{
 			"b457f86d": {
 				ConnectFee: 0,
-				Rates: []*engine.Rate{
+				Rates: []*engine.RGRate{
 					{
 						GroupIntervalStart: 0,
 						Value:              0.03,
@@ -105,7 +105,7 @@ func TestDebitUsageWithOptions(t *testing.T) {
 						RateUnit:           time.Second,
 					},
 				},
-				RoundingMethod:   utils.ROUNDING_MIDDLE,
+				RoundingMethod:   utils.MetaRoundingMiddle,
 				RoundingDecimals: 4,
 			},
 		},
@@ -119,7 +119,7 @@ func TestDebitUsageWithOptions(t *testing.T) {
 			},
 		},
 	}
-	if err := dm.SetRatingPlan(rp1, utils.NonTransactional); err != nil {
+	if err := dm.SetRatingPlan(rp1); err != nil {
 		t.Error(err)
 	}
 
@@ -130,7 +130,7 @@ func TestDebitUsageWithOptions(t *testing.T) {
 			FallbackKeys:   []string{},
 		}},
 	}
-	if err := dm.SetRatingProfile(rpfl, utils.NonTransactional); err != nil {
+	if err := dm.SetRatingProfile(rpfl); err != nil {
 		t.Error(err)
 	}
 
@@ -139,15 +139,15 @@ func TestDebitUsageWithOptions(t *testing.T) {
 		Account:     "account1",
 		Destination: "*any",
 		Usage:       "1",
-		ToR:         utils.MONETARY,
+		ToR:         utils.MetaMonetary,
 		Category:    "call",
 		SetupTime:   time.Date(2013, 11, 7, 7, 42, 20, 0, time.UTC).String(),
 		AnswerTime:  time.Date(2013, 11, 7, 7, 42, 20, 0, time.UTC).String(),
 	}
 
 	var reply string
-	if err := apierDebit.DebitUsageWithOptions(AttrDebitUsageWithOptions{
-		UsageRecord:          &engine.UsageRecordWithArgDispatcher{UsageRecord: usageRecord},
+	if err := apierDebit.DebitUsageWithOptions(&AttrDebitUsageWithOptions{
+		UsageRecord:          &engine.UsageRecordWithAPIOpts{UsageRecord: usageRecord},
 		AllowNegativeAccount: false}, &reply); err != nil {
 		t.Error(err)
 	}
@@ -158,8 +158,8 @@ func TestDebitUsageWithOptions(t *testing.T) {
 		t.Error(err)
 	}
 	eAcntVal := 9.0
-	if resolvedAccount.BalanceMap[utils.MONETARY].GetTotalValue() != eAcntVal {
+	if resolvedAccount.BalanceMap[utils.MetaMonetary].GetTotalValue() != eAcntVal {
 		t.Errorf("Expected: %f, received: %f", eAcntVal,
-			resolvedAccount.BalanceMap[utils.MONETARY].GetTotalValue())
+			resolvedAccount.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 }

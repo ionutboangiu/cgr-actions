@@ -26,7 +26,7 @@ func init() {
 	c := &CmdCacheHasItem{
 		name:      "cache_has_item",
 		rpcMethod: utils.CacheSv1HasItem,
-		rpcParams: &utils.ArgsGetCacheItemWithArgDispatcher{},
+		rpcParams: &utils.ArgsGetCacheItemWithAPIOpts{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +36,7 @@ func init() {
 type CmdCacheHasItem struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.ArgsGetCacheItemWithArgDispatcher
+	rpcParams *utils.ArgsGetCacheItemWithAPIOpts
 	*CommandExecuter
 }
 
@@ -48,9 +48,9 @@ func (self *CmdCacheHasItem) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdCacheHasItem) RpcParams(reset bool) interface{} {
+func (self *CmdCacheHasItem) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.ArgsGetCacheItemWithArgDispatcher{}
+		self.rpcParams = &utils.ArgsGetCacheItemWithAPIOpts{}
 	}
 	return self.rpcParams
 }
@@ -59,7 +59,7 @@ func (self *CmdCacheHasItem) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdCacheHasItem) RpcResult() interface{} {
+func (self *CmdCacheHasItem) RpcResult() any {
 	var reply bool
 	return &reply
 }

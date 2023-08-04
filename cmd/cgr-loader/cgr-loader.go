@@ -15,9 +15,11 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
+
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -31,116 +33,172 @@ import (
 )
 
 var (
-	err    error
-	dm     *engine.DataManager
-	storDb engine.LoadStorage
-	loader engine.LoadReader
+	dataDB engine.DataDB
+	storDB engine.LoadStorage
 
-	cgrLoaderFlags = flag.NewFlagSet("cgr-loader", flag.ContinueOnError)
+	cgrLoaderFlags = flag.NewFlagSet(utils.CgrLoader, flag.ContinueOnError)
 	dfltCfg        = config.CgrConfig()
-	cfgPath        = cgrLoaderFlags.String("config_path", "",
+	cfgPath        = cgrLoaderFlags.String(utils.CfgPathCgr, utils.EmptyString,
 		"Configuration directory path.")
-
-	dataDBType = cgrLoaderFlags.String("datadb_type", dfltCfg.DataDbCfg().DataDbType,
+	dataDBType = cgrLoaderFlags.String(utils.DataDBTypeCgr, dfltCfg.DataDbCfg().Type,
 		"The type of the DataDB database <*redis|*mongo>")
-	dataDBHost = cgrLoaderFlags.String("datadb_host", dfltCfg.DataDbCfg().DataDbHost,
+	dataDBHost = cgrLoaderFlags.String(utils.DataDBHostCgr, dfltCfg.DataDbCfg().Host,
 		"The DataDb host to connect to.")
-	dataDBPort = cgrLoaderFlags.String("datadb_port", dfltCfg.DataDbCfg().DataDbPort,
+	dataDBPort = cgrLoaderFlags.String(utils.DataDBPortCgr, dfltCfg.DataDbCfg().Port,
 		"The DataDb port to bind to.")
-	dataDBName = cgrLoaderFlags.String("datadb_name", dfltCfg.DataDbCfg().DataDbName,
+	dataDBName = cgrLoaderFlags.String(utils.DataDBNameCgr, dfltCfg.DataDbCfg().Name,
 		"The name/number of the DataDb to connect to.")
-	dataDBUser = cgrLoaderFlags.String("datadb_user", dfltCfg.DataDbCfg().DataDbUser,
+	dataDBUser = cgrLoaderFlags.String(utils.DataDBUserCgr, dfltCfg.DataDbCfg().User,
 		"The DataDb user to sign in as.")
-	dataDBPasswd = cgrLoaderFlags.String("datadb_passwd", dfltCfg.DataDbCfg().DataDbPass,
+	dataDBPasswd = cgrLoaderFlags.String(utils.DataDBPasswdCgr, dfltCfg.DataDbCfg().Password,
 		"The DataDb user's password.")
-	dbDataEncoding = cgrLoaderFlags.String("dbdata_encoding", dfltCfg.GeneralCfg().DBDataEncoding,
+	dbDataEncoding = cgrLoaderFlags.String(utils.DBDataEncodingCfg, dfltCfg.GeneralCfg().DBDataEncoding,
 		"The encoding used to store object data in strings")
-	dbRedisSentinel = cgrLoaderFlags.String("redis_sentinel", dfltCfg.DataDbCfg().DataDbSentinelName,
+	dbRedisMaxConns = cgrLoaderFlags.Int(utils.RedisMaxConnsCfg, dfltCfg.DataDbCfg().Opts.RedisMaxConns,
+		"The connection pool size")
+	dbRedisConnectAttempts = cgrLoaderFlags.Int(utils.RedisConnectAttemptsCfg, dfltCfg.DataDbCfg().Opts.RedisConnectAttempts,
+		"The maximum amount of dial attempts")
+	dbRedisSentinel = cgrLoaderFlags.String(utils.RedisSentinelNameCfg, dfltCfg.DataDbCfg().Opts.RedisSentinel,
 		"The name of redis sentinel")
+	dbRedisCluster = cgrLoaderFlags.Bool(utils.RedisClusterCfg, false,
+		"Is the redis datadb a cluster")
+	dbRedisClusterSync = cgrLoaderFlags.Duration(utils.RedisClusterSyncCfg, dfltCfg.DataDbCfg().Opts.RedisClusterSync,
+		"The sync interval for the redis cluster")
+	dbRedisClusterDownDelay = cgrLoaderFlags.Duration(utils.RedisClusterOnDownDelayCfg, dfltCfg.DataDbCfg().Opts.RedisClusterOndownDelay,
+		"The delay before executing the commands if the redis cluster is in the CLUSTERDOWN state")
+	dbRedisConnectTimeout = cgrLoaderFlags.Duration(utils.RedisConnectTimeoutCfg, dfltCfg.DataDbCfg().Opts.RedisConnectTimeout,
+		"The amount of wait time until timeout for a connection attempt")
+	dbRedisReadTimeout = cgrLoaderFlags.Duration(utils.RedisReadTimeoutCfg, dfltCfg.DataDbCfg().Opts.RedisReadTimeout,
+		"The amount of wait time until timeout for reading operations")
+	dbRedisWriteTimeout = cgrLoaderFlags.Duration(utils.RedisWriteTimeoutCfg, dfltCfg.DataDbCfg().Opts.RedisWriteTimeout,
+		"The amount of wait time until timeout for writing operations")
+	dbQueryTimeout = cgrLoaderFlags.Duration(utils.MongoQueryTimeoutCfg, dfltCfg.DataDbCfg().Opts.MongoQueryTimeout,
+		"The timeout for queries")
+	dbRedisTls               = cgrLoaderFlags.Bool(utils.RedisTLS, false, "Enable TLS when connecting to Redis")
+	dbRedisClientCertificate = cgrLoaderFlags.String(utils.RedisClientCertificate, utils.EmptyString, "Path to the client certificate")
+	dbRedisClientKey         = cgrLoaderFlags.String(utils.RedisClientKey, utils.EmptyString, "Path to the client key")
+	dbRedisCACertificate     = cgrLoaderFlags.String(utils.RedisCACertificate, utils.EmptyString, "Path to the CA certificate")
 
-	storDBType = cgrLoaderFlags.String("stordb_type", dfltCfg.StorDbCfg().Type,
+	storDBType = cgrLoaderFlags.String(utils.StorDBTypeCgr, dfltCfg.StorDbCfg().Type,
 		"The type of the storDb database <*mysql|*postgres|*mongo>")
-	storDBHost = cgrLoaderFlags.String("stordb_host", dfltCfg.StorDbCfg().Host,
+	storDBHost = cgrLoaderFlags.String(utils.StorDBHostCgr, dfltCfg.StorDbCfg().Host,
 		"The storDb host to connect to.")
-	storDBPort = cgrLoaderFlags.String("stordb_port", dfltCfg.StorDbCfg().Port,
+	storDBPort = cgrLoaderFlags.String(utils.StorDBPortCgr, dfltCfg.StorDbCfg().Port,
 		"The storDb port to bind to.")
-	storDBName = cgrLoaderFlags.String("stordb_name", dfltCfg.StorDbCfg().Name,
+	storDBName = cgrLoaderFlags.String(utils.StorDBNameCgr, dfltCfg.StorDbCfg().Name,
 		"The name/number of the storDb to connect to.")
-	storDBUser = cgrLoaderFlags.String("stordb_user", dfltCfg.StorDbCfg().User,
+	storDBUser = cgrLoaderFlags.String(utils.StorDBUserCgr, dfltCfg.StorDbCfg().User,
 		"The storDb user to sign in as.")
-	storDBPasswd = cgrLoaderFlags.String("stordb_passwd", dfltCfg.StorDbCfg().Password,
+	storDBPasswd = cgrLoaderFlags.String(utils.StorDBPasswdCgr, dfltCfg.StorDbCfg().Password,
 		"The storDb user's password.")
 
-	cachingArg = cgrLoaderFlags.String("caching", "",
+	cachingArg = cgrLoaderFlags.String(utils.CachingArgCgr, utils.EmptyString,
 		"Caching strategy used when loading TP")
-	tpid = cgrLoaderFlags.String("tpid", dfltCfg.LoaderCgrCfg().TpID,
+	tpid = cgrLoaderFlags.String(utils.TpIDCfg, dfltCfg.LoaderCgrCfg().TpID,
 		"The tariff plan ID from the database")
-	dataPath = cgrLoaderFlags.String("path", dfltCfg.LoaderCgrCfg().DataPath,
+	dataPath = cgrLoaderFlags.String(utils.PathCfg, dfltCfg.LoaderCgrCfg().DataPath,
 		"The path to folder containing the data files")
-	version = cgrLoaderFlags.Bool("version", false,
+	version = cgrLoaderFlags.Bool(utils.VersionCgr, false,
 		"Prints the application version.")
-	verbose = cgrLoaderFlags.Bool("verbose", false,
+	verbose = cgrLoaderFlags.Bool(utils.VerboseCgr, false,
 		"Enable detailed verbose logging output")
-	dryRun = cgrLoaderFlags.Bool("dry_run", false,
+	dryRun = cgrLoaderFlags.Bool(utils.DryRunCfg, false,
 		"When true will not save loaded data to dataDb but just parse it for consistency and errors.")
-	fieldSep = cgrLoaderFlags.String("field_sep", ",",
+	fieldSep = cgrLoaderFlags.String(utils.FieldSepCgr, ",",
 		`Separator for csv file (by default "," is used)`)
-	recursive = cgrLoaderFlags.Bool("recursive", false, "Loads data from folder recursive.")
 
-	importID       = cgrLoaderFlags.String("import_id", "", "Uniquely identify an import/load, postpended to some automatic fields")
-	timezone       = cgrLoaderFlags.String("timezone", "", `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
-	disableReverse = cgrLoaderFlags.Bool("disable_reverse_mappings", false, "Will disable reverse mappings rebuilding")
-	flushStorDB    = cgrLoaderFlags.Bool("flush_stordb", false, "Remove tariff plan data for id from the database")
-	remove         = cgrLoaderFlags.Bool("remove", false, "Will remove instead of adding data from DB")
-	apiKey         = cgrLoaderFlags.String("api_key", "", "Api Key used to comosed ArgDispatcher")
-	routeID        = cgrLoaderFlags.String("route_id", "", "RouteID used to comosed ArgDispatcher")
+	importID       = cgrLoaderFlags.String(utils.ImportIDCgr, utils.EmptyString, "Uniquely identify an import/load, postpended to some automatic fields")
+	timezone       = cgrLoaderFlags.String(utils.TimezoneCfg, dfltCfg.GeneralCfg().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+	disableReverse = cgrLoaderFlags.Bool(utils.DisableReverseCgr, false, "Will disable reverse mappings rebuilding")
+	flushStorDB    = cgrLoaderFlags.Bool(utils.FlushStorDB, false, "Remove tariff plan data for id from the database")
+	remove         = cgrLoaderFlags.Bool(utils.RemoveCgr, false, "Will remove instead of adding data from DB")
+	apiKey         = cgrLoaderFlags.String(utils.APIKeyCfg, utils.EmptyString, "Api Key used to comosed ArgDispatcher")
+	routeID        = cgrLoaderFlags.String(utils.RouteIDCfg, utils.EmptyString, "RouteID used to comosed ArgDispatcher")
 	tenant         = cgrLoaderFlags.String(utils.TenantCfg, dfltCfg.GeneralCfg().DefaultTenant, "")
 
-	fromStorDB    = cgrLoaderFlags.Bool("from_stordb", false, "Load the tariff plan from storDb to dataDb")
-	toStorDB      = cgrLoaderFlags.Bool("to_stordb", false, "Import the tariff plan from files to storDb")
-	cacheSAddress = cgrLoaderFlags.String("caches_address", dfltCfg.LoaderCgrCfg().CachesConns[0],
+	fromStorDB    = cgrLoaderFlags.Bool(utils.FromStorDBCgr, false, "Load the tariff plan from storDb to dataDb")
+	toStorDB      = cgrLoaderFlags.Bool(utils.ToStorDBcgr, false, "Import the tariff plan from files to storDb")
+	cacheSAddress = cgrLoaderFlags.String(utils.CacheSAddress, dfltCfg.LoaderCgrCfg().CachesConns[0],
 		"CacheS component to contact for cache reloads, empty to disable automatic cache reloads")
-	schedulerAddress = cgrLoaderFlags.String("scheduler_address", dfltCfg.LoaderCgrCfg().SchedulerConns[0], "")
-	rpcEncoding      = cgrLoaderFlags.String("rpc_encoding", rpcclient.JSONrpc, "RPC encoding used <*gob|*json>")
+	schedulerAddress = cgrLoaderFlags.String(utils.SchedulerAddress, dfltCfg.LoaderCgrCfg().SchedulerConns[0], "")
+	rpcEncoding      = cgrLoaderFlags.String(utils.RpcEncodingCgr, rpcclient.JSONrpc, "RPC encoding used <*gob|*json>")
 )
 
 func loadConfig() (ldrCfg *config.CGRConfig) {
 	ldrCfg = config.CgrConfig()
-	if *cfgPath != "" {
+	if *cfgPath != utils.EmptyString {
+		var err error
 		if ldrCfg, err = config.NewCGRConfigFromPath(*cfgPath); err != nil {
-			log.Fatalf("Error loading config file %s", err.Error())
+			log.Fatalf("Error loading config file %s", err)
 		}
 		config.SetCgrConfig(ldrCfg)
 	}
 	// Data for DataDB
-	if *dataDBType != dfltCfg.DataDbCfg().DataDbType {
-		ldrCfg.DataDbCfg().DataDbType = *dataDBType
+	if *dataDBType != dfltCfg.DataDbCfg().Type {
+		ldrCfg.DataDbCfg().Type = *dataDBType
 	}
 
-	if *dataDBHost != dfltCfg.DataDbCfg().DataDbHost {
-		ldrCfg.DataDbCfg().DataDbHost = *dataDBHost
+	if *dataDBHost != dfltCfg.DataDbCfg().Host {
+		ldrCfg.DataDbCfg().Host = *dataDBHost
 	}
 
-	if *dataDBPort != dfltCfg.DataDbCfg().DataDbPort {
-		ldrCfg.DataDbCfg().DataDbPort = *dataDBPort
+	if *dataDBPort != dfltCfg.DataDbCfg().Port {
+		ldrCfg.DataDbCfg().Port = *dataDBPort
 	}
 
-	if *dataDBName != dfltCfg.DataDbCfg().DataDbName {
-		ldrCfg.DataDbCfg().DataDbName = *dataDBName
+	if *dataDBName != dfltCfg.DataDbCfg().Name {
+		ldrCfg.DataDbCfg().Name = *dataDBName
 	}
 
-	if *dataDBUser != dfltCfg.DataDbCfg().DataDbUser {
-		ldrCfg.DataDbCfg().DataDbUser = *dataDBUser
+	if *dataDBUser != dfltCfg.DataDbCfg().User {
+		ldrCfg.DataDbCfg().User = *dataDBUser
 	}
 
-	if *dataDBPasswd != dfltCfg.DataDbCfg().DataDbPass {
-		ldrCfg.DataDbCfg().DataDbPass = *dataDBPasswd
+	if *dataDBPasswd != dfltCfg.DataDbCfg().Password {
+		ldrCfg.DataDbCfg().Password = *dataDBPasswd
 	}
-
-	if *dbRedisSentinel != dfltCfg.DataDbCfg().DataDbSentinelName {
-		ldrCfg.DataDbCfg().DataDbSentinelName = *dbRedisSentinel
+	if *dbRedisMaxConns != dfltCfg.DataDbCfg().Opts.RedisMaxConns {
+		ldrCfg.DataDbCfg().Opts.RedisMaxConns = *dbRedisMaxConns
 	}
-
+	if *dbRedisConnectAttempts != dfltCfg.DataDbCfg().Opts.RedisConnectAttempts {
+		ldrCfg.DataDbCfg().Opts.RedisConnectAttempts = *dbRedisConnectAttempts
+	}
+	if *dbRedisSentinel != dfltCfg.DataDbCfg().Opts.RedisSentinel {
+		ldrCfg.DataDbCfg().Opts.RedisSentinel = *dbRedisSentinel
+	}
+	if *dbRedisCluster != dfltCfg.DataDbCfg().Opts.RedisCluster {
+		ldrCfg.DataDbCfg().Opts.RedisCluster = *dbRedisCluster
+	}
+	if *dbRedisClusterSync != dfltCfg.DataDbCfg().Opts.RedisClusterSync {
+		ldrCfg.DataDbCfg().Opts.RedisClusterSync = *dbRedisClusterSync
+	}
+	if *dbRedisClusterDownDelay != dfltCfg.DataDbCfg().Opts.RedisClusterOndownDelay {
+		ldrCfg.DataDbCfg().Opts.RedisClusterOndownDelay = *dbRedisClusterDownDelay
+	}
+	if *dbRedisConnectTimeout != dfltCfg.DataDbCfg().Opts.RedisConnectTimeout {
+		ldrCfg.DataDbCfg().Opts.RedisConnectTimeout = *dbRedisConnectTimeout
+	}
+	if *dbRedisReadTimeout != dfltCfg.DataDbCfg().Opts.RedisReadTimeout {
+		ldrCfg.DataDbCfg().Opts.RedisReadTimeout = *dbRedisReadTimeout
+	}
+	if *dbRedisWriteTimeout != dfltCfg.DataDbCfg().Opts.RedisWriteTimeout {
+		ldrCfg.DataDbCfg().Opts.RedisWriteTimeout = *dbRedisWriteTimeout
+	}
+	if *dbQueryTimeout != dfltCfg.DataDbCfg().Opts.MongoQueryTimeout {
+		ldrCfg.DataDbCfg().Opts.MongoQueryTimeout = *dbQueryTimeout
+	}
+	if *dbRedisTls != dfltCfg.DataDbCfg().Opts.RedisTLS {
+		ldrCfg.DataDbCfg().Opts.RedisTLS = *dbRedisTls
+	}
+	if *dbRedisClientCertificate != dfltCfg.DataDbCfg().Opts.RedisClientCertificate {
+		ldrCfg.DataDbCfg().Opts.RedisClientCertificate = *dbRedisClientCertificate
+	}
+	if *dbRedisClientKey != dfltCfg.DataDbCfg().Opts.RedisClientKey {
+		ldrCfg.DataDbCfg().Opts.RedisClientKey = *dbRedisClientKey
+	}
+	if *dbRedisCACertificate != dfltCfg.DataDbCfg().Opts.RedisCACertificate {
+		ldrCfg.DataDbCfg().Opts.RedisCACertificate = *dbRedisCACertificate
+	}
 	if *dbDataEncoding != dfltCfg.GeneralCfg().DBDataEncoding {
 		ldrCfg.GeneralCfg().DBDataEncoding = *dbDataEncoding
 	}
@@ -170,7 +228,7 @@ func loadConfig() (ldrCfg *config.CGRConfig) {
 		ldrCfg.StorDbCfg().Password = *storDBPasswd
 	}
 
-	if *tpid != dfltCfg.LoaderCgrCfg().DataPath {
+	if *tpid != dfltCfg.LoaderCgrCfg().TpID {
 		ldrCfg.LoaderCgrCfg().TpID = *tpid
 	}
 
@@ -216,7 +274,7 @@ func loadConfig() (ldrCfg *config.CGRConfig) {
 		}
 	}
 
-	if *importID == "" {
+	if *importID == utils.EmptyString {
 		*importID = utils.UUIDSha1Prefix()
 	}
 
@@ -227,89 +285,104 @@ func loadConfig() (ldrCfg *config.CGRConfig) {
 	if *disableReverse != dfltCfg.LoaderCgrCfg().DisableReverse {
 		ldrCfg.LoaderCgrCfg().DisableReverse = *disableReverse
 	}
+
+	if *cachingArg != utils.EmptyString {
+		ldrCfg.GeneralCfg().DefaultCaching = *cachingArg
+	}
+	return
+}
+
+func importData(cfg *config.CGRConfig) (err error) {
+	if cfg.LoaderCgrCfg().TpID == utils.EmptyString {
+		return errors.New("TPid required")
+	}
+	if *flushStorDB {
+		if err = storDB.RemTpData(utils.EmptyString, cfg.LoaderCgrCfg().TpID, map[string]string{}); err != nil {
+			return
+		}
+	}
+	csvImporter := engine.TPCSVImporter{
+		TPid:     cfg.LoaderCgrCfg().TpID,
+		StorDb:   storDB,
+		DirPath:  *dataPath,
+		Sep:      cfg.LoaderCgrCfg().FieldSeparator,
+		Verbose:  *verbose,
+		ImportId: *importID,
+	}
+	return csvImporter.Run()
+}
+
+func getLoader(cfg *config.CGRConfig) (loader engine.LoadReader, err error) {
+	if *fromStorDB { // Load Tariff Plan from storDb into dataDb
+		loader = storDB
+		return
+	}
+	if gprefix := utils.MetaGoogleAPI + utils.ConcatenatedKeySep; strings.HasPrefix(*dataPath, gprefix) { // Default load from csv files to dataDb
+		return engine.NewGoogleCSVStorage(cfg.LoaderCgrCfg().FieldSeparator, strings.TrimPrefix(*dataPath, gprefix))
+	}
+	if !utils.IsURL(*dataPath) {
+		return engine.NewFileCSVStorage(cfg.LoaderCgrCfg().FieldSeparator, *dataPath)
+	}
+	loader = engine.NewURLCSVStorage(cfg.LoaderCgrCfg().FieldSeparator, *dataPath)
 	return
 }
 
 func main() {
-	if err := cgrLoaderFlags.Parse(os.Args[1:]); err != nil {
-		return
+	var err error
+	if err = cgrLoaderFlags.Parse(os.Args[1:]); err != nil {
+		log.Fatal(err)
 	}
 	if *version {
-		if rcv, err := utils.GetCGRVersion(); err != nil {
-			fmt.Println(err)
-		} else {
-			fmt.Println(rcv)
+		var version string
+		if version, err = utils.GetCGRVersion(); err != nil {
+			log.Fatal(err)
 		}
+		fmt.Println(version)
 		return
 	}
 
 	ldrCfg := loadConfig()
 	// we initialize connManager here with nil for InternalChannels
-	cM := engine.NewConnManager(ldrCfg, nil)
+	engine.NewConnManager(ldrCfg, nil)
 
 	if !*toStorDB {
-		d, err := engine.NewDataDBConn(ldrCfg.DataDbCfg().DataDbType,
-			ldrCfg.DataDbCfg().DataDbHost, ldrCfg.DataDbCfg().DataDbPort,
-			ldrCfg.DataDbCfg().DataDbName, ldrCfg.DataDbCfg().DataDbUser,
-			ldrCfg.DataDbCfg().DataDbPass, ldrCfg.GeneralCfg().DBDataEncoding,
-			ldrCfg.DataDbCfg().DataDbSentinelName, ldrCfg.DataDbCfg().Items)
-		if err != nil {
+		if dataDB, err = engine.NewDataDBConn(ldrCfg.DataDbCfg().Type,
+			ldrCfg.DataDbCfg().Host, ldrCfg.DataDbCfg().Port,
+			ldrCfg.DataDbCfg().Name, ldrCfg.DataDbCfg().User,
+			ldrCfg.DataDbCfg().Password, ldrCfg.GeneralCfg().DBDataEncoding,
+			ldrCfg.DataDbCfg().Opts, ldrCfg.DataDbCfg().Items); err != nil {
 			log.Fatalf("Coud not open dataDB connection: %s", err.Error())
 		}
-		dm = engine.NewDataManager(d, config.CgrConfig().CacheCfg(), cM)
-		defer dm.DataDB().Close()
+		defer dataDB.Close()
 	}
 
 	if *fromStorDB || *toStorDB {
-		if storDb, err = engine.NewStorDBConn(ldrCfg.StorDbCfg().Type,
+		if storDB, err = engine.NewStorDBConn(ldrCfg.StorDbCfg().Type,
 			ldrCfg.StorDbCfg().Host, ldrCfg.StorDbCfg().Port,
 			ldrCfg.StorDbCfg().Name, ldrCfg.StorDbCfg().User,
-			ldrCfg.StorDbCfg().Password, ldrCfg.GeneralCfg().DBDataEncoding, ldrCfg.StorDbCfg().SSLMode,
-			ldrCfg.StorDbCfg().MaxOpenConns, ldrCfg.StorDbCfg().MaxIdleConns,
-			ldrCfg.StorDbCfg().ConnMaxLifetime, ldrCfg.StorDbCfg().StringIndexedFields,
-			ldrCfg.StorDbCfg().PrefixIndexedFields, ldrCfg.StorDbCfg().Items); err != nil {
+			ldrCfg.StorDbCfg().Password, ldrCfg.GeneralCfg().DBDataEncoding,
+			ldrCfg.StorDbCfg().StringIndexedFields, ldrCfg.StorDbCfg().PrefixIndexedFields,
+			ldrCfg.StorDbCfg().Opts, ldrCfg.StorDbCfg().Items); err != nil {
 			log.Fatalf("Coud not open storDB connection: %s", err.Error())
 		}
-		defer storDb.Close()
+		defer storDB.Close()
 	}
 
 	if !*dryRun && *toStorDB { // Import files from a directory into storDb
-		if ldrCfg.LoaderCgrCfg().TpID == "" {
-			log.Fatal("TPid required.")
-		}
-		if *flushStorDB {
-			if err = storDb.RemTpData("", ldrCfg.LoaderCgrCfg().TpID, map[string]string{}); err != nil {
-				log.Fatal(err)
-			}
-		}
-		csvImporter := engine.TPCSVImporter{
-			TPid:     ldrCfg.LoaderCgrCfg().TpID,
-			StorDb:   storDb,
-			DirPath:  *dataPath,
-			Sep:      ldrCfg.LoaderCgrCfg().FieldSeparator,
-			Verbose:  *verbose,
-			ImportId: *importID,
-		}
-		if errImport := csvImporter.Run(); errImport != nil {
-			log.Fatal(errImport)
+		if err = importData(ldrCfg); err != nil {
+			log.Fatal(err)
 		}
 		return
 	}
-
-	if *fromStorDB { // Load Tariff Plan from storDb into dataDb
-		loader = storDb
-	} else if gprefix := utils.MetaGoogleAPI + utils.CONCATENATED_KEY_SEP; strings.HasPrefix(*dataPath, gprefix) { // Default load from csv files to dataDb
-		loader, err = engine.NewGoogleCSVStorage(ldrCfg.LoaderCgrCfg().FieldSeparator, strings.TrimPrefix(*dataPath, gprefix), *cfgPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		loader = engine.NewFileCSVStorage(ldrCfg.LoaderCgrCfg().FieldSeparator, *dataPath, *recursive)
+	var loader engine.LoadReader
+	if loader, err = getLoader(ldrCfg); err != nil {
+		log.Fatal(err)
 	}
-
-	tpReader, err := engine.NewTpReader(dm.DataDB(), loader, ldrCfg.LoaderCgrCfg().TpID,
-		ldrCfg.GeneralCfg().DefaultTimezone, ldrCfg.LoaderCgrCfg().CachesConns, ldrCfg.LoaderCgrCfg().SchedulerConns)
-	if err != nil {
+	var tpReader *engine.TpReader
+	if tpReader, err = engine.NewTpReader(dataDB, loader,
+		ldrCfg.LoaderCgrCfg().TpID, ldrCfg.GeneralCfg().DefaultTimezone,
+		ldrCfg.LoaderCgrCfg().CachesConns,
+		ldrCfg.LoaderCgrCfg().SchedulerConns, false); err != nil {
 		log.Fatal(err)
 	}
 	if err = tpReader.LoadAll(); err != nil {
@@ -321,29 +394,26 @@ func main() {
 	}
 
 	if *remove {
-		if err := tpReader.RemoveFromDatabase(*verbose, *disableReverse); err != nil {
+		if err = tpReader.RemoveFromDatabase(*verbose, *disableReverse); err != nil {
 			log.Fatal("Could not delete from database: ", err)
 		}
-		return
+	} else {
+		// write maps to database
+		if err = tpReader.WriteToDatabase(*verbose, *disableReverse); err != nil {
+			log.Fatal("Could not write to database: ", err)
+		}
 	}
 
-	// write maps to database
-	if err := tpReader.WriteToDatabase(*verbose, *disableReverse); err != nil {
-		log.Fatal("Could not write to database: ", err)
-	}
-	caching := config.CgrConfig().GeneralCfg().DefaultCaching
-	if cachingArg != nil && *cachingArg != utils.EmptyString {
-		caching = *cachingArg
-	}
 	// reload cache
-	if err := tpReader.ReloadCache(caching, *verbose, &utils.ArgDispatcher{
-		APIKey:  apiKey,
-		RouteID: routeID,
+	if err = tpReader.ReloadCache(ldrCfg.GeneralCfg().DefaultCaching, *verbose, map[string]any{
+		utils.OptsAPIKey:  *apiKey,
+		utils.OptsRouteID: *routeID,
 	}, *tenant); err != nil {
 		log.Fatal("Could not reload cache: ", err)
 	}
+
 	if len(ldrCfg.LoaderCgrCfg().SchedulerConns) != 0 {
-		if err := tpReader.ReloadScheduler(*verbose); err != nil {
+		if err = tpReader.ReloadScheduler(*verbose); err != nil {
 			log.Fatal("Could not reload scheduler: ", err)
 		}
 	}

@@ -27,14 +27,19 @@ import (
 
 // The output structure that will be returned with the call cost information.
 type CallCost struct {
-	Category, Tenant, Subject, Account, Destination, ToR string
-	Cost                                                 float64
-	Timespans                                            TimeSpans
-	RatedUsage                                           float64
-	AccountSummary                                       *AccountSummary
-	deductConnectFee                                     bool
-	negativeConnectFee                                   bool // the connect fee went negative on default balance
-	maxCostDisconect                                     bool
+	Category           string
+	Tenant             string
+	Subject            string
+	Account            string
+	Destination        string
+	ToR                string
+	Cost               float64
+	Timespans          TimeSpans
+	RatedUsage         float64
+	AccountSummary     *AccountSummary
+	deductConnectFee   bool
+	negativeConnectFee bool // the connect fee went negative on default balance
+	maxCostDisconect   bool
 }
 
 // Merges the received timespan if they are similar (same activation period, same interval, same minute info.
@@ -94,17 +99,8 @@ func (cc *CallCost) CreateCallDescriptor() *CallDescriptor {
 	}
 }
 
-func (cc *CallCost) IsPaid() bool {
-	for _, ts := range cc.Timespans {
-		if paid, _ := ts.IsPaid(); !paid {
-			return false
-		}
-	}
-	return true
-}
-
 func (cc *CallCost) ToDataCost() (*DataCost, error) {
-	if cc.ToR == utils.VOICE {
+	if cc.ToR == utils.MetaVoice {
 		return nil, errors.New("Not a data call!")
 	}
 	dc := &DataCost{
@@ -140,7 +136,6 @@ func (cc *CallCost) ToDataCost() (*DataCost, error) {
 				Cost:           incr.Cost,
 				BalanceInfo:    incr.BalanceInfo,
 				CompressFactor: incr.CompressFactor,
-				paid:           incr.paid,
 			}
 		}
 	}
@@ -171,7 +166,7 @@ func (cc *CallCost) updateCost() {
 	for _, ts := range cc.Timespans {
 		ts.Cost = ts.CalculateCost()
 		cost += ts.Cost
-		cost = utils.Round(cost, globalRoundingDecimals, utils.ROUNDING_MIDDLE) // just get rid of the extra decimals
+		cost = utils.Round(cost, globalRoundingDecimals, utils.MetaRoundingMiddle) // just get rid of the extra decimals
 	}
 	cc.Cost = cost
 }
@@ -223,7 +218,7 @@ func (cc *CallCost) MatchCCFilter(bf *BalanceFilter) bool {
 	if bf == nil {
 		return true
 	}
-	if bf.Categories != nil && cc.Category != "" && (*bf.Categories)[cc.Category] == false {
+	if bf.Categories != nil && cc.Category != "" && !(*bf.Categories)[cc.Category] {
 		return false
 	}
 	// match destination ids
@@ -231,7 +226,7 @@ func (cc *CallCost) MatchCCFilter(bf *BalanceFilter) bool {
 	if bf.DestinationIDs != nil && cc.Destination != "" {
 		for _, p := range utils.SplitPrefix(cc.Destination, MIN_PREFIX_MATCH) {
 			if destIDs, err := dm.GetReverseDestination(p,
-				false, utils.NonTransactional); err == nil {
+				true, true, utils.NonTransactional); err == nil {
 				for _, dID := range destIDs {
 					if _, ok := (*bf.DestinationIDs)[dID]; ok {
 						foundMatchingDestID = true

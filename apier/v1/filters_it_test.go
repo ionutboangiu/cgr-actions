@@ -23,6 +23,7 @@ package v1
 
 import (
 	"net/rpc"
+	"os"
 	"path"
 	"reflect"
 	"testing"
@@ -37,8 +38,7 @@ var (
 	filterCfgPath   string
 	filterCfg       *config.CGRConfig
 	filterRPC       *rpc.Client
-	filterDataDir   = "/usr/share/cgrates"
-	filter          *FilterWithCache
+	filter          *engine.FilterWithAPIOpts
 	filterConfigDIR string //run tests for specific configuration
 
 	sTestsFilter = []func(t *testing.T){
@@ -46,6 +46,7 @@ var (
 		testFilterResetDataDB,
 		testFilterStartEngine,
 		testFilterRpcConn,
+		testFilterStartCPUProfiling,
 		testFilterGetFilterBeforeSet,
 		testFilterSetFilter,
 		testFilterGetFilterAfterSet,
@@ -54,6 +55,9 @@ var (
 		testFilterGetFilterAfterUpdate,
 		testFilterRemoveFilter,
 		testFilterGetFilterAfterRemove,
+		testFilterSetFilterWithoutTenant,
+		testFilterRemoveFilterWithoutTenant,
+		testFilterStopCPUProfiling,
 		testFilterKillEngine,
 	}
 )
@@ -79,13 +83,11 @@ func TestFilterIT(t *testing.T) {
 
 func testFilterInitCfg(t *testing.T) {
 	var err error
-	filterCfgPath = path.Join(filterDataDir, "conf", "samples", filterConfigDIR)
+	filterCfgPath = path.Join(*dataDir, "conf", "samples", filterConfigDIR)
 	filterCfg, err = config.NewCGRConfigFromPath(filterCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	filterCfg.DataFolderPath = filterDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(filterCfg)
 }
 
 // Wipe out the cdr database
@@ -111,6 +113,17 @@ func testFilterRpcConn(t *testing.T) {
 	}
 }
 
+func testFilterStartCPUProfiling(t *testing.T) {
+	argPath := &utils.DirectoryArgs{
+		DirPath: "/tmp",
+	}
+	var reply string
+	if err := filterRPC.Call(utils.CoreSv1StartCPUProfiling,
+		argPath, &reply); err != nil {
+		t.Error(err)
+	}
+}
+
 func testFilterGetFilterBeforeSet(t *testing.T) {
 	var reply *engine.Filter
 	if err := filterRPC.Call(utils.APIerSv1GetFilter, &utils.TenantID{Tenant: "cgrates.org", ID: "Filter1"}, &reply); err == nil ||
@@ -120,14 +133,14 @@ func testFilterGetFilterBeforeSet(t *testing.T) {
 }
 
 func testFilterSetFilter(t *testing.T) {
-	filter = &FilterWithCache{
+	filter = &engine.FilterWithAPIOpts{
 		Filter: &engine.Filter{
 			Tenant: "cgrates.org",
 			ID:     "Filter1",
 			Rules: []*engine.FilterRule{
 				{
-					Element: utils.MetaString,
-					Type:    "~Account",
+					Element: "~*req.Account",
+					Type:    utils.MetaString,
 					Values:  []string{"1001", "1002"},
 				},
 			},
@@ -149,7 +162,12 @@ func testFilterSetFilter(t *testing.T) {
 func testFilterGetFilterIDs(t *testing.T) {
 	expected := []string{"Filter1"}
 	var result []string
-	if err := filterRPC.Call(utils.APIerSv1GetFilterIDs, utils.TenantArgWithPaginator{TenantArg: utils.TenantArg{Tenant: "cgrates.org"}}, &result); err != nil {
+	if err := filterRPC.Call(utils.APIerSv1GetFilterIDs, &utils.PaginatorWithTenant{}, &result); err != nil {
+		t.Error(err)
+	} else if len(expected) != len(result) {
+		t.Errorf("Expecting : %+v, received: %+v", expected, result)
+	}
+	if err := filterRPC.Call(utils.APIerSv1GetFilterIDs, &utils.PaginatorWithTenant{Tenant: "cgrates.org"}, &result); err != nil {
 		t.Error(err)
 	} else if len(expected) != len(result) {
 		t.Errorf("Expecting : %+v, received: %+v", expected, result)
@@ -168,13 +186,13 @@ func testFilterGetFilterAfterSet(t *testing.T) {
 func testFilterUpdateFilter(t *testing.T) {
 	filter.Rules = []*engine.FilterRule{
 		{
-			Element: utils.MetaString,
-			Type:    "~Account",
+			Element: "~*req.Account",
+			Type:    utils.MetaString,
 			Values:  []string{"1001", "1002"},
 		},
 		{
-			Element: utils.MetaPrefix,
-			Type:    "~Destination",
+			Element: "~*req.Destination",
+			Type:    utils.MetaPrefix,
 			Values:  []string{"10", "20"},
 		},
 	}
@@ -199,7 +217,7 @@ func testFilterGetFilterAfterUpdate(t *testing.T) {
 func testFilterRemoveFilter(t *testing.T) {
 	var resp string
 	if err := filterRPC.Call(utils.APIerSv1RemoveFilter,
-		&utils.TenantIDWithCache{Tenant: "cgrates.org", ID: "Filter1"}, &resp); err != nil {
+		&utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "Filter1"}}, &resp); err != nil {
 		t.Error(err)
 	} else if resp != utils.OK {
 		t.Error("Unexpected reply returned", resp)
@@ -217,6 +235,82 @@ func testFilterGetFilterAfterRemove(t *testing.T) {
 
 func testFilterKillEngine(t *testing.T) {
 	if err := engine.KillEngine(100); err != nil {
+		t.Error(err)
+	}
+}
+
+func testFilterSetFilterWithoutTenant(t *testing.T) {
+	filter = &engine.FilterWithAPIOpts{
+		Filter: &engine.Filter{
+			ID: "FilterWithoutTenant",
+			Rules: []*engine.FilterRule{
+				{
+					Element: "~*req.Account",
+					Type:    utils.MetaString,
+					Values:  []string{"1001", "1002"},
+				},
+			},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+				ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			},
+		},
+	}
+	var reply string
+	if err := filterRPC.Call(utils.APIerSv1SetFilter, filter, &reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply returned", reply)
+	}
+	var result *engine.Filter
+	filter.Filter.Tenant = "cgrates.org"
+	if err := filterRPC.Call(utils.APIerSv1GetFilter,
+		&utils.TenantID{ID: "FilterWithoutTenant"},
+		&result); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(result, filter.Filter) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(filter.Filter), utils.ToJSON(result))
+	}
+}
+
+func testFilterRemoveFilterWithoutTenant(t *testing.T) {
+	var reply string
+	if err := filterRPC.Call(utils.APIerSv1RemoveFilter,
+		&utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{ID: "FilterWithoutTenant"}},
+		&reply); err != nil {
+		t.Error(err)
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply returned", reply)
+	}
+	var result *engine.Filter
+	if err := filterRPC.Call(utils.APIerSv1GetFilter,
+		&utils.TenantID{ID: "FilterWithoutTenant"},
+		&result); err == nil || err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+}
+
+func testFilterStopCPUProfiling(t *testing.T) {
+	var reply string
+	if err := filterRPC.Call(utils.CoreSv1StopCPUProfiling,
+		new(utils.DirectoryArgs), &reply); err != nil {
+		t.Error(err)
+	}
+	file, err := os.Open("/tmp/cpu.prof")
+	if err != nil {
+		t.Error(err)
+	}
+	defer file.Close()
+
+	//compare the size
+	size, err := file.Stat()
+	if err != nil {
+		t.Error(err)
+	} else if size.Size() < int64(415) {
+		t.Errorf("Size of CPUProfile %v is lower that expected", size.Size())
+	}
+	//after we checked that CPUProfile was made successfully, can delete it
+	if err := os.Remove("/tmp/cpu.prof"); err != nil {
 		t.Error(err)
 	}
 }

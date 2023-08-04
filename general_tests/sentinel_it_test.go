@@ -24,6 +24,7 @@ package general_tests
 import (
 	"flag"
 	"net/rpc"
+	"os"
 	"os/exec"
 	"path"
 	"reflect"
@@ -36,16 +37,18 @@ import (
 )
 
 var (
-	node1ConfigPath     = path.Join(*dataDir, "redis_sentinel", "node1.conf")
-	node2ConfigPath     = path.Join(*dataDir, "redis_sentinel", "node2.conf")
-	sentinel1ConfigPath = path.Join(*dataDir, "redis_sentinel", "sentinel1.conf")
-	sentinel2ConfigPath = path.Join(*dataDir, "redis_sentinel", "sentinel2.conf")
-	engineConfigPath    = path.Join(*dataDir, "conf", "samples", "tutsentinel")
+	node1ConfigPath     = path.Join(*dataDir, "redisSentinel", "node1.conf")
+	node2ConfigPath     = path.Join(*dataDir, "redisSentinel", "node2.conf")
+	sentinel1ConfigPath = path.Join(*dataDir, "redisSentinel", "sentinel1.conf")
+	sentinel2ConfigPath = path.Join(*dataDir, "redisSentinel", "sentinel2.conf")
+	engineConfigPath    = path.Join(*dataDir, "conf", "samples", "redisSentinel")
 	sentinelConfig      *config.CGRConfig
 	sentinelRPC         *rpc.Client
-	node1Exec, node2Exec,
-	stlExec1, stlExec2 *exec.Cmd
-	redisSentinel = flag.Bool("redis_sentinel", false, "Run tests with redis sentinel")
+	node1Exec           *exec.Cmd
+	node2Exec           *exec.Cmd
+	stlExec1            *exec.Cmd
+	stlExec2            *exec.Cmd
+	redisSentinel       = flag.Bool("redisSentinel", false, "Run tests with redis sentinel")
 
 	sTestsRds = []func(t *testing.T){
 		testRedisSentinelStartNodes,
@@ -65,20 +68,19 @@ var (
 // Node2 will be slave of node1 and start at port 16380
 // Sentinel1 will be started at port 16381 and will watch Node1
 // Sentinel2 will be started at port 16382 and will watch Node1
+// Also make sure that redis process is stopped
 func TestRedisSentinel(t *testing.T) {
+	if !*redisSentinel {
+		return
+	}
 	switch *dbType {
-	case utils.MetaInternal:
-		t.SkipNow()
 	case utils.MetaMySQL:
-	case utils.MetaMongo:
-		t.SkipNow()
-	case utils.MetaPostgres:
+	case utils.MetaInternal,
+		utils.MetaMongo,
+		utils.MetaPostgres:
 		t.SkipNow()
 	default:
 		t.Fatal("Unknown Database type")
-	}
-	if !*redisSentinel {
-		return
 	}
 	for _, stest := range sTestsRds {
 		t.Run("TestRedisSentinel", stest)
@@ -86,6 +88,10 @@ func TestRedisSentinel(t *testing.T) {
 }
 
 func testRedisSentinelStartNodes(t *testing.T) {
+	if err := os.MkdirAll("/tmp/sentinel/", 0755); err != nil {
+		t.Fatal("Error creating folder: /tmp/sentinel/ ", err)
+	}
+
 	node1Exec = exec.Command("redis-server", node1ConfigPath)
 	if err := node1Exec.Start(); err != nil {
 		t.Error(err)
@@ -110,8 +116,6 @@ func testRedisSentinelInitConfig(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	sentinelConfig.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(sentinelConfig)
 }
 
 func testRedisSentinelFlushDb(t *testing.T) {
@@ -143,7 +147,7 @@ func testRedisSentinelSetGetAttribute(t *testing.T) {
 		Attributes: []*engine.Attribute{
 			{
 				Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
-				Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -158,7 +162,7 @@ func testRedisSentinelSetGetAttribute(t *testing.T) {
 	var reply *engine.AttributeProfile
 	if err := sentinelRPC.Call(utils.APIerSv1GetAttributeProfile,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	reply.Compile()
 	if !reflect.DeepEqual(alsPrf, reply) {
@@ -167,8 +171,7 @@ func testRedisSentinelSetGetAttribute(t *testing.T) {
 }
 
 func testRedisSentinelInsertion(t *testing.T) {
-	nrFails1 := 0
-	nrFails2 := 0
+	var nrFails1, nrFails2 int
 	alsPrf := &engine.AttributeProfile{
 		Tenant:    "cgrates.org",
 		ID:        "ApierTest",
@@ -177,26 +180,24 @@ func testRedisSentinelInsertion(t *testing.T) {
 		Attributes: []*engine.Attribute{
 			{
 				Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
-				Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
 	}
 	orgiginID := alsPrf.ID + "_"
-	id := alsPrf.ID + "_0"
 	index := 0
 	var result string
 	addFunc := func(t *testing.T, nrFail *int) {
-		alsPrf.ID = id
+		alsPrf.ID = orgiginID + strconv.Itoa(index)
 		if err := sentinelRPC.Call(utils.APIerSv1SetAttributeProfile, alsPrf, &result); err != nil {
-			if err.Error() == "SERVER_ERROR: No sentinels active" {
+			if err.Error() == "SERVER_ERROR: EOF" {
 				*nrFail = *nrFail + 1
 			} else {
 				t.Error(err)
 			}
 		}
-		index = index + 1
-		id = orgiginID + strconv.Itoa(index)
+		index++
 	}
 	forFunc1 := func(t *testing.T) {
 		for i := 0; i < 25; i++ {
@@ -207,6 +208,9 @@ func testRedisSentinelInsertion(t *testing.T) {
 			if i == 5 {
 				t.Run("stop1", func(t *testing.T) {
 					t.Parallel()
+					if err := node1Exec.Process.Kill(); err != nil {
+						t.Error(err)
+					}
 					if err := stlExec1.Process.Kill(); err != nil {
 						t.Error(err)
 					}
@@ -215,6 +219,9 @@ func testRedisSentinelInsertion(t *testing.T) {
 			if i == 10 {
 				t.Run("stop2", func(t *testing.T) {
 					t.Parallel()
+					if err := node2Exec.Process.Kill(); err != nil {
+						t.Error(err)
+					}
 					if err := stlExec2.Process.Kill(); err != nil {
 						t.Error(err)
 					}
@@ -242,7 +249,12 @@ func testRedisSentinelInsertion(t *testing.T) {
 	if nrFails1 == 0 {
 		t.Error("Fail tests in case of failover")
 	}
-	if err := exec.Command("redis-sentinel", sentinel1ConfigPath).Start(); err != nil { // Kill the master
+	node1Exec = exec.Command("redis-server", node1ConfigPath)
+	if err := node1Exec.Start(); err != nil {
+		t.Error(err)
+	}
+	node2Exec = exec.Command("redis-server", node2ConfigPath)
+	if err := node2Exec.Start(); err != nil {
 		t.Error(err)
 	}
 	t.Run("for2", forFunc2)
@@ -261,7 +273,7 @@ func testRedisSentinelGetAttrAfterFailover(t *testing.T) {
 		Attributes: []*engine.Attribute{
 			{
 				Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
-				Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+				Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -270,7 +282,7 @@ func testRedisSentinelGetAttrAfterFailover(t *testing.T) {
 	var reply *engine.AttributeProfile
 	if err := sentinelRPC.Call(utils.APIerSv1GetAttributeProfile,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	reply.Compile()
 	if !reflect.DeepEqual(alsPrf, reply) {

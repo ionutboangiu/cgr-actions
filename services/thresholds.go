@@ -22,18 +22,20 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewThresholdService returns the Threshold Service
 func NewThresholdService(cfg *config.CGRConfig, dm *DataDBService,
 	cacheS *engine.CacheS, filterSChan chan *engine.FilterS,
-	server *utils.Server, internalThresholdSChan chan birpc.ClientConnector) servmanager.Service {
+	server *cores.Server, internalThresholdSChan chan rpcclient.ClientConnector,
+	anz *AnalyzerService, srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &ThresholdService{
 		connChan:    internalThresholdSChan,
 		cfg:         cfg,
@@ -41,6 +43,8 @@ func NewThresholdService(cfg *config.CGRConfig, dm *DataDBService,
 		cacheS:      cacheS,
 		filterSChan: filterSChan,
 		server:      server,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -51,11 +55,13 @@ type ThresholdService struct {
 	dm          *DataDBService
 	cacheS      *engine.CacheS
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 
 	thrs     *engine.ThresholdService
 	rpc      *v1.ThresholdSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -63,6 +69,7 @@ func (thrs *ThresholdService) Start() (err error) {
 	if thrs.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
 	}
+	thrs.srvDep[utils.DataDB].Add(1)
 
 	<-thrs.cacheS.GetPrecacheChannel(utils.CacheThresholdProfiles)
 	<-thrs.cacheS.GetPrecacheChannel(utils.CacheThresholds)
@@ -76,18 +83,15 @@ func (thrs *ThresholdService) Start() (err error) {
 
 	thrs.Lock()
 	defer thrs.Unlock()
-	thrs.thrs, err = engine.NewThresholdService(datadb, thrs.cfg, filterS)
-	if err != nil {
-		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.ThresholdS, err.Error()))
-		return
-	}
+	thrs.thrs = engine.NewThresholdService(datadb, thrs.cfg, filterS)
+
 	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.ThresholdS))
 	thrs.thrs.StartLoop()
 	thrs.rpc = v1.NewThresholdSv1(thrs.thrs)
 	if !thrs.cfg.DispatcherSCfg().Enabled {
 		thrs.server.RpcRegister(thrs.rpc)
 	}
-	thrs.connChan <- thrs.rpc
+	thrs.connChan <- thrs.anz.GetInternalCodec(thrs.rpc, utils.ThresholdS)
 	return
 }
 
@@ -101,11 +105,10 @@ func (thrs *ThresholdService) Reload() (err error) {
 
 // Shutdown stops the service
 func (thrs *ThresholdService) Shutdown() (err error) {
+	defer thrs.srvDep[utils.DataDB].Done()
 	thrs.Lock()
 	defer thrs.Unlock()
-	if err = thrs.thrs.Shutdown(); err != nil {
-		return
-	}
+	thrs.thrs.Shutdown()
 	thrs.thrs = nil
 	thrs.rpc = nil
 	<-thrs.connChan

@@ -23,20 +23,22 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	v2 "github.com/cgrates/cgrates/apier/v2"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewCDRServer returns the CDR Server
 func NewCDRServer(cfg *config.CGRConfig, dm *DataDBService,
 	storDB *StorDBService, filterSChan chan *engine.FilterS,
-	server *utils.Server, internalCDRServerChan chan birpc.ClientConnector,
-	connMgr *engine.ConnManager) servmanager.Service {
+	server *cores.Server, internalCDRServerChan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &CDRServer{
 		connChan:    internalCDRServerChan,
 		cfg:         cfg,
@@ -45,6 +47,8 @@ func NewCDRServer(cfg *config.CGRConfig, dm *DataDBService,
 		filterSChan: filterSChan,
 		server:      server,
 		connMgr:     connMgr,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -55,16 +59,17 @@ type CDRServer struct {
 	dm          *DataDBService
 	storDB      *StorDBService
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 
 	cdrS     *engine.CDRServer
 	rpcv1    *v1.CDRsV1
 	rpcv2    *v2.CDRsV2
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
 	connMgr  *engine.ConnManager
 
-	syncStop chan struct{}
-	// storDBChan chan engine.StorDB
+	stopChan chan struct{}
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -81,20 +86,15 @@ func (cdrService *CDRServer) Start() (err error) {
 	datadb := <-dbchan
 	dbchan <- datadb
 
+	storDBChan := make(chan engine.StorDB, 1)
+	cdrService.stopChan = make(chan struct{})
+	cdrService.storDB.RegisterSyncChan(storDBChan)
+
 	cdrService.Lock()
 	defer cdrService.Unlock()
 
-	storDBChan := make(chan engine.StorDB, 1)
-	cdrService.syncStop = make(chan struct{})
-	cdrService.storDB.RegisterSyncChan(storDBChan)
-
 	cdrService.cdrS = engine.NewCDRServer(cdrService.cfg, storDBChan, datadb, filterS, cdrService.connMgr)
-	go func(cdrS *engine.CDRServer, stopChan chan struct{}) {
-		if err := cdrS.ListenAndServe(stopChan); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.CDRServer, err.Error()))
-			// erS.exitChan <- true
-		}
-	}(cdrService.cdrS, cdrService.syncStop)
+	go cdrService.cdrS.ListenAndServe(cdrService.stopChan)
 	runtime.Gosched()
 	utils.Logger.Info("Registering CDRS HTTP Handlers.")
 	cdrService.cdrS.RegisterHandlersToServer(cdrService.server)
@@ -107,7 +107,7 @@ func (cdrService *CDRServer) Start() (err error) {
 		// Make the cdr server available for internal communication
 		cdrService.server.RpcRegister(cdrService.cdrS) // register CdrServer for internal usage (TODO: refactor this)
 	}
-	cdrService.connChan <- cdrService.cdrS // Signal that cdrS is operational
+	cdrService.connChan <- cdrService.anz.GetInternalCodec(cdrService.cdrS, utils.CDRServer) // Signal that cdrS is operational
 	return
 }
 
@@ -119,7 +119,7 @@ func (cdrService *CDRServer) Reload() (err error) {
 // Shutdown stops the service
 func (cdrService *CDRServer) Shutdown() (err error) {
 	cdrService.Lock()
-	close(cdrService.syncStop)
+	close(cdrService.stopChan)
 	cdrService.cdrS = nil
 	cdrService.rpcv1 = nil
 	cdrService.rpcv2 = nil

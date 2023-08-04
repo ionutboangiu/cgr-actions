@@ -21,7 +21,6 @@ package console
 import (
 	"time"
 
-	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -29,7 +28,7 @@ func init() {
 	c := &CmdStatQueueProcessEvent{
 		name:      "stats_process_event",
 		rpcMethod: utils.StatSv1ProcessEvent,
-		rpcParams: &engine.StatsArgsProcessEvent{},
+		rpcParams: &utils.CGREvent{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -39,7 +38,7 @@ func init() {
 type CmdStatQueueProcessEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *engine.StatsArgsProcessEvent
+	rpcParams *utils.CGREvent
 	*CommandExecuter
 }
 
@@ -51,22 +50,22 @@ func (self *CmdStatQueueProcessEvent) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdStatQueueProcessEvent) RpcParams(reset bool) interface{} {
+func (self *CmdStatQueueProcessEvent) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.StatsArgsProcessEvent{ArgDispatcher: new(utils.ArgDispatcher)}
+		self.rpcParams = new(utils.CGREvent)
 	}
 	return self.rpcParams
 }
 
 func (self *CmdStatQueueProcessEvent) PostprocessRpcParams() error {
-	if self.rpcParams != nil && self.rpcParams.CGREvent != nil &&
-		self.rpcParams.CGREvent.Time == nil {
-		self.rpcParams.CGREvent.Time = utils.TimePointer(time.Now())
+	if self.rpcParams != nil &&
+		self.rpcParams.Time == nil {
+		self.rpcParams.Time = utils.TimePointer(time.Now())
 	}
 	return nil
 }
 
-func (self *CmdStatQueueProcessEvent) RpcResult() interface{} {
+func (self *CmdStatQueueProcessEvent) RpcResult() any {
 	var atr []string
 	return &atr
 }

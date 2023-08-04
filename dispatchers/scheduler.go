@@ -19,50 +19,60 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package dispatchers
 
 import (
+	"time"
+
 	"github.com/cgrates/cgrates/utils"
 )
 
-func (dS *DispatcherService) SchedulerSv1Ping(args *utils.CGREventWithArgDispatcher, reply *string) (err error) {
-	if args == nil || (args.CGREvent == nil && args.ArgDispatcher == nil) {
-		args = utils.NewCGREventWithArgDispatcher()
-	} else if args.CGREvent == nil {
-		args.CGREvent = new(utils.CGREvent)
+func (dS *DispatcherService) SchedulerSv1Ping(args *utils.CGREvent, reply *string) (err error) {
+	if args == nil {
+		args = new(utils.CGREvent)
 	}
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.SchedulerSv1Ping,
-			args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+		if err = dS.authorize(utils.SchedulerSv1Ping, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaScheduler, routeID,
-		utils.SchedulerSv1Ping, args, reply)
+	return dS.Dispatch(args, utils.MetaScheduler, utils.SchedulerSv1Ping, args, reply)
 }
 
-func (dS *DispatcherService) SchedulerSv1Reload(args *utils.CGREventWithArgDispatcher, reply *string) (err error) {
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+func (dS *DispatcherService) SchedulerSv1Reload(args *utils.CGREvent, reply *string) (err error) {
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.SchedulerSv1Ping,
-			args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+		if err = dS.authorize(utils.SchedulerSv1Ping, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
+	return dS.Dispatch(args, utils.MetaScheduler, utils.SchedulerSv1Reload, args, reply)
+}
+
+func (dS *DispatcherService) SchedulerSv1ExecuteActions(args *utils.AttrsExecuteActions, reply *string) (err error) {
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
+		if err = dS.authorize(utils.SchedulerSv1ExecuteActions, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
+			return
+		}
 	}
-	return dS.Dispatch(args.CGREvent, utils.MetaScheduler, routeID,
-		utils.SchedulerSv1Reload, args, reply)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  args.Tenant,
+		APIOpts: args.APIOpts,
+	}, utils.MetaScheduler, utils.SchedulerSv1ExecuteActions, args, reply)
+}
+
+func (dS *DispatcherService) SchedulerSv1ExecuteActionPlans(args *utils.AttrsExecuteActionPlans, reply *string) (err error) {
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
+		if err = dS.authorize(utils.SchedulerSv1ExecuteActionPlans, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
+			return
+		}
+	}
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  args.Tenant,
+		APIOpts: args.APIOpts,
+	}, utils.MetaScheduler, utils.SchedulerSv1ExecuteActionPlans, args, reply)
 }

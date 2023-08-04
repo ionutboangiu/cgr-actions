@@ -36,7 +36,7 @@ func init() {
 type CmdApierPing struct {
 	name      string
 	rpcMethod string
-	rpcParams interface{}
+	rpcParams any
 	item      string
 	*CommandExecuter
 }
@@ -51,8 +51,8 @@ func (self *CmdApierPing) Name() string {
 
 func (self *CmdApierPing) RpcMethod() string {
 	switch strings.ToLower(self.item) {
-	case utils.SuppliersLow:
-		return utils.SupplierSv1Ping
+	case utils.RoutesLow:
+		return utils.RouteSv1Ping
 	case utils.AttributesLow:
 		return utils.AttributeSv1Ping
 	case utils.ChargerSLow:
@@ -79,12 +79,14 @@ func (self *CmdApierPing) RpcMethod() string {
 		return utils.ReplicatorSv1Ping
 	case utils.ApierSLow:
 		return utils.APIerSv1Ping
+	case utils.EEsLow:
+		return utils.EeSv1Ping
 	default:
 	}
 	return self.rpcMethod
 }
 
-func (self *CmdApierPing) RpcParams(reset bool) interface{} {
+func (self *CmdApierPing) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
 		self.rpcParams = &StringWrapper{}
 	}
@@ -95,11 +97,11 @@ func (self *CmdApierPing) PostprocessRpcParams() error {
 	if val, can := self.rpcParams.(*StringWrapper); can {
 		self.item = val.Item
 	}
-	self.rpcParams = &utils.CGREventWithArgDispatcher{}
+	self.rpcParams = &utils.CGREvent{}
 	return nil
 }
 
-func (self *CmdApierPing) RpcResult() interface{} {
+func (self *CmdApierPing) RpcResult() any {
 	var s string
 	return &s
 }

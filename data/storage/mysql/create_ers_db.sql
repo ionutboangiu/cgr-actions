@@ -1,6 +1,6 @@
 
 --
--- extra DB for ers
+-- extra DB for ees and ers
 DROP DATABASE IF EXISTS cgrates2;
 CREATE DATABASE cgrates2;
 

@@ -30,13 +30,43 @@ var dbAuth *engine.DataManager
 var rsponder *engine.Responder
 
 func TestAuthSetStorage(t *testing.T) {
-	config.CgrConfig().CacheCfg()[utils.CacheRatingPlans].Precache = true // precache rating plan
+	config.CgrConfig().CacheCfg().Partitions[utils.CacheRatingPlans].Precache = true // precache rating plan
 	dataDB := engine.NewInternalDB(nil, nil, true, config.CgrConfig().DataDbCfg().Items)
 	dbAuth = engine.NewDataManager(dataDB, config.CgrConfig().CacheCfg(), nil)
 	engine.SetDataStorage(dbAuth)
 	rsponder = &engine.Responder{
 		MaxComputedUsage: config.CgrConfig().RalsCfg().MaxComputedUsage}
+	engine.Cache.Clear(nil)
+}
 
+func TestAuthLoadCsvError(t *testing.T) {
+	timings := ``
+	destinations := ``
+	rates := ``
+	destinationRates := ``
+	ratingPlans := ``
+	ratingProfiles := ``
+	sharedGroups := ``
+	actions := ``
+	actionPlans := ``
+	actionTriggers := ``
+	accountActions := ``
+	resLimits := ``
+	stats := ``
+	thresholds := ``
+	filters := ``
+	suppliers := ``
+	attrProfiles := `cgrates.org,ATTR_1,*any,*string~*req.RunID:route1,,,*req.Info,*constant,1001,false,10`
+	chargerProfiles := ``
+	csvr, err := engine.NewTpReader(dbAuth.DataDB(), engine.NewStringCSVStorage(utils.CSVSep, destinations, timings, rates, destinationRates,
+		ratingPlans, ratingProfiles, sharedGroups, actions, actionPlans, actionTriggers, accountActions,
+		resLimits, stats, thresholds, filters, suppliers, attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil, false)
+	if err != nil {
+		t.Error(err)
+	}
+	if err := csvr.LoadAll(); err == nil {
+		t.Fatal("Expected error received nil")
+	}
 }
 
 func TestAuthLoadCsv(t *testing.T) {
@@ -62,9 +92,9 @@ cgrates.org,call,*any,2013-01-06T00:00:00Z,RP_ANY,`
 	suppliers := ``
 	attrProfiles := ``
 	chargerProfiles := ``
-	csvr, err := engine.NewTpReader(dbAuth.DataDB(), engine.NewStringCSVStorage(utils.CSV_SEP, destinations, timings, rates, destinationRates,
+	csvr, err := engine.NewTpReader(dbAuth.DataDB(), engine.NewStringCSVStorage(utils.CSVSep, destinations, timings, rates, destinationRates,
 		ratingPlans, ratingProfiles, sharedGroups, actions, actionPlans, actionTriggers, accountActions,
-		resLimits, stats, thresholds, filters, suppliers, attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil)
+		resLimits, stats, thresholds, filters, suppliers, attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -77,27 +107,24 @@ cgrates.org,call,*any,2013-01-06T00:00:00Z,RP_ANY,`
 	} else if acnt == nil {
 		t.Error("No account saved")
 	}
+	engine.LoadAllDataDBToCache(dbAuth)
 
-	engine.Cache.Clear(nil)
-	dbAuth.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-
-	if cachedDests := len(engine.Cache.GetItemIDs(utils.CacheDestinations, "")); cachedDests != 0 {
+	if cachedDests := len(engine.Cache.GetItemIDs(utils.CacheDestinations, "")); cachedDests != 1 {
 		t.Error("Wrong number of cached destinations found", cachedDests)
 	}
 	if cachedRPlans := len(engine.Cache.GetItemIDs(utils.CacheRatingPlans, "")); cachedRPlans != 2 {
 		t.Error("Wrong number of cached rating plans found", cachedRPlans)
 	}
-	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, "")); cachedRProfiles != 0 {
+	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, "")); cachedRProfiles != 3 {
 		t.Error("Wrong number of cached rating profiles found", cachedRProfiles)
 	}
-	if cachedActions := len(engine.Cache.GetItemIDs(utils.CacheActions, "")); cachedActions != 0 {
+	if cachedActions := len(engine.Cache.GetItemIDs(utils.CacheActions, "")); cachedActions != 1 {
 		t.Error("Wrong number of cached actions found", cachedActions)
 	}
 }
 
 func TestAuthPostpaidNoAcnt(t *testing.T) {
-	cdr := &engine.UsageRecord{ToR: utils.VOICE, RequestType: utils.META_PREPAID, Tenant: "cgrates.org",
+	cdr := &engine.UsageRecord{ToR: utils.MetaVoice, RequestType: utils.MetaPrepaid, Tenant: "cgrates.org",
 		Category: "call", Account: "nonexistent", Subject: "testauthpostpaid1",
 		Destination: "4986517174963", SetupTime: time.Date(2015, 8, 27, 11, 26, 0, 0, time.UTC).String()}
 	cd, err := cdr.AsCallDescriptor("", false)
@@ -105,14 +132,14 @@ func TestAuthPostpaidNoAcnt(t *testing.T) {
 		t.Error(err)
 	}
 	var maxSessionTime time.Duration
-	if err := rsponder.GetMaxSessionTime(&engine.CallDescriptorWithArgDispatcher{CallDescriptor: cd}, &maxSessionTime); err != utils.ErrAccountNotFound {
+	if err := rsponder.GetMaxSessionTime(&engine.CallDescriptorWithAPIOpts{CallDescriptor: cd}, &maxSessionTime); err != utils.ErrAccountNotFound {
 		t.Error(err)
 	}
 }
 
 func TestAuthPostpaidFallbackDest(t *testing.T) {
 	// Test subject which has fallback for destination
-	cdr := &engine.UsageRecord{ToR: utils.VOICE, RequestType: utils.META_POSTPAID, Tenant: "cgrates.org",
+	cdr := &engine.UsageRecord{ToR: utils.MetaVoice, RequestType: utils.MetaPostpaid, Tenant: "cgrates.org",
 		Category: "call", Account: "testauthpostpaid1", Subject: "testauthpostpaid2",
 		Destination: "441231234", SetupTime: time.Date(2015, 8, 27, 11, 26, 0, 0, time.UTC).String()}
 	cd, err := cdr.AsCallDescriptor("", false)
@@ -120,16 +147,16 @@ func TestAuthPostpaidFallbackDest(t *testing.T) {
 		t.Error(err)
 	}
 	var maxSessionTime time.Duration
-	if err = rsponder.GetMaxSessionTime(&engine.CallDescriptorWithArgDispatcher{CallDescriptor: cd}, &maxSessionTime); err != nil {
+	if err = rsponder.GetMaxSessionTime(&engine.CallDescriptorWithAPIOpts{CallDescriptor: cd}, &maxSessionTime); err != nil {
 		t.Error(err)
-	} else if maxSessionTime != time.Duration(0) {
+	} else if maxSessionTime != 0 {
 		t.Error("Unexpected maxSessionTime received: ", maxSessionTime)
 	}
 }
 
 func TestAuthPostpaidWithDestination(t *testing.T) {
 	// Test subject which does not have destination attached
-	cdr := &engine.UsageRecord{ToR: utils.VOICE, RequestType: utils.META_POSTPAID, Tenant: "cgrates.org",
+	cdr := &engine.UsageRecord{ToR: utils.MetaVoice, RequestType: utils.MetaPostpaid, Tenant: "cgrates.org",
 		Category: "call", Account: "testauthpostpaid1", Subject: "testauthpostpaid1",
 		Destination: "4986517174963", SetupTime: time.Date(2015, 8, 27, 11, 26, 0, 0, time.UTC).String()}
 	cd, err := cdr.AsCallDescriptor("", false)
@@ -137,9 +164,9 @@ func TestAuthPostpaidWithDestination(t *testing.T) {
 		t.Error(err)
 	}
 	var maxSessionTime time.Duration
-	if err := rsponder.GetMaxSessionTime(&engine.CallDescriptorWithArgDispatcher{CallDescriptor: cd}, &maxSessionTime); err != nil {
+	if err := rsponder.GetMaxSessionTime(&engine.CallDescriptorWithAPIOpts{CallDescriptor: cd}, &maxSessionTime); err != nil {
 		t.Error(err)
-	} else if maxSessionTime != time.Duration(0) {
+	} else if maxSessionTime != 0 {
 		t.Error("Unexpected maxSessionTime received: ", maxSessionTime)
 	}
 }

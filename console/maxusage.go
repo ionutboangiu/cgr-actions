@@ -18,15 +18,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 package console
 
-import "github.com/cgrates/cgrates/engine"
+import (
+	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/utils"
+)
 
 func init() {
 	c := &CmdGetMaxUsage{
 		name:      "maxusage",
-		rpcMethod: "APIerSv1.GetMaxUsage",
-		clientArgs: []string{"ToR", "RequestType", "Tenant",
-			"Category", "Account", "Subject", "Destination",
-			"SetupTime", "AnswerTime", "Usage", "ExtraFields"},
+		rpcMethod: utils.APIerSv1GetMaxUsage,
+		clientArgs: []string{utils.ToR, utils.RequestType, utils.Tenant,
+			utils.Category, utils.AccountField, utils.Subject, utils.Destination,
+			utils.SetupTime, utils.AnswerTime, utils.Usage, utils.ExtraFields},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +39,7 @@ func init() {
 type CmdGetMaxUsage struct {
 	name       string
 	rpcMethod  string
-	rpcParams  *engine.UsageRecord
+	rpcParams  *engine.UsageRecordWithAPIOpts
 	clientArgs []string
 	*CommandExecuter
 }
@@ -49,9 +52,9 @@ func (self *CmdGetMaxUsage) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdGetMaxUsage) RpcParams(reset bool) interface{} {
+func (self *CmdGetMaxUsage) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = new(engine.UsageRecord)
+		self.rpcParams = new(engine.UsageRecordWithAPIOpts)
 	}
 	return self.rpcParams
 }
@@ -60,7 +63,7 @@ func (self *CmdGetMaxUsage) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdGetMaxUsage) RpcResult() interface{} {
+func (self *CmdGetMaxUsage) RpcResult() any {
 	var f int64
 	return &f
 }

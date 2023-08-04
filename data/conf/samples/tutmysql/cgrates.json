@@ -4,7 +4,7 @@
 
 
 "general": {
-	"log_level": 10,
+	"log_level": 7,
 	"reply_timeout": "50s",
 },
 
@@ -36,6 +36,7 @@
 "schedulers": {
 	"enabled": true,
 	"cdrs_conns": ["*internal"],
+	"stats_conns": ["*localhost"],
 },
 
 
@@ -45,28 +46,11 @@
 },
 
 
-"cdre": {
-	"TestTutITExportCDR": {
-		"fields": [
-			{"path": "*exp.CGRID", "type": "*composed", "value": "~*req.CGRID"},
-			{"path": "*exp.RunID", "type": "*composed", "value": "~*req.RunID"},
-			{"path": "*exp.OriginID", "type": "*composed", "value": "~*req.OriginID"},
-			{"path": "*exp.RequestType", "type": "*composed", "value": "~*req.RequestType"},
-			{"path": "*exp.Tenant", "type": "*composed", "value": "~*req.Tenant"},
-			{"path": "*exp.Category", "type": "*composed", "value": "~*req.Category"},
-			{"path": "*exp.Account", "type": "*composed", "value": "~*req.Account"},
-			{"path": "*exp.Destination", "type": "*composed", "value": "~*req.Destination"},
-			{"path": "*exp.AnswerTime", "type": "*composed", "value": "~*req.AnswerTime", "layout": "2006-01-02T15:04:05Z07:00"},
-			{"path": "*exp.Usage", "type": "*composed", "value": "~*req.Usage"},
-			{"path": "*exp.Cost", "type": "*composed", "value": "~*req.Cost", "rounding_decimals": 4},
-			{"path": "*exp.MatchedDestinationID", "type": "*composed", "value": "~*req.CostDetails:s/\"MatchedDestId\":.*_(\\w{4})/${1}/:s/\"MatchedDestId\":\"INTERNAL\"/ON010/"},
-		],
-	},
-},
-
-
 "attributes": {
 	"enabled": true,
+	"stats_conns": ["*localhost"],
+	"resources_conns": ["*localhost"],
+	"apiers_conns": ["*localhost"]
 },
 
 
@@ -89,15 +73,16 @@
 	"thresholds_conns": ["*internal"],
 },
 
+
 "thresholds": {
 	"enabled": true,
 	"store_interval": "1s",
 },
 
 
-"suppliers": {
+"routes": {
 	"enabled": true,
-	"prefix_indexed_fields":["Destination"],
+	"prefix_indexed_fields":["*req.Destination"],
 	"stats_conns": ["*internal"],
 	"resources_conns": ["*internal"],
 	"rals_conns": ["*internal"],
@@ -106,11 +91,11 @@
 
 "sessions": {
 	"enabled": true,
-	"suppliers_conns": ["*internal"],
+	"routes_conns": ["*internal"],
 	"resources_conns": ["*internal"],
 	"attributes_conns": ["*internal"],
 	"rals_conns": ["*internal"],
-	"cdrs_conns": ["*internal"],
+	"cdrs_conns": ["*localhost"],
 	"chargers_conns": ["*internal"],
 },
 
@@ -121,10 +106,16 @@
 },
 
 
-
 "apiers": {
 	"enabled": true,
 	"scheduler_conns": ["*internal"],
+},
+
+
+"filters": {
+	"stats_conns": ["*localhost"],
+	"resources_conns": ["*internal"],
+	"apiers_conns": ["*internal"],
 },
 
 

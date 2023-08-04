@@ -28,14 +28,15 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-func (apiv2 *APIerSv2) GetAccounts(attr utils.AttrGetAccounts, reply *[]*engine.Account) error {
-	if len(attr.Tenant) == 0 {
-		return utils.NewErrMandatoryIeMissing("Tenant")
+func (apiv2 *APIerSv2) GetAccounts(attr *utils.AttrGetAccounts, reply *[]*engine.Account) error {
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apiv2.Config.GeneralCfg().DefaultTenant
 	}
 	var accountKeys []string
 	var err error
 	if len(attr.AccountIDs) == 0 {
-		if accountKeys, err = apiv2.DataManager.DataDB().GetKeysForPrefix(utils.ACCOUNT_PREFIX + attr.Tenant); err != nil {
+		if accountKeys, err = apiv2.DataManager.DataDB().GetKeysForPrefix(utils.AccountPrefix + tnt); err != nil {
 			return err
 		}
 	} else {
@@ -43,7 +44,7 @@ func (apiv2 *APIerSv2) GetAccounts(attr utils.AttrGetAccounts, reply *[]*engine.
 			if len(acntID) == 0 { // Source of error returned from redis (key not found)
 				continue
 			}
-			accountKeys = append(accountKeys, utils.ACCOUNT_PREFIX+utils.ConcatenatedKey(attr.Tenant, acntID))
+			accountKeys = append(accountKeys, utils.AccountPrefix+utils.ConcatenatedKey(tnt, acntID))
 		}
 	}
 	if len(accountKeys) == 0 {
@@ -64,7 +65,7 @@ func (apiv2 *APIerSv2) GetAccounts(attr utils.AttrGetAccounts, reply *[]*engine.
 	}
 	retAccounts := make([]*engine.Account, 0)
 	for _, acntKey := range limitedAccounts {
-		if acnt, err := apiv2.DataManager.GetAccount(acntKey[len(utils.ACCOUNT_PREFIX):]); err != nil && err != utils.ErrNotFound { // Not found is not an error here
+		if acnt, err := apiv2.DataManager.GetAccount(acntKey[len(utils.AccountPrefix):]); err != nil && err != utils.ErrNotFound { // Not found is not an error here
 			return err
 		} else if acnt != nil {
 			if alNeg, has := attr.Filter[utils.AllowNegative]; has && alNeg != acnt.AllowNegative {
@@ -80,9 +81,32 @@ func (apiv2 *APIerSv2) GetAccounts(attr utils.AttrGetAccounts, reply *[]*engine.
 	return nil
 }
 
+// GetAccountsCount sets in reply var the total number of accounts registered for the received tenant
+// returns ErrNotFound in case of 0 accounts
+func (apiv2 *APIerSv2) GetAccountsCount(attr *utils.AttrGetAccountsCount, reply *int) (err error) {
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apiv2.Config.GeneralCfg().DefaultTenant
+	}
+	var accountKeys []string
+	if accountKeys, err = apiv2.DataManager.DataDB().GetKeysForPrefix(utils.AccountPrefix + tnt); err != nil {
+		return err
+	}
+	if len(accountKeys) == 0 {
+		return utils.ErrNotFound
+	}
+	*reply = len(accountKeys)
+
+	return
+}
+
 // Get balance
 func (apiv2 *APIerSv2) GetAccount(attr *utils.AttrGetAccount, reply *engine.Account) error {
-	tag := utils.ConcatenatedKey(attr.Tenant, attr.Account)
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apiv2.Config.GeneralCfg().DefaultTenant
+	}
+	tag := utils.ConcatenatedKey(tnt, attr.Account)
 	account, err := apiv2.DataManager.GetAccount(tag)
 	if err != nil {
 		return err
@@ -102,15 +126,19 @@ type AttrSetAccount struct {
 	ReloadScheduler        bool
 }
 
-func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
-	if missing := utils.MissingStructFields(&attr, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apiv2 *APIerSv2) SetAccount(attr *AttrSetAccount, reply *string) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	accID := utils.ConcatenatedKey(attr.Tenant, attr.Account)
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apiv2.Config.GeneralCfg().DefaultTenant
+	}
+	accID := utils.ConcatenatedKey(tnt, attr.Account)
 	dirtyActionPlans := make(map[string]*engine.ActionPlan)
 	var ub *engine.Account
 	var schedNeedsReload bool
-	_, err := guardian.Guardian.Guard(func() (interface{}, error) {
+	err := guardian.Guardian.Guard(func() error {
 		if bal, _ := apiv2.DataManager.GetAccount(accID); bal != nil {
 			ub = bal
 		} else { // Not found in db, create it here
@@ -118,10 +146,10 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 				ID: accID,
 			}
 		}
-		_, err := guardian.Guardian.Guard(func() (interface{}, error) {
+		err := guardian.Guardian.Guard(func() error {
 			acntAPids, err := apiv2.DataManager.GetAccountActionPlans(accID, true, true, utils.NonTransactional)
 			if err != nil && err != utils.ErrNotFound {
-				return 0, err
+				return err
 			}
 			if attr.ActionPlansOverwrite {
 				// clean previous action plans
@@ -133,7 +161,7 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 					}
 					ap, err := apiv2.DataManager.GetActionPlan(apID, true, true, utils.NonTransactional)
 					if err != nil {
-						return 0, err
+						return err
 					}
 					delete(ap.AccountIDs, accID)
 					dirtyActionPlans[apID] = ap
@@ -143,7 +171,7 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 			for _, apID := range attr.ActionPlanIDs {
 				ap, err := apiv2.DataManager.GetActionPlan(apID, true, true, utils.NonTransactional)
 				if err != nil {
-					return 0, err
+					return err
 				}
 				// create tasks
 				var schedTasks int // keep count on the number of scheduled tasks so we can compare with actions needed
@@ -155,7 +183,7 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 							ActionsID: at.ActionsID,
 						}
 						if err = apiv2.DataManager.DataDB().PushTask(t); err != nil {
-							return 0, err
+							return err
 						}
 						schedTasks++
 					}
@@ -180,25 +208,21 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 			apIDs := make([]string, 0, len(dirtyActionPlans))
 			for actionPlanID, ap := range dirtyActionPlans {
 				if err := apiv2.DataManager.SetActionPlan(actionPlanID, ap, true, utils.NonTransactional); err != nil {
-					return 0, err
+					return err
 				}
 				apIDs = append(apIDs, actionPlanID)
 			}
 			if err := apiv2.DataManager.SetAccountActionPlans(accID, acntAPids, true); err != nil {
-				return 0, err
+				return err
 			}
-			return 0, apiv2.ConnMgr.Call(apiv2.Config.ApierCfg().CachesConns, nil,
-				utils.CacheSv1ReloadCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg: utils.TenantArg{
-						Tenant: attr.Tenant,
-					},
-					AttrReloadCache: utils.AttrReloadCache{
-						ArgsCache: utils.ArgsCache{AccountActionPlanIDs: []string{accID}, ActionPlanIDs: apIDs},
-					},
+			return apiv2.ConnMgr.Call(apiv2.Config.ApierCfg().CachesConns, nil,
+				utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+					AccountActionPlanIDs: []string{accID},
+					ActionPlanIDs:        apIDs,
 				}, reply)
-		}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACTION_PLAN_PREFIX)
+		}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ActionPlanPrefix)
 		if err != nil {
-			return 0, err
+			return err
 		}
 
 		if attr.ActionTriggerOverwrite {
@@ -207,7 +231,7 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 		for _, actionTriggerID := range attr.ActionTriggerIDs {
 			atrs, err := apiv2.DataManager.GetActionTriggers(actionTriggerID, false, utils.NonTransactional)
 			if err != nil {
-				return 0, err
+				return err
 			}
 			for _, at := range atrs {
 				var found bool
@@ -231,8 +255,8 @@ func (apiv2 *APIerSv2) SetAccount(attr AttrSetAccount, reply *string) error {
 			ub.Disabled = dis
 		}
 		// All prepared, save account
-		return 0, apiv2.DataManager.SetAccount(ub)
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+accID)
+		return apiv2.DataManager.SetAccount(ub)
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+accID)
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}

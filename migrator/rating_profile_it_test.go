@@ -125,25 +125,29 @@ func TestRatingProfileITMoveEncoding2(t *testing.T) {
 }
 
 func testRtPrfITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(rtprflCfgIn.DataDbCfg().DataDbType,
-		rtprflCfgIn.DataDbCfg().DataDbHost, rtprflCfgIn.DataDbCfg().DataDbPort,
-		rtprflCfgIn.DataDbCfg().DataDbName, rtprflCfgIn.DataDbCfg().DataDbUser,
-		rtprflCfgIn.DataDbCfg().DataDbPass, rtprflCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", rtprflCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(rtprflCfgIn.DataDbCfg().Type,
+		rtprflCfgIn.DataDbCfg().Host, rtprflCfgIn.DataDbCfg().Port,
+		rtprflCfgIn.DataDbCfg().Name, rtprflCfgIn.DataDbCfg().User,
+		rtprflCfgIn.DataDbCfg().Password, rtprflCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), rtprflCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(rtprflCfgOut.DataDbCfg().DataDbType,
-		rtprflCfgOut.DataDbCfg().DataDbHost, rtprflCfgOut.DataDbCfg().DataDbPort,
-		rtprflCfgOut.DataDbCfg().DataDbName, rtprflCfgOut.DataDbCfg().DataDbUser,
-		rtprflCfgOut.DataDbCfg().DataDbPass, rtprflCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", rtplCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(rtprflCfgOut.DataDbCfg().Type,
+		rtprflCfgOut.DataDbCfg().Host, rtprflCfgOut.DataDbCfg().Port,
+		rtprflCfgOut.DataDbCfg().Name, rtprflCfgOut.DataDbCfg().User,
+		rtprflCfgOut.DataDbCfg().Password, rtprflCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), rtplCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	rtprflMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(rtprflPathIn, rtprflPathOut) {
+		rtprflMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		rtprflMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -156,7 +160,7 @@ func testRtPrfITFlush(t *testing.T) {
 	if isEmpty, err := rtprflMigrator.dmOut.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(rtprflMigrator.dmOut.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -167,7 +171,7 @@ func testRtPrfITFlush(t *testing.T) {
 	if isEmpty, err := rtprflMigrator.dmIN.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(rtprflMigrator.dmIN.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -188,11 +192,11 @@ func testRtPrfITMigrateAndMove(t *testing.T) {
 	switch rtprflAction {
 	case utils.Migrate: // for the momment only one version of rating plans exists
 	case utils.Move:
-		if err := rtprflMigrator.dmIN.DataManager().SetRatingProfile(rtprfl, utils.NonTransactional); err != nil {
+		if err := rtprflMigrator.dmIN.DataManager().SetRatingProfile(rtprfl); err != nil {
 			t.Error(err)
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := rtprflMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := rtprflMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for RatingProfile ", err.Error())
 		}
@@ -216,6 +220,8 @@ func testRtPrfITMigrateAndMove(t *testing.T) {
 		result, err = rtprflMigrator.dmIN.DataManager().GetRatingProfile("RT_Profile", true, utils.NonTransactional)
 		if err != utils.ErrNotFound {
 			t.Error(err)
+		} else if rtprflMigrator.stats[utils.RatingProfile] != 1 {
+			t.Errorf("Expected 1, received: %v", rtprflMigrator.stats[utils.RatingProfile])
 		}
 	}
 }

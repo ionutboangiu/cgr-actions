@@ -27,7 +27,7 @@ func init() {
 	c := &CmdDebit{
 		name:       "debit",
 		rpcMethod:  utils.ResponderDebit,
-		clientArgs: []string{"Category", "ToR", "Tenant", "Subject", "Account", "Destination", "TimeStart", "TimeEnd", "CallDuration", "FallbackSubject", "DryRun"},
+		clientArgs: []string{utils.Category, utils.ToR, utils.Tenant, utils.Subject, utils.AccountField, utils.Destination, utils.TimeStart, utils.TimeEnd, utils.CallDuration, utils.FallbackSubject, utils.DryRun},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -37,7 +37,7 @@ func init() {
 type CmdDebit struct {
 	name       string
 	rpcMethod  string
-	rpcParams  *engine.CallDescriptorWithArgDispatcher
+	rpcParams  *engine.CallDescriptorWithAPIOpts
 	clientArgs []string
 	*CommandExecuter
 }
@@ -50,11 +50,11 @@ func (self *CmdDebit) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdDebit) RpcParams(reset bool) interface{} {
+func (self *CmdDebit) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.CallDescriptorWithArgDispatcher{
+		self.rpcParams = &engine.CallDescriptorWithAPIOpts{
 			CallDescriptor: new(engine.CallDescriptor),
-			ArgDispatcher:  new(utils.ArgDispatcher),
+			APIOpts:        make(map[string]any),
 		}
 	}
 	return self.rpcParams
@@ -64,7 +64,7 @@ func (self *CmdDebit) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdDebit) RpcResult() interface{} {
+func (self *CmdDebit) RpcResult() any {
 	return &engine.CallCost{}
 }
 

@@ -37,7 +37,6 @@ var (
 	tpDispatcherCfgPath   string
 	tpDispatcherCfg       *config.CGRConfig
 	tpDispatcherRPC       *rpc.Client
-	tpDispatcherDataDir   = "/usr/share/cgrates"
 	tpDispatcher          *utils.TPDispatcherProfile
 	tpDispatcherDelay     int
 	tpDispatcherConfigDIR string //run tests for specific configuration
@@ -48,7 +47,7 @@ var sTestsTPDispatchers = []func(t *testing.T){
 	testTPDispatcherResetStorDb,
 	testTPDispatcherStartEngine,
 	testTPDispatcherRpcConn,
-	ttestTPDispatcherGetTPDispatcherBeforeSet,
+	testTPDispatcherGetTPDispatcherBeforeSet,
 	testTPDispatcherSetTPDispatcher,
 	testTPDispatcherGetTPDispatcherAfterSet,
 	testTPDispatcherGetTPDispatcherIds,
@@ -80,13 +79,11 @@ func TestTPDispatcherIT(t *testing.T) {
 
 func testTPDispatcherInitCfg(t *testing.T) {
 	var err error
-	tpDispatcherCfgPath = path.Join(tpDispatcherDataDir, "conf", "samples", tpDispatcherConfigDIR)
+	tpDispatcherCfgPath = path.Join(*dataDir, "conf", "samples", tpDispatcherConfigDIR)
 	tpDispatcherCfg, err = config.NewCGRConfigFromPath(tpDispatcherCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpDispatcherCfg.DataFolderPath = tpDispatcherDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpDispatcherCfg)
 	tpDispatcherDelay = 1000
 
 }
@@ -114,7 +111,7 @@ func testTPDispatcherRpcConn(t *testing.T) {
 	}
 }
 
-func ttestTPDispatcherGetTPDispatcherBeforeSet(t *testing.T) {
+func testTPDispatcherGetTPDispatcherBeforeSet(t *testing.T) {
 	var reply *utils.TPDispatcherProfile
 	if err := tpDispatcherRPC.Call(utils.APIerSv1GetTPDispatcherProfile,
 		&utils.TPTntID{TPid: "TP1", Tenant: "cgrates.org", ID: "Dsp1"},
@@ -125,10 +122,11 @@ func ttestTPDispatcherGetTPDispatcherBeforeSet(t *testing.T) {
 
 func testTPDispatcherSetTPDispatcher(t *testing.T) {
 	tpDispatcher = &utils.TPDispatcherProfile{
-		TPid:      "TP1",
-		Tenant:    "cgrates.org",
-		ID:        "Dsp1",
-		FilterIDs: []string{"*string:Account:1002"},
+		TPid:       "TP1",
+		Tenant:     "cgrates.org",
+		ID:         "Dsp1",
+		FilterIDs:  []string{"*string:Account:1002"},
+		Subsystems: []string{"testSys"},
 		ActivationInterval: &utils.TPActivationInterval{
 			ActivationTime: "2014-07-29T15:00:00Z",
 			ExpiryTime:     "",
@@ -151,7 +149,7 @@ func testTPDispatcherGetTPDispatcherAfterSet(t *testing.T) {
 		&utils.TPTntID{TPid: "TP1", Tenant: "cgrates.org", ID: "Dsp1"}, &reply); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(tpDispatcher, reply) {
-		t.Errorf("Expecting : %+v, received: %+v", tpDispatcher, reply)
+		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(tpDispatcher), utils.ToJSON(reply))
 	}
 }
 
@@ -193,7 +191,7 @@ func testTPDispatcherGetTPDispatcherAfterUpdate(t *testing.T) {
 		&utils.TPTntID{TPid: "TP1", Tenant: "cgrates.org", ID: "Dsp1"}, &reply); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(tpDispatcher, reply) && !reflect.DeepEqual(revHosts, reply) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(tpDispatcher), utils.ToJSON(reply))
+		t.Errorf("Expecting : %+v \n and %+v\n, received: %+v", utils.ToJSON(tpDispatcher), utils.ToJSON(revHosts), utils.ToJSON(reply))
 	}
 }
 

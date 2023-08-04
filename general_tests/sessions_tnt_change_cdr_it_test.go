@@ -112,12 +112,12 @@ func testSesTntChngCdrsSetChargerProfile1(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Fatal(err)
 	}
-	chargerProfile := &v1.ChargerWithCache{
+	chargerProfile := &v1.ChargerWithAPIOpts{
 		ChargerProfile: &engine.ChargerProfile{
 			Tenant:       "cgrates.org",
 			ID:           "Charger1",
 			RunID:        utils.MetaDefault,
-			AttributeIDs: []string{"*constant:*tenant:cgrates.ro"},
+			AttributeIDs: []string{"*constant:*tenant:cgrates.ro;*constant:*req.Account:1234"},
 		},
 	}
 
@@ -143,7 +143,7 @@ func testSesTntChngCdrsSetChargerProfile2(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Fatal(err)
 	}
-	chargerProfile := &v1.ChargerWithCache{
+	chargerProfile := &v1.ChargerWithAPIOpts{
 		ChargerProfile: &engine.ChargerProfile{
 			Tenant:       "cgrates.org",
 			ID:           "Charger2",
@@ -171,9 +171,9 @@ func testChargerSCdrsAuthProcessEventAuth(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "1001",
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       float64(2 * time.Minute),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "testSes",
 			utils.RatingSubject: "*zero1ms",
 		},
@@ -187,10 +187,10 @@ func testChargerSCdrsAuthProcessEventAuth(t *testing.T) {
 
 	attrSetBalance2 := utils.AttrSetBalance{
 		Tenant:      "cgrates.ro",
-		Account:     "1001",
-		BalanceType: utils.VOICE,
+		Account:     "1234",
+		BalanceType: utils.MetaVoice,
 		Value:       float64(2 * time.Minute),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "testSes",
 			utils.RatingSubject: "*zero1ms",
 		},
@@ -206,14 +206,14 @@ func testChargerSCdrsAuthProcessEventAuth(t *testing.T) {
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestEv1",
-			Event: map[string]interface{}{
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestEv1",
-				utils.RequestType: "*prepaid",
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002",
-				utils.Usage:       time.Minute,
+			Event: map[string]any{
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestEv1",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.Usage:        time.Minute,
 			},
 		},
 	}
@@ -222,7 +222,7 @@ func testChargerSCdrsAuthProcessEventAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := &sessions.V1AuthorizeReply{
-		MaxUsage: time.Duration(60000000000),
+		MaxUsage: (*time.Duration)(utils.Int64Pointer(60000000000)),
 	}
 	if !reflect.DeepEqual(utils.ToJSON(&expected), utils.ToJSON(&rply)) {
 		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(&expected), utils.ToJSON(&rply))

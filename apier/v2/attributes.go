@@ -21,22 +21,24 @@ package v2
 import (
 	"time"
 
-	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
-type AttributeWithCache struct {
-	*engine.ExternalAttributeProfile
-	Cache *string
+type AttributeWithAPIOpts struct {
+	*engine.APIAttributeProfile
+	APIOpts map[string]any
 }
 
 // SetAttributeProfile add/update a new Attribute Profile
-func (APIerSv2 *APIerSv2) SetAttributeProfile(arg *AttributeWithCache, reply *string) error {
-	if missing := utils.MissingStructFields(arg.ExternalAttributeProfile, []string{utils.Tenant, utils.ID}); len(missing) != 0 {
+func (APIerSv2 *APIerSv2) SetAttributeProfile(arg *AttributeWithAPIOpts, reply *string) error {
+	if missing := utils.MissingStructFields(arg.APIAttributeProfile, []string{utils.ID}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	alsPrf, err := arg.ExternalAttributeProfile.AsAttributeProfile()
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = APIerSv2.Config.GeneralCfg().DefaultTenant
+	}
+	alsPrf, err := arg.APIAttributeProfile.AsAttributeProfile()
 	if err != nil {
 		return utils.APIErrorHandler(err)
 	}
@@ -48,14 +50,8 @@ func (APIerSv2 *APIerSv2) SetAttributeProfile(arg *AttributeWithCache, reply *st
 		map[string]int64{utils.CacheAttributeProfiles: time.Now().UnixNano()}); err != nil {
 		return utils.APIErrorHandler(err)
 	}
-	args := utils.ArgsGetCacheItem{
-		CacheID: utils.CacheAttributeProfiles,
-		ItemID:  alsPrf.TenantID(),
-	}
-	if err := APIerSv2.APIerSv1.CallCache(
-		arg.Tenant,
-		v1.GetCacheOpt(arg.Cache),
-		args); err != nil {
+	if err := APIerSv2.APIerSv1.CallCache(utils.IfaceAsString(arg.APIOpts[utils.CacheOpt]), alsPrf.Tenant, utils.CacheAttributeProfiles,
+		alsPrf.TenantID(), utils.EmptyString, &alsPrf.FilterIDs, alsPrf.Contexts, arg.APIOpts); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK

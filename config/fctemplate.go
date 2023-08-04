@@ -20,12 +20,13 @@ package config
 
 import (
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
-func NewFCTemplateFromFCTemplateJsonCfg(jsnCfg *FcTemplateJsonCfg, separator string) (*FCTemplate, error) {
+// NewFCTemplateFromFCTemplateJSONCfg creates a FCTemplate from json
+func NewFCTemplateFromFCTemplateJSONCfg(jsnCfg *FcTemplateJsonCfg, separator string) (*FCTemplate, error) {
 	fcTmp := new(FCTemplate)
 	var err error
 	if jsnCfg.Type != nil {
@@ -33,11 +34,9 @@ func NewFCTemplateFromFCTemplateJsonCfg(jsnCfg *FcTemplateJsonCfg, separator str
 	}
 	if jsnCfg.Path != nil {
 		fcTmp.Path = *jsnCfg.Path
-		fcTmp.pathSlice = strings.Split(*jsnCfg.Path, utils.NestingSep)
-		fcTmp.pathItems = utils.NewPathItems(fcTmp.pathSlice)
+		fcTmp.pathSlice = utils.CompilePath(fcTmp.Path)
 		fcTmp.Tag = fcTmp.Path
 	}
-	fcTmp.Tag = fcTmp.Path
 	if jsnCfg.Tag != nil {
 		fcTmp.Tag = *jsnCfg.Tag
 	}
@@ -48,7 +47,7 @@ func NewFCTemplateFromFCTemplateJsonCfg(jsnCfg *FcTemplateJsonCfg, separator str
 		}
 	}
 	if jsnCfg.Value != nil {
-		if fcTmp.Value, err = NewRSRParsers(*jsnCfg.Value, true, separator); err != nil {
+		if fcTmp.Value, err = NewRSRParsers(*jsnCfg.Value, separator); err != nil {
 			return nil, err
 		}
 	}
@@ -76,9 +75,7 @@ func NewFCTemplateFromFCTemplateJsonCfg(jsnCfg *FcTemplateJsonCfg, separator str
 	if jsnCfg.Blocker != nil {
 		fcTmp.Blocker = *jsnCfg.Blocker
 	}
-	if jsnCfg.Break_on_success != nil {
-		fcTmp.BreakOnSuccess = *jsnCfg.Break_on_success
-	}
+	fcTmp.Layout = time.RFC3339
 	if jsnCfg.Layout != nil {
 		fcTmp.Layout = *jsnCfg.Layout
 	}
@@ -86,7 +83,8 @@ func NewFCTemplateFromFCTemplateJsonCfg(jsnCfg *FcTemplateJsonCfg, separator str
 		fcTmp.CostShiftDigits = *jsnCfg.Cost_shift_digits
 	}
 	if jsnCfg.Rounding_decimals != nil {
-		fcTmp.RoundingDecimals = *jsnCfg.Rounding_decimals
+		fcTmp.RoundingDecimals = new(int)
+		*fcTmp.RoundingDecimals = *jsnCfg.Rounding_decimals
 	}
 	if jsnCfg.Mask_destinationd_id != nil {
 		fcTmp.MaskDestID = *jsnCfg.Mask_destinationd_id
@@ -97,6 +95,7 @@ func NewFCTemplateFromFCTemplateJsonCfg(jsnCfg *FcTemplateJsonCfg, separator str
 	return fcTmp, nil
 }
 
+// FCTemplate the teplate for a field
 type FCTemplate struct {
 	Tag              string
 	Type             string   // Type of field
@@ -111,25 +110,23 @@ type FCTemplate struct {
 	NewBranch        bool   // Used by NavigableMap when creating XMLElements
 	Timezone         string
 	Blocker          bool
-	BreakOnSuccess   bool
 	Layout           string // time format
 	CostShiftDigits  int    // Used for CDR
-	RoundingDecimals int
+	RoundingDecimals *int
 	MaskDestID       string
 	MaskLen          int
-	pathItems        utils.PathItems // Field identifier
-	pathSlice        []string        // Used when we set a NMItem to not recreate this slice for every itemsc
+	pathSlice        []string // Field identifier
 }
 
-func FCTemplatesFromFCTemplatesJsonCfg(jsnCfgFlds []*FcTemplateJsonCfg, separator string) ([]*FCTemplate, error) {
-	retFields := make([]*FCTemplate, len(jsnCfgFlds))
-	var err error
+// FCTemplatesFromFCTemplatesJSONCfg will build a list of FCTemplates from json
+func FCTemplatesFromFCTemplatesJSONCfg(jsnCfgFlds []*FcTemplateJsonCfg, separator string) (retFields []*FCTemplate, err error) {
+	retFields = make([]*FCTemplate, len(jsnCfgFlds))
 	for i, jsnFld := range jsnCfgFlds {
-		if retFields[i], err = NewFCTemplateFromFCTemplateJsonCfg(jsnFld, separator); err != nil {
+		if retFields[i], err = NewFCTemplateFromFCTemplateJSONCfg(jsnFld, separator); err != nil {
 			return nil, err
 		}
 	}
-	return retFields, nil
+	return
 }
 
 // InflateTemplates will replace the *template fields with template content out msgTpls
@@ -164,46 +161,57 @@ func InflateTemplates(fcts []*FCTemplate, msgTpls map[string][]*FCTemplate) ([]*
 	return fcts, nil
 }
 
-func (fc *FCTemplate) Clone() *FCTemplate {
-	cln := new(FCTemplate)
-	cln.Tag = fc.Tag
-	cln.Type = fc.Type
-	cln.Path = fc.Path
-	cln.pathItems = fc.pathItems.Clone()
-	cln.pathSlice = make([]string, len(fc.pathSlice))
-	for i, v := range fc.pathSlice {
-		cln.pathSlice[i] = v
+// Clone returns a deep copy of FCTemplate
+func (fc FCTemplate) Clone() (cln *FCTemplate) {
+	cln = &FCTemplate{
+		Tag:             fc.Tag,
+		Type:            fc.Type,
+		Path:            fc.Path,
+		Value:           fc.Value.Clone(),
+		Width:           fc.Width,
+		Strip:           fc.Strip,
+		Padding:         fc.Padding,
+		Mandatory:       fc.Mandatory,
+		AttributeID:     fc.AttributeID,
+		NewBranch:       fc.NewBranch,
+		Timezone:        fc.Timezone,
+		Blocker:         fc.Blocker,
+		Layout:          fc.Layout,
+		CostShiftDigits: fc.CostShiftDigits,
+		MaskDestID:      fc.MaskDestID,
+		MaskLen:         fc.MaskLen,
 	}
-	if len(fc.Filters) != 0 {
-		cln.Filters = make([]string, len(fc.Filters))
-		for idx, val := range fc.Filters {
-			cln.Filters[idx] = val
-		}
+	if fc.RoundingDecimals != nil {
+		cln.RoundingDecimals = new(int)
+		*cln.RoundingDecimals = *fc.RoundingDecimals
 	}
-	cln.Value = make(RSRParsers, len(fc.Value))
-	for idx, val := range fc.Value {
-		clnVal := *val
-		cln.Value[idx] = &clnVal
+	if fc.pathSlice != nil {
+		cln.pathSlice = utils.CloneStringSlice(fc.pathSlice)
 	}
-	cln.Width = fc.Width
-	cln.Strip = fc.Strip
-	cln.Padding = fc.Padding
-	cln.Mandatory = fc.Mandatory
-	cln.AttributeID = fc.AttributeID
-	cln.NewBranch = fc.NewBranch
-	cln.Timezone = fc.Timezone
-	cln.Blocker = fc.Blocker
-	cln.BreakOnSuccess = fc.BreakOnSuccess
-	cln.Layout = fc.Layout
-	cln.CostShiftDigits = fc.CostShiftDigits
-	cln.RoundingDecimals = fc.RoundingDecimals
-	cln.MaskDestID = fc.MaskDestID
-	cln.MaskLen = fc.MaskLen
-	return cln
+	if fc.Filters != nil {
+		cln.Filters = utils.CloneStringSlice(fc.Filters)
+	}
+	return
 }
 
-func (fc *FCTemplate) AsMapInterface(separator string) (mp map[string]interface{}) {
-	mp = make(map[string]interface{})
+// FcTemplates the config for the templates
+type FcTemplates map[string][]*FCTemplate
+
+// AsMapInterface returns the config as a map[string]any
+func (sCft FcTemplates) AsMapInterface(separator string) (initialMP map[string][]map[string]any) {
+	initialMP = make(map[string][]map[string]any)
+	for key, value := range sCft {
+		initialMP[key] = make([]map[string]any, len(value))
+		for i, item := range value {
+			initialMP[key][i] = item.AsMapInterface(separator)
+		}
+	}
+	return
+}
+
+// AsMapInterface returns the config as a map[string]any
+func (fc *FCTemplate) AsMapInterface(separator string) (mp map[string]any) {
+	mp = make(map[string]any)
 	if fc.Tag != utils.EmptyString {
 		mp[utils.TagCfg] = fc.Tag
 	}
@@ -217,16 +225,7 @@ func (fc *FCTemplate) AsMapInterface(separator string) (mp map[string]interface{
 		mp[utils.FiltersCfg] = fc.Filters
 	}
 	if fc.Value != nil {
-		for i, item := range fc.Value {
-			if i != 0 {
-				mp[utils.ValueCfg] = mp[utils.ValueCfg].(string) + separator
-			}
-			if mp[utils.ValueCfg] == nil {
-				mp[utils.ValueCfg] = item.Rules
-			} else {
-				mp[utils.ValueCfg] = mp[utils.ValueCfg].(string) + item.Rules
-			}
-		}
+		mp[utils.ValueCfg] = fc.Value.GetRule(separator)
 	}
 	if fc.Width != 0 {
 		mp[utils.WidthCfg] = fc.Width
@@ -237,32 +236,29 @@ func (fc *FCTemplate) AsMapInterface(separator string) (mp map[string]interface{
 	if fc.Padding != utils.EmptyString {
 		mp[utils.PaddingCfg] = fc.Padding
 	}
-	if fc.Mandatory != false {
+	if fc.Mandatory {
 		mp[utils.MandatoryCfg] = fc.Mandatory
 	}
 	if fc.AttributeID != utils.EmptyString {
 		mp[utils.AttributeIDCfg] = fc.AttributeID
 	}
-	if fc.NewBranch != false {
+	if fc.NewBranch {
 		mp[utils.NewBranchCfg] = fc.NewBranch
 	}
 	if fc.Timezone != utils.EmptyString {
 		mp[utils.TimezoneCfg] = fc.Timezone
 	}
-	if fc.Blocker != false {
+	if fc.Blocker {
 		mp[utils.BlockerCfg] = fc.Blocker
 	}
-	if fc.BreakOnSuccess != false {
-		mp[utils.BreakOnSuccessCfg] = fc.BreakOnSuccess
-	}
-	if fc.Layout != utils.EmptyString {
+	if fc.Layout != time.RFC3339 {
 		mp[utils.LayoutCfg] = fc.Layout
 	}
 	if fc.CostShiftDigits != 0 {
 		mp[utils.CostShiftDigitsCfg] = fc.CostShiftDigits
 	}
-	if fc.RoundingDecimals != 0 {
-		mp[utils.RoundingDecimalsCfg] = fc.RoundingDecimals
+	if fc.RoundingDecimals != nil {
+		mp[utils.RoundingDecimalsCfg] = *fc.RoundingDecimals
 	}
 	if fc.MaskDestID != utils.EmptyString {
 		mp[utils.MaskDestIDCfg] = fc.MaskDestID
@@ -270,7 +266,6 @@ func (fc *FCTemplate) AsMapInterface(separator string) (mp map[string]interface{
 	if fc.MaskLen != 0 {
 		mp[utils.MaskLenCfg] = fc.MaskLen
 	}
-
 	return
 }
 
@@ -279,13 +274,23 @@ func (fc *FCTemplate) GetPathSlice() []string {
 	return fc.pathSlice
 }
 
-// GetPathItems returns the cached path as PathItems
-func (fc *FCTemplate) GetPathItems() utils.PathItems {
-	return fc.pathItems
-}
-
 // ComputePath used in test to populate private fields used to store the path
 func (fc *FCTemplate) ComputePath() {
-	fc.pathSlice = strings.Split(fc.Path, utils.NestingSep)
-	fc.pathItems = utils.NewPathItems(fc.pathSlice)
+	fc.pathSlice = utils.CompilePath(fc.Path)
+}
+
+// Clone returns a deep copy of FcTemplates
+func (sCft FcTemplates) Clone() (cln FcTemplates) {
+	if sCft == nil {
+		return
+	}
+	cln = make(FcTemplates)
+	for k, fcs := range sCft {
+		fcln := make([]*FCTemplate, len(fcs))
+		for i, fc := range fcs {
+			fcln[i] = fc.Clone()
+		}
+		cln[k] = fcln
+	}
+	return
 }

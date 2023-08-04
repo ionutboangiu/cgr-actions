@@ -27,7 +27,6 @@ import (
 	"path"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
@@ -38,7 +37,6 @@ var (
 	tpRatingProfileCfgPath   string
 	tpRatingProfileCfg       *config.CGRConfig
 	tpRatingProfileRPC       *rpc.Client
-	tpRatingProfileDataDir   = "/usr/share/cgrates"
 	tpRatingProfile          *utils.TPRatingProfile
 	tpRatingProfileDelay     int
 	tpRatingProfileConfigDIR string //run tests for specific configuration
@@ -84,13 +82,11 @@ func TestTPRatingProfilesIT(t *testing.T) {
 
 func testTPRatingProfilesInitCfg(t *testing.T) {
 	var err error
-	tpRatingProfileCfgPath = path.Join(tpRatingProfileDataDir, "conf", "samples", tpRatingProfileConfigDIR)
+	tpRatingProfileCfgPath = path.Join(*dataDir, "conf", "samples", tpRatingProfileConfigDIR)
 	tpRatingProfileCfg, err = config.NewCGRConfigFromPath(tpRatingProfileCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpRatingProfileCfg.DataFolderPath = tpRatingProfileDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpRatingProfileCfg)
 	switch tpRatingProfileConfigDIR {
 	case "tutmongo": // Mongo needs more time to reset db, need to investigate
 		tpRatingProfileDelay = 2000
@@ -193,7 +189,7 @@ func testTPRatingProfilesGetTPRatingProfileLoadIds(t *testing.T) {
 func testTPRatingProfilesGetTPRatingProfilesByLoadID(t *testing.T) {
 	var respond *[]*utils.TPRatingProfile
 	if err := tpRatingProfileRPC.Call(utils.APIerSv1GetTPRatingProfilesByLoadID,
-		&utils.TPRatingProfile{TPid: "TPRProf1", LoadId: "RPrf"}, &respond); err != nil {
+		&utils.TPRatingProfile{TPid: "TPRProf1", LoadId: "RPrf", Tenant: "Tenant1"}, &respond); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(tpRatingProfile.TPid, (*respond)[0].TPid) {
 		t.Errorf("Expecting : %+v, received: %+v", tpRatingProfile.TPid, (*respond)[0].TPid)
@@ -275,7 +271,6 @@ func testTPRatingProfilesRemoveTPRatingProfile(t *testing.T) {
 	} else if resp != utils.OK {
 		t.Error("Unexpected reply returned", resp)
 	}
-	time.Sleep(time.Duration(100 * time.Millisecond))
 }
 
 func testTPRatingProfilesGetTPRatingProfileAfterRemove(t *testing.T) {

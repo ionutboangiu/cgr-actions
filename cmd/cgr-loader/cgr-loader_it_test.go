@@ -32,10 +32,12 @@ import (
 	"path"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 var (
@@ -48,22 +50,34 @@ var (
 func TestLoadConfig(t *testing.T) {
 	// DataDb
 	*cfgPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
-	*dataDBType = "*redis"
+	*dataDBType = utils.MetaRedis
 	*dataDBHost = "localhost"
 	*dataDBPort = "2012"
 	*dataDBName = "100"
 	*dataDBUser = "cgrates2"
 	*dataDBPasswd = "toor"
 	*dbRedisSentinel = "sentinel1"
+	*dbRedisConnectTimeout = 5 * time.Second
 	expDBcfg := &config.DataDbCfg{
-		DataDbType: "*redis",
-		DataDbHost: "localhost",
-		DataDbPort: "2012",
-		DataDbName: "100",
-		DataDbUser: "cgrates2",
-		DataDbPass: "toor",
-		RmtConns:   []string{},
-		RplConns:   []string{},
+		Type:     utils.MetaRedis,
+		Host:     "localhost",
+		Port:     "2012",
+		Name:     "100",
+		User:     "cgrates2",
+		Password: "toor",
+		Opts: &config.DataDBOpts{
+			RedisMaxConns:           10,
+			RedisConnectAttempts:    20,
+			RedisSentinel:           "sentinel1",
+			RedisCluster:            false,
+			RedisClusterSync:        5 * time.Second,
+			RedisClusterOndownDelay: 0,
+			RedisConnectTimeout:     5 * time.Second,
+			MongoQueryTimeout:       10 * time.Second,
+			RedisTLS:                false,
+		},
+		RmtConns: []string{},
+		RplConns: []string{},
 	}
 	// StorDB
 	*storDBType = utils.MetaPostgres
@@ -73,7 +87,7 @@ func TestLoadConfig(t *testing.T) {
 	*storDBUser = "10"
 	*storDBPasswd = "toor"
 	expStorDB := &config.StorDbCfg{
-		Type:                "*postgres",
+		Type:                utils.MetaPostgres,
 		Host:                "localhost",
 		Port:                "2012",
 		Name:                "cgrates2",
@@ -81,6 +95,15 @@ func TestLoadConfig(t *testing.T) {
 		Password:            "toor",
 		StringIndexedFields: []string{},
 		PrefixIndexedFields: []string{},
+		Opts: &config.StorDBOpts{
+			SQLMaxOpenConns:    100,
+			SQLMaxIdleConns:    10,
+			SQLConnMaxLifetime: 0,
+			MongoQueryTimeout:  10 * time.Second,
+			PgSSLMode:          "disable",
+			MySQLLocation:      "Local",
+			MySQLDSNParams:     map[string]string{},
+		},
 	}
 	// Loader
 	*tpid = "1"
@@ -140,49 +163,49 @@ func TestLoadConfig(t *testing.T) {
 	if !reflect.DeepEqual(ldrCfg.LoaderCgrCfg().CachesConns, expAddrs) {
 		t.Errorf("Expected %v received %v", expAddrs, ldrCfg.LoaderCgrCfg().CachesConns)
 	}
-	// expAddrs = []string{"127.0.0.2"}
-	// if !reflect.DeepEqual(ldrCfg.LoaderCgrCfg().SchedulerConns, expAddrs) {
-	// 	t.Errorf("Expected %v received %v", expAddrs, ldrCfg.LoaderCgrCfg().SchedulerConns)
-	// }
-	// expaddr := config.RPCConns{
-	// 	utils.MetaBiJSONLocalHost: {
-	// 		Strategy: rpcclient.PoolFirst,
-	// 		PoolSize: 0,
-	// 		Conns: []*config.RemoteHost{{
-	// 			Address:   "127.0.0.1:2014",
-	// 			Transport: rpcclient.BiRPCJSON,
-	// 		}},
-	// 	},
-	// 	utils.MetaInternal: {
-	// 		Strategy: rpcclient.PoolFirst,
-	// 		PoolSize: 0,
-	// 		Conns: []*config.RemoteHost{{
-	// 			Address: utils.MetaInternal,
-	// 		}},
-	// 	},
-	// 	rpcclient.BiRPCInternal: {
-	// 		Strategy: rpcclient.PoolFirst,
-	// 		PoolSize: 0,
-	// 		Conns: []*config.RemoteHost{{
-	// 			Address: rpcclient.BiRPCInternal,
-	// 		}},
-	// 	},
-	// 	"*localhost": {
-	// 		Strategy: rpcclient.PoolFirst,
-	// 		Conns:    []*config.RemoteHost{{Address: "127.0.0.1:2012", Transport: utils.MetaJSON}},
-	// 	},
-	// 	"127.0.0.1": {
-	// 		Strategy: rpcclient.PoolFirst,
-	// 		Conns:    []*config.RemoteHost{{Address: "127.0.0.1", Transport: utils.MetaJSON}},
-	// 	},
-	// 	"127.0.0.2": {
-	// 		Strategy: rpcclient.PoolFirst,
-	// 		Conns:    []*config.RemoteHost{{Address: "127.0.0.2", Transport: utils.MetaJSON}},
-	// 	},
-	// }
-	// if !reflect.DeepEqual(ldrCfg.RPCConns(), expaddr) {
-	// 	t.Errorf("Expected %v received %v", utils.ToJSON(expaddr), utils.ToJSON(ldrCfg.RPCConns()))
-	// }
+	expAddrs = []string{"127.0.0.2"}
+	if !reflect.DeepEqual(ldrCfg.LoaderCgrCfg().SchedulerConns, expAddrs) {
+		t.Errorf("Expected %v received %v", expAddrs, ldrCfg.LoaderCgrCfg().SchedulerConns)
+	}
+	expaddr := config.RPCConns{
+		utils.MetaBiJSONLocalHost: {
+			Strategy: rpcclient.PoolFirst,
+			PoolSize: 0,
+			Conns: []*config.RemoteHost{{
+				Address:   "127.0.0.1:2014",
+				Transport: rpcclient.BiRPCJSON,
+			}},
+		},
+		utils.MetaInternal: {
+			Strategy: rpcclient.PoolFirst,
+			PoolSize: 0,
+			Conns: []*config.RemoteHost{{
+				Address: utils.MetaInternal,
+			}},
+		},
+		rpcclient.BiRPCInternal: {
+			Strategy: rpcclient.PoolFirst,
+			PoolSize: 0,
+			Conns: []*config.RemoteHost{{
+				Address: rpcclient.BiRPCInternal,
+			}},
+		},
+		"*localhost": {
+			Strategy: rpcclient.PoolFirst,
+			Conns:    []*config.RemoteHost{{Address: "127.0.0.1:2012", Transport: utils.MetaJSON}},
+		},
+		"127.0.0.1": {
+			Strategy: rpcclient.PoolFirst,
+			Conns:    []*config.RemoteHost{{Address: "127.0.0.1", Transport: utils.MetaJSON}},
+		},
+		"127.0.0.2": {
+			Strategy: rpcclient.PoolFirst,
+			Conns:    []*config.RemoteHost{{Address: "127.0.0.2", Transport: utils.MetaJSON}},
+		},
+	}
+	if !reflect.DeepEqual(ldrCfg.RPCConns(), expaddr) {
+		t.Errorf("Expected %v received %v", utils.ToJSON(expaddr), utils.ToJSON(ldrCfg.RPCConns()))
+	}
 }
 
 var (
@@ -207,7 +230,7 @@ var (
 
 		testLoadItStartLoaderToStorDB,
 		testLoadItStartLoaderFlushStorDB,
-		// testLoadItStartLoaderFromStorDB,
+		testLoadItStartLoaderFromStorDB,
 		testLoadItCheckAttributes2,
 
 		testLoadItStartLoaderToStorDB,
@@ -271,11 +294,11 @@ func testLoadItStartLoader(t *testing.T) {
 
 func testLoadItConnectToDB(t *testing.T) {
 	var err error
-	if db, err = engine.NewDataDBConn(ldrItCfg.DataDbCfg().DataDbType,
-		ldrItCfg.DataDbCfg().DataDbHost, ldrItCfg.DataDbCfg().DataDbPort,
-		ldrItCfg.DataDbCfg().DataDbName, ldrItCfg.DataDbCfg().DataDbUser,
-		ldrItCfg.DataDbCfg().DataDbPass, ldrItCfg.GeneralCfg().DBDataEncoding,
-		ldrItCfg.DataDbCfg().DataDbSentinelName, ldrItCfg.DataDbCfg().Items); err != nil {
+	if db, err = engine.NewDataDBConn(ldrItCfg.DataDbCfg().Type,
+		ldrItCfg.DataDbCfg().Host, ldrItCfg.DataDbCfg().Port,
+		ldrItCfg.DataDbCfg().Name, ldrItCfg.DataDbCfg().User,
+		ldrItCfg.DataDbCfg().Password, ldrItCfg.GeneralCfg().DBDataEncoding,
+		ldrItCfg.DataDbCfg().Opts, ldrItCfg.DataDbCfg().Items); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -290,8 +313,8 @@ func testLoadItCheckAttributes(t *testing.T) {
 			{
 				FilterIDs: []string{},
 				Path:      utils.MetaReq + utils.NestingSep + "Password",
-				Type:      "*constant",
-				Value:     config.NewRSRParsersMustCompile("CGRateS.org", true, ";"),
+				Type:      utils.MetaConstant,
+				Value:     config.NewRSRParsersMustCompile("CGRateS.org", utils.InfieldSep),
 			},
 		},
 		Weight: 20.0,
@@ -368,13 +391,13 @@ func testLoadItStartLoaderWithTenant(t *testing.T) {
 
 type mockCache int
 
-func (c *mockCache) ReloadCache(args *utils.AttrReloadCacheWithArgDispatcher, reply *string) (err error) {
+func (c *mockCache) ReloadCache(args *utils.AttrReloadCacheWithAPIOpts, reply *string) (err error) {
 	resp = args.Tenant
 	*reply = "OK"
 	return nil
 }
 
-func (c *mockCache) Clear(args *utils.AttrReloadCacheWithArgDispatcher,
+func (c *mockCache) Clear(args *utils.AttrCacheIDsWithAPIOpts,
 	reply *string) error {
 	*reply = args.Tenant
 	return nil

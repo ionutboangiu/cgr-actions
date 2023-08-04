@@ -25,68 +25,87 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-func (dS *DispatcherService) ConfigSv1GetJSONSection(args *config.StringWithArgDispatcher, reply *map[string]interface{}) (err error) {
+func (dS *DispatcherService) ConfigSv1GetConfig(args *config.SectionWithAPIOpts, reply *map[string]any) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.TenantArg.Tenant != utils.EmptyString {
-		tnt = args.TenantArg.Tenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.ConfigSv1GetJSONSection, tnt,
-			args.APIKey, utils.TimePointer(time.Now())); err != nil {
+		if err = dS.authorize(utils.ConfigSv1GetConfig, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tnt},
-		utils.MetaConfig, routeID, utils.ConfigSv1GetJSONSection, args, reply)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaConfig, utils.ConfigSv1GetConfig, args, reply)
 }
 
-func (dS *DispatcherService) ConfigSv1ReloadConfigFromPath(args *config.ConfigReloadWithArgDispatcher, reply *string) (err error) {
+func (dS *DispatcherService) ConfigSv1ReloadConfig(args *config.ReloadArgs, reply *string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.TenantArg.Tenant != utils.EmptyString {
-		tnt = args.TenantArg.Tenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.ConfigSv1ReloadConfigFromPath, tnt,
-			args.APIKey, utils.TimePointer(time.Now())); err != nil {
+		if err = dS.authorize(utils.ConfigSv1ReloadConfig, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tnt},
-		utils.MetaConfig, routeID, utils.ConfigSv1ReloadConfigFromPath, args, reply)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaConfig, utils.ConfigSv1ReloadConfig, args, reply)
 }
 
-func (dS *DispatcherService) ConfigSv1ReloadConfigFromJSON(args *config.JSONReloadWithArgDispatcher, reply *string) (err error) {
+func (dS *DispatcherService) ConfigSv1SetConfig(args *config.SetConfigArgs, reply *string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.TenantArg.Tenant != utils.EmptyString {
-		tnt = args.TenantArg.Tenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.ConfigSv1ReloadConfigFromJSON, tnt,
-			args.APIKey, utils.TimePointer(time.Now())); err != nil {
+		if err = dS.authorize(utils.ConfigSv1SetConfig, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaConfig, utils.ConfigSv1SetConfig, args, reply)
+}
+
+func (dS *DispatcherService) ConfigSv1SetConfigFromJSON(args *config.SetConfigFromJSONArgs, reply *string) (err error) {
+	tnt := dS.cfg.GeneralCfg().DefaultTenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tnt},
-		utils.MetaConfig, routeID, utils.ConfigSv1ReloadConfigFromJSON, args, reply)
+	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
+		if err = dS.authorize(utils.ConfigSv1SetConfigFromJSON, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
+			return
+		}
+	}
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaConfig, utils.ConfigSv1SetConfigFromJSON, args, reply)
+}
+
+func (dS *DispatcherService) ConfigSv1GetConfigAsJSON(args *config.SectionWithAPIOpts, reply *string) (err error) {
+	tnt := dS.cfg.GeneralCfg().DefaultTenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
+	}
+	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
+		if err = dS.authorize(utils.ConfigSv1GetConfigAsJSON, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
+			return
+		}
+	}
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaConfig, utils.ConfigSv1GetConfigAsJSON, args, reply)
 }

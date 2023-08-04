@@ -20,7 +20,7 @@ package config
 
 import "github.com/cgrates/cgrates/utils"
 
-// Mailer config section
+// MailerCfg stores Mailer config section
 type MailerCfg struct {
 	MailerServer   string // The server to use when sending emails out
 	MailerAuthUser string // Authenticate to email server using this user
@@ -28,8 +28,8 @@ type MailerCfg struct {
 	MailerFromAddr string // From address used when sending emails out
 }
 
-// loadFromJsonCfg loads Database config from JsonCfg
-func (mailcfg *MailerCfg) loadFromJsonCfg(jsnMailerCfg *MailerJsonCfg) (err error) {
+// loadFromJSONCfg loads Database config from JsonCfg
+func (mailcfg *MailerCfg) loadFromJSONCfg(jsnMailerCfg *MailerJsonCfg) (err error) {
 	if jsnMailerCfg == nil {
 		return nil
 	}
@@ -45,16 +45,25 @@ func (mailcfg *MailerCfg) loadFromJsonCfg(jsnMailerCfg *MailerJsonCfg) (err erro
 	if jsnMailerCfg.From_address != nil {
 		mailcfg.MailerFromAddr = *jsnMailerCfg.From_address
 	}
-
 	return nil
 }
 
-func (mailcfg *MailerCfg) AsMapInterface() map[string]interface{} {
-	return map[string]interface{}{
+// AsMapInterface returns the config as a map[string]any
+func (mailcfg *MailerCfg) AsMapInterface() (initialMP map[string]any) {
+	return map[string]any{
 		utils.MailerServerCfg:   mailcfg.MailerServer,
 		utils.MailerAuthUserCfg: mailcfg.MailerAuthUser,
 		utils.MailerAuthPassCfg: mailcfg.MailerAuthPass,
 		utils.MailerFromAddrCfg: mailcfg.MailerFromAddr,
 	}
+}
 
+// Clone returns a deep copy of MailerCfg
+func (mailcfg MailerCfg) Clone() *MailerCfg {
+	return &MailerCfg{
+		MailerServer:   mailcfg.MailerServer,
+		MailerAuthUser: mailcfg.MailerAuthUser,
+		MailerAuthPass: mailcfg.MailerAuthPass,
+		MailerFromAddr: mailcfg.MailerFromAddr,
+	}
 }

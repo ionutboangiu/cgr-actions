@@ -29,7 +29,7 @@ import (
 type TPDistinctIds []string
 
 func (tpdi TPDistinctIds) String() string {
-	return strings.Join(tpdi, FIELDS_SEP)
+	return strings.Join(tpdi, FieldsSep)
 }
 
 type PaginatorWithSearch struct {
@@ -41,7 +41,6 @@ type PaginatorWithSearch struct {
 type Paginator struct {
 	Limit  *int // Limit the number of items returned
 	Offset *int // Offset of the first item returned (eg: use Limit*Page in case of PerPage items)
-
 }
 
 func (pgnt *Paginator) PaginateStringSlice(in []string) (out []string) {
@@ -67,12 +66,26 @@ func (pgnt *Paginator) PaginateStringSlice(in []string) (out []string) {
 	if limit == 0 || limit > len(in) {
 		limit = len(in)
 	}
-	ret := in[offset:limit]
-	out = make([]string, len(ret))
-	for i, itm := range ret {
-		out[i] = itm
+	return CloneStringSlice(in[offset:limit])
+}
+
+// Clone creates a clone of the object
+func (pgnt Paginator) Clone() Paginator {
+	var limit *int
+	if pgnt.Limit != nil {
+		limit = new(int)
+		*limit = *pgnt.Limit
 	}
-	return
+
+	var offset *int
+	if pgnt.Offset != nil {
+		offset = new(int)
+		*offset = *pgnt.Offset
+	}
+	return Paginator{
+		Limit:  limit,
+		Offset: offset,
+	}
 }
 
 // TPDestination represents one destination in storDB
@@ -83,8 +96,8 @@ type TPDestination struct {
 }
 
 // This file deals with tp_* data definition
-
-type TPRate struct {
+// TPRateRALs -> TPRateRALs
+type TPRateRALs struct {
 	TPid      string      // Tariff plan id
 	ID        string      // Rate id
 	RateSlots []*RateSlot // One or more RateSlots
@@ -150,7 +163,7 @@ type TPDestinationRate struct {
 type DestinationRate struct {
 	DestinationId    string // The destination identity
 	RateId           string // The rate identity
-	Rate             *TPRate
+	Rate             *TPRateRALs
 	RoundingMethod   string
 	RoundingDecimals int
 	MaxCost          float64
@@ -177,14 +190,26 @@ type TPTiming struct {
 	EndTime   string
 }
 
+// TPTimingWithAPIOpts is used in replicatorV1 for dispatcher
+type TPTimingWithAPIOpts struct {
+	*TPTiming
+	Tenant  string
+	APIOpts map[string]any
+}
+
+// ArgsGetTimingID is used by GetTiming API
+type ArgsGetTimingID struct {
+	ID string
+}
+
 func NewTiming(ID, years, mounths, mounthdays, weekdays, time string) (rt *TPTiming) {
 	rt = &TPTiming{}
 	rt.ID = ID
-	rt.Years.Parse(years, INFIELD_SEP)
-	rt.Months.Parse(mounths, INFIELD_SEP)
-	rt.MonthDays.Parse(mounthdays, INFIELD_SEP)
-	rt.WeekDays.Parse(weekdays, INFIELD_SEP)
-	times := strings.Split(time, INFIELD_SEP)
+	rt.Years.Parse(years, InfieldSep)
+	rt.Months.Parse(mounths, InfieldSep)
+	rt.MonthDays.Parse(mounthdays, InfieldSep)
+	rt.WeekDays.Parse(weekdays, InfieldSep)
+	times := strings.Split(time, InfieldSep)
 	rt.StartTime = times[0]
 	if len(times) > 1 {
 		rt.EndTime = times[1]
@@ -224,17 +249,17 @@ type TPRatingProfile struct {
 
 // Used as key in nosql db (eg: redis)
 func (rpf *TPRatingProfile) KeyId() string {
-	return ConcatenatedKey(META_OUT,
+	return ConcatenatedKey(MetaOut,
 		rpf.Tenant, rpf.Category, rpf.Subject)
 }
 
 func (rpf *TPRatingProfile) GetId() string {
-	return ConcatenatedKey(rpf.LoadId, META_OUT,
+	return ConcatenatedKey(rpf.LoadId, MetaOut,
 		rpf.Tenant, rpf.Category, rpf.Subject)
 }
 
 func (rpf *TPRatingProfile) SetRatingProfileID(id string) error {
-	ids := strings.Split(id, CONCATENATED_KEY_SEP)
+	ids := strings.Split(id, ConcatenatedKeySep)
 	if len(ids) != 4 {
 		return fmt.Errorf("Wrong TPRatingProfileId: %s", id)
 	}
@@ -251,7 +276,7 @@ type AttrSetRatingProfile struct {
 	Subject               string                // Rating subject, usually the same as account
 	Overwrite             bool                  // Overwrite if exists
 	RatingPlanActivations []*TPRatingActivation // Activate rating plans at specific time
-	Cache                 *string
+	APIOpts               map[string]any
 }
 
 type AttrGetRatingProfile struct {
@@ -261,7 +286,7 @@ type AttrGetRatingProfile struct {
 }
 
 func (self *AttrGetRatingProfile) GetID() string {
-	return ConcatenatedKey(META_OUT, self.Tenant, self.Category, self.Subject)
+	return ConcatenatedKey(MetaOut, self.Tenant, self.Category, self.Subject)
 }
 
 type TPRatingActivation struct {
@@ -274,8 +299,8 @@ type TPRatingActivation struct {
 func FallbackSubjKeys(tenant, tor, fallbackSubjects string) []string {
 	var sslice sort.StringSlice
 	if len(fallbackSubjects) != 0 {
-		for _, fbs := range strings.Split(fallbackSubjects, string(FALLBACK_SEP)) {
-			newKey := ConcatenatedKey(META_OUT, tenant, tor, fbs)
+		for _, fbs := range strings.Split(fallbackSubjects, string(FallbackSep)) {
+			newKey := ConcatenatedKey(MetaOut, tenant, tor, fbs)
 			i := sslice.Search(newKey)
 			if i < len(sslice) && sslice[i] != newKey {
 				// not found so insert it
@@ -317,7 +342,7 @@ type TPAction struct {
 	BalanceType     string // Type of balance the action will operate on
 	Units           string // Number of units to add/deduct
 	ExpiryTime      string // Time when the units will expire
-	Filter          string // The condition on balances that is checked before the action
+	Filters         string // The condition on balances that is checked before the action
 	TimingTags      string // Timing when balance is active
 	DestinationIds  string // Destination profile id
 	RatingSubject   string // Reference a rate subject defined in RatingProfiles
@@ -401,11 +426,11 @@ func (aa *TPAccountActions) KeyId() string {
 }
 
 func (aa *TPAccountActions) GetId() string {
-	return aa.LoadId + CONCATENATED_KEY_SEP + aa.Tenant + CONCATENATED_KEY_SEP + aa.Account
+	return aa.LoadId + ConcatenatedKeySep + aa.Tenant + ConcatenatedKeySep + aa.Account
 }
 
 func (aa *TPAccountActions) SetAccountActionsId(id string) error {
-	ids := strings.Split(id, CONCATENATED_KEY_SEP)
+	ids := strings.Split(id, ConcatenatedKeySep)
 	if len(ids) != 3 {
 		return fmt.Errorf("Wrong TP Account Action Id: %s", id)
 	}
@@ -428,142 +453,8 @@ type AttrGetAccounts struct {
 	Filter     map[string]bool
 }
 
-type ArgsCache struct {
-	DestinationIDs        []string
-	ReverseDestinationIDs []string
-	RatingPlanIDs         []string
-	RatingProfileIDs      []string
-	ActionIDs             []string
-	ActionPlanIDs         []string
-	AccountActionPlanIDs  []string
-	ActionTriggerIDs      []string
-	SharedGroupIDs        []string
-	ResourceProfileIDs    []string
-	ResourceIDs           []string
-	StatsQueueIDs         []string
-	StatsQueueProfileIDs  []string
-	ThresholdIDs          []string
-	ThresholdProfileIDs   []string
-	FilterIDs             []string
-	SupplierProfileIDs    []string
-	AttributeProfileIDs   []string
-	ChargerProfileIDs     []string
-	DispatcherProfileIDs  []string
-	DispatcherHostIDs     []string
-	DispatcherRoutesIDs   []string
-}
-
-// Data used to do remote cache reloads via api
-type AttrReloadCache struct {
-	ArgsCache
-	FlushAll bool // If provided, cache flush will be executed before any action
-}
-
-// InitAttrReloadCache initialize AttrReloadCache with empty string slice
-func InitAttrReloadCache() (rpl AttrReloadCache) {
-	rpl.DestinationIDs = []string{}
-	rpl.ReverseDestinationIDs = []string{}
-	rpl.RatingPlanIDs = []string{}
-	rpl.RatingProfileIDs = []string{}
-	rpl.ActionIDs = []string{}
-	rpl.ActionPlanIDs = []string{}
-	rpl.AccountActionPlanIDs = []string{}
-	rpl.ActionTriggerIDs = []string{}
-	rpl.SharedGroupIDs = []string{}
-	rpl.ResourceProfileIDs = []string{}
-	rpl.ResourceIDs = []string{}
-	rpl.StatsQueueIDs = []string{}
-	rpl.StatsQueueProfileIDs = []string{}
-	rpl.ThresholdIDs = []string{}
-	rpl.ThresholdProfileIDs = []string{}
-	rpl.FilterIDs = []string{}
-	rpl.SupplierProfileIDs = []string{}
-	rpl.AttributeProfileIDs = []string{}
-	rpl.ChargerProfileIDs = []string{}
-	rpl.DispatcherProfileIDs = []string{}
-	rpl.DispatcherHostIDs = []string{}
-	rpl.DispatcherRoutesIDs = []string{}
-	return
-}
-
-type CacheKeys struct {
-}
-
-type AttrExpFileCdrs struct {
-	CdrFormat           *string  // Cdr output file format <CdreCdrFormats>
-	FieldSeparator      *string  // Separator used between fields
-	ExportId            *string  // Optional exportid
-	ExportDir           *string  // If provided it overwrites the configured export directory
-	ExportFileName      *string  // If provided the output filename will be set to this
-	ExportTemplate      *string  // Exported fields template  <""|fld1,fld2|*xml:instance_name>
-	CgrIds              []string // If provided, it will filter based on the cgrids present in list
-	MediationRunIds     []string // If provided, it will filter on mediation runid
-	TORs                []string // If provided, filter on TypeOfRecord
-	CdrHosts            []string // If provided, it will filter cdrhost
-	CdrSources          []string // If provided, it will filter cdrsource
-	ReqTypes            []string // If provided, it will fiter reqtype
-	Tenants             []string // If provided, it will filter tenant
-	Categories          []string // If provided, it will filter çategory
-	Accounts            []string // If provided, it will filter account
-	Subjects            []string // If provided, it will filter the rating subject
-	DestinationPrefixes []string // If provided, it will filter on destination prefix
-	OrderIdStart        *int64   // Export from this order identifier
-	OrderIdEnd          *int64   // Export smaller than this order identifier
-	TimeStart           string   // If provided, it will represent the starting of the CDRs interval (>=)
-	TimeEnd             string   // If provided, it will represent the end of the CDRs interval (<)
-	SkipErrors          bool     // Do not export errored CDRs
-	SkipRated           bool     // Do not export rated CDRs
-	SuppressCgrIds      bool     // Disable CgrIds reporting in reply/ExportedCgrIds and reply/UnexportedCgrIds
-	Paginator
-}
-
-func (aefc *AttrExpFileCdrs) AsCDRsFilter(timezone string) (*CDRsFilter, error) {
-	cdrFltr := &CDRsFilter{
-		CGRIDs:              aefc.CgrIds,
-		RunIDs:              aefc.MediationRunIds,
-		ToRs:                aefc.TORs,
-		OriginHosts:         aefc.CdrHosts,
-		Sources:             aefc.CdrSources,
-		RequestTypes:        aefc.ReqTypes,
-		Tenants:             aefc.Tenants,
-		Categories:          aefc.Categories,
-		Accounts:            aefc.Accounts,
-		Subjects:            aefc.Subjects,
-		DestinationPrefixes: aefc.DestinationPrefixes,
-		OrderIDStart:        aefc.OrderIdStart,
-		OrderIDEnd:          aefc.OrderIdEnd,
-		Paginator:           aefc.Paginator,
-	}
-	if len(aefc.TimeStart) != 0 {
-		if answerTimeStart, err := ParseTimeDetectLayout(aefc.TimeStart, timezone); err != nil {
-			return nil, err
-		} else {
-			cdrFltr.AnswerTimeStart = &answerTimeStart
-		}
-	}
-	if len(aefc.TimeEnd) != 0 {
-		if answerTimeEnd, err := ParseTimeDetectLayout(aefc.TimeEnd, timezone); err != nil {
-			return nil, err
-		} else {
-			cdrFltr.AnswerTimeEnd = &answerTimeEnd
-		}
-	}
-	if aefc.SkipRated {
-		cdrFltr.MaxCost = Float64Pointer(-1.0)
-	} else if aefc.SkipErrors {
-		cdrFltr.MinCost = Float64Pointer(0.0)
-		cdrFltr.MaxCost = Float64Pointer(-1.0)
-	}
-	return cdrFltr, nil
-}
-
-type ExportedFileCdrs struct {
-	ExportedFilePath          string            // Full path to the newly generated export file
-	TotalRecords              int               // Number of CDRs to be exported
-	TotalCost                 float64           // Sum of all costs in exported CDRs
-	FirstOrderId, LastOrderId int64             // The order id of the last exported CDR
-	ExportedCgrIds            []string          // List of successfuly exported cgrids in the file
-	UnexportedCgrIds          map[string]string // Map of errored CDRs, map key is cgrid, value will be the error string
+type AttrGetAccountsCount struct {
+	Tenant string
 }
 
 type AttrGetCdrs struct {
@@ -636,24 +527,23 @@ func (fltr *AttrGetCdrs) AsCDRsFilter(timezone string) (cdrFltr *CDRsFilter, err
 }
 
 type AttrLoadTpFromFolder struct {
-	FolderPath    string // Take files from folder absolute path
-	DryRun        bool   // Do not write to database but parse only
-	Validate      bool   // Run structural checks on data
-	Recursive     bool   // load data recursive
-	ArgDispatcher *ArgDispatcher
-	Caching       *string
+	FolderPath string // Take files from folder absolute path
+	DryRun     bool   // Do not write to database but parse only
+	Validate   bool   // Run structural checks on data
+	APIOpts    map[string]any
+	Caching    *string
 }
 
 type AttrImportTPFromFolder struct {
-	TPid          string
-	FolderPath    string
-	RunId         string
-	CsvSeparator  string
-	ArgDispatcher *ArgDispatcher
+	TPid         string
+	FolderPath   string
+	RunId        string
+	CsvSeparator string
+	APIOpts      map[string]any
 }
 
 func NewTAFromAccountKey(accountKey string) (*TenantAccount, error) {
-	accountSplt := strings.Split(accountKey, CONCATENATED_KEY_SEP)
+	accountSplt := strings.Split(accountKey, ConcatenatedKeySep)
 	if len(accountSplt) != 2 {
 		return nil, fmt.Errorf("Unsupported format for TenantAccount: %s", accountKey)
 	}
@@ -757,52 +647,53 @@ func (fltr *CDRsFilter) Prepare() {
 
 	sort.Float64s(fltr.Costs)
 	sort.Float64s(fltr.NotCosts)
+
 }
 
 // RPCCDRsFilter is a filter used in Rpc calls
 // RPCCDRsFilter is slightly different than CDRsFilter by using string instead of Time filters
 type RPCCDRsFilter struct {
-	CGRIDs                 []string               // If provided, it will filter based on the cgrids present in list
-	NotCGRIDs              []string               // Filter specific CgrIds out
-	RunIDs                 []string               // If provided, it will filter on mediation runid
-	NotRunIDs              []string               // Filter specific runIds out
-	OriginIDs              []string               // If provided, it will filter on OriginIDs
-	NotOriginIDs           []string               // Filter specific OriginIDs out
-	OriginHosts            []string               // If provided, it will filter cdrhost
-	NotOriginHosts         []string               // Filter out specific cdr hosts
-	Sources                []string               // If provided, it will filter cdrsource
-	NotSources             []string               // Filter out specific CDR sources
-	ToRs                   []string               // If provided, filter on TypeOfRecord
-	NotToRs                []string               // Filter specific TORs out
-	RequestTypes           []string               // If provided, it will fiter reqtype
-	NotRequestTypes        []string               // Filter out specific request types
-	Tenants                []string               // If provided, it will filter tenant
-	NotTenants             []string               // If provided, it will filter tenant
-	Categories             []string               // If provided, it will filter çategory
-	NotCategories          []string               // Filter out specific categories
-	Accounts               []string               // If provided, it will filter account
-	NotAccounts            []string               // Filter out specific Accounts
-	Subjects               []string               // If provided, it will filter the rating subject
-	NotSubjects            []string               // Filter out specific subjects
-	DestinationPrefixes    []string               // If provided, it will filter on destination prefix
-	NotDestinationPrefixes []string               // Filter out specific destination prefixes
-	Costs                  []float64              // Query based on costs specified
-	NotCosts               []float64              // Filter out specific costs out from result
-	ExtraFields            map[string]string      // Query based on extra fields content
-	NotExtraFields         map[string]string      // Filter out based on extra fields content
-	SetupTimeStart         string                 // Start of interval, bigger or equal than configured
-	SetupTimeEnd           string                 // End interval, smaller than setupTime
-	AnswerTimeStart        string                 // Start of interval, bigger or equal than configured
-	AnswerTimeEnd          string                 // End interval, smaller than answerTime
-	CreatedAtStart         string                 // Start of interval, bigger or equal than configured
-	CreatedAtEnd           string                 // End interval, smaller than
-	UpdatedAtStart         string                 // Start of interval, bigger or equal than configured
-	UpdatedAtEnd           string                 // End interval, smaller than
-	MinUsage               string                 // Start of the usage interval (>=)
-	MaxUsage               string                 // End of the usage interval (<)
-	OrderBy                string                 // Ascendent/Descendent
-	ExtraArgs              map[string]interface{} // it will contain optional arguments like: OrderIDStart,OrderIDEnd,MinCost and MaxCost
-	Paginator                                     // Add pagination
+	CGRIDs                 []string          // If provided, it will filter based on the cgrids present in list
+	NotCGRIDs              []string          // Filter specific CgrIds out
+	RunIDs                 []string          // If provided, it will filter on mediation runid
+	NotRunIDs              []string          // Filter specific runIds out
+	OriginIDs              []string          // If provided, it will filter on OriginIDs
+	NotOriginIDs           []string          // Filter specific OriginIDs out
+	OriginHosts            []string          // If provided, it will filter cdrhost
+	NotOriginHosts         []string          // Filter out specific cdr hosts
+	Sources                []string          // If provided, it will filter cdrsource
+	NotSources             []string          // Filter out specific CDR sources
+	ToRs                   []string          // If provided, filter on TypeOfRecord
+	NotToRs                []string          // Filter specific TORs out
+	RequestTypes           []string          // If provided, it will fiter reqtype
+	NotRequestTypes        []string          // Filter out specific request types
+	Tenants                []string          // If provided, it will filter tenant
+	NotTenants             []string          // If provided, it will filter tenant
+	Categories             []string          // If provided, it will filter çategory
+	NotCategories          []string          // Filter out specific categories
+	Accounts               []string          // If provided, it will filter account
+	NotAccounts            []string          // Filter out specific Accounts
+	Subjects               []string          // If provided, it will filter the rating subject
+	NotSubjects            []string          // Filter out specific subjects
+	DestinationPrefixes    []string          // If provided, it will filter on destination prefix
+	NotDestinationPrefixes []string          // Filter out specific destination prefixes
+	Costs                  []float64         // Query based on costs specified
+	NotCosts               []float64         // Filter out specific costs out from result
+	ExtraFields            map[string]string // Query based on extra fields content
+	NotExtraFields         map[string]string // Filter out based on extra fields content
+	SetupTimeStart         string            // Start of interval, bigger or equal than configured
+	SetupTimeEnd           string            // End interval, smaller than setupTime
+	AnswerTimeStart        string            // Start of interval, bigger or equal than configured
+	AnswerTimeEnd          string            // End interval, smaller than answerTime
+	CreatedAtStart         string            // Start of interval, bigger or equal than configured
+	CreatedAtEnd           string            // End interval, smaller than
+	UpdatedAtStart         string            // Start of interval, bigger or equal than configured
+	UpdatedAtEnd           string            // End interval, smaller than
+	MinUsage               string            // Start of the usage interval (>=)
+	MaxUsage               string            // End of the usage interval (<)
+	OrderBy                string            // Ascendent/Descendent
+	ExtraArgs              map[string]any    // it will contain optional arguments like: OrderIDStart,OrderIDEnd,MinCost and MaxCost
+	Paginator                                // Add pagination
 }
 
 func (fltr *RPCCDRsFilter) AsCDRsFilter(timezone string) (cdrFltr *CDRsFilter, err error) {
@@ -968,8 +859,22 @@ type AttrSetBalance struct {
 	Account         string
 	BalanceType     string
 	Value           float64
-	Balance         map[string]interface{}
-	ActionExtraData *map[string]interface{}
+	Balance         map[string]any
+	ActionExtraData *map[string]any
+	Cdrlog          bool
+}
+
+type AttrSetBalances struct {
+	Tenant   string
+	Account  string
+	Balances []*AttrBalance
+}
+
+type AttrBalance struct {
+	BalanceType     string
+	Value           float64
+	Balance         map[string]any
+	ActionExtraData *map[string]any
 	Cdrlog          bool
 }
 
@@ -995,33 +900,30 @@ type TPActivationInterval struct {
 	ExpiryTime     string
 }
 
-type ArgRSv1ResourceUsage struct {
-	*CGREvent
-	UsageID  string // ResourceUsage Identifier
-	UsageTTL *time.Duration
-	Units    float64
-	*ArgDispatcher
-}
-
 type ArgsComputeFilterIndexIDs struct {
-	Tenant        string
-	Context       string
-	AttributeIDs  []string
-	ResourceIDs   []string
-	StatIDs       []string
-	SupplierIDs   []string
-	ThresholdIDs  []string
-	ChargerIDs    []string
-	DispatcherIDs []string
+	Tenant           string
+	Context          string
+	APIOpts          map[string]any
+	AttributeIDs     []string
+	ResourceIDs      []string
+	StatIDs          []string
+	RouteIDs         []string
+	ThresholdIDs     []string
+	ChargerIDs       []string
+	DispatcherIDs    []string
+	RateProfileIDs   []string
+	AccountIDs       []string
+	ActionProfileIDs []string
 }
 
 type ArgsComputeFilterIndexes struct {
 	Tenant      string
 	Context     string
+	APIOpts     map[string]any
 	AttributeS  bool
 	ResourceS   bool
 	StatS       bool
-	SupplierS   bool
+	RouteS      bool
 	ThresholdS  bool
 	ChargerS    bool
 	DispatcherS bool
@@ -1051,7 +953,7 @@ func (ai *ActivationInterval) IsActiveAtTime(atTime time.Time) bool {
 
 // Attributes to send on SessionDisconnect by SMG
 type AttrDisconnectSession struct {
-	EventStart map[string]interface{}
+	EventStart map[string]any
 	Reason     string
 }
 
@@ -1110,21 +1012,21 @@ type TPFilter struct {
 	Values  []string // Filter definition
 }
 
-// TPSupplier is used in TPSupplierProfile
-type TPSupplier struct {
-	ID                 string // SupplierID
-	FilterIDs          []string
-	AccountIDs         []string
-	RatingPlanIDs      []string // used when computing price
-	ResourceIDs        []string // queried in some strategies
-	StatIDs            []string // queried in some strategies
-	Weight             float64
-	Blocker            bool
-	SupplierParameters string
+// TPRoute is used in TPRouteProfile
+type TPRoute struct {
+	ID              string // RouteID
+	FilterIDs       []string
+	AccountIDs      []string
+	RatingPlanIDs   []string // used when computing price
+	ResourceIDs     []string // queried in some strategies
+	StatIDs         []string // queried in some strategies
+	Weight          float64
+	Blocker         bool
+	RouteParameters string
 }
 
-// TPSupplierProfile is used in APIs to manage remotely offline SupplierProfile
-type TPSupplierProfile struct {
+// TPRouteProfile is used in APIs to manage remotely offline RouteProfile
+type TPRouteProfile struct {
 	TPid               string
 	Tenant             string
 	ID                 string
@@ -1132,7 +1034,7 @@ type TPSupplierProfile struct {
 	ActivationInterval *TPActivationInterval // Time when this limit becomes active and expires
 	Sorting            string
 	SortingParameters  []string
-	Suppliers          []*TPSupplier
+	Routes             []*TPRoute
 	Weight             float64
 }
 
@@ -1184,7 +1086,7 @@ type TPDispatcherProfile struct {
 	FilterIDs          []string
 	ActivationInterval *TPActivationInterval // Time when this limit becomes active and expires
 	Strategy           string
-	StrategyParams     []interface{} // ie for distribution, set here the pool weights
+	StrategyParams     []any // ie for distribution, set here the pool weights
 	Weight             float64
 	Hosts              []*TPDispatcherHostProfile
 }
@@ -1193,9 +1095,9 @@ type TPDispatcherProfile struct {
 type TPDispatcherHostProfile struct {
 	ID        string
 	FilterIDs []string
-	Weight    float64       // applied in case of multiple connections need to be ordered
-	Params    []interface{} // additional parameters stored for a session
-	Blocker   bool          // no connection after this one
+	Weight    float64 // applied in case of multiple connections need to be ordered
+	Params    []any   // additional parameters stored for a session
+	Blocker   bool    // no connection after this one
 }
 
 // TPDispatcherHost is used in APIs to manage remotely offline DispatcherHost
@@ -1203,14 +1105,22 @@ type TPDispatcherHost struct {
 	TPid   string
 	Tenant string
 	ID     string
-	Conns  []*TPDispatcherHostConn
+	Conn   *TPDispatcherHostConn
 }
 
 // TPDispatcherHostConn is used in TPDispatcherHost
 type TPDispatcherHostConn struct {
-	Address   string
-	Transport string
-	TLS       bool
+	Address              string
+	Transport            string
+	ConnectAttempts      int
+	Reconnects           int
+	MaxReconnectInterval time.Duration
+	ConnectTimeout       time.Duration
+	ReplyTimeout         time.Duration
+	TLS                  bool
+	ClientKey            string
+	ClientCertificate    string
+	CaCertificate        string
 }
 
 type UsageInterval struct {
@@ -1247,7 +1157,7 @@ type SMCostFilter struct { //id cu litere mare
 func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 	values []string, timezone string) (smcf *SMCostFilter, err error) {
 	switch fieldName {
-	case DynamicDataPrefix + CGRID:
+	case MetaScPrefix + CGRID:
 		switch fieldType {
 		case MetaString:
 			smcFilter.CGRIDs = append(smcFilter.CGRIDs, values...)
@@ -1256,7 +1166,7 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 		default:
 			err = fmt.Errorf("FilterType: %q not supported for FieldName: %q", fieldType, fieldName)
 		}
-	case DynamicDataPrefix + RunID:
+	case MetaScPrefix + RunID:
 		switch fieldType {
 		case MetaString:
 			smcFilter.RunIDs = append(smcFilter.RunIDs, values...)
@@ -1265,7 +1175,7 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 		default:
 			err = fmt.Errorf("FilterType: %q not supported for FieldName: %q", fieldType, fieldName)
 		}
-	case DynamicDataPrefix + OriginHost:
+	case MetaScPrefix + OriginHost:
 		switch fieldType {
 		case MetaString:
 			smcFilter.OriginHosts = append(smcFilter.OriginHosts, values...)
@@ -1274,7 +1184,7 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 		default:
 			err = fmt.Errorf("FilterType: %q not supported for FieldName: %q", fieldType, fieldName)
 		}
-	case DynamicDataPrefix + OriginID:
+	case MetaScPrefix + OriginID:
 		switch fieldType {
 		case MetaString:
 			smcFilter.OriginIDs = append(smcFilter.OriginIDs, values...)
@@ -1283,7 +1193,7 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 		default:
 			err = fmt.Errorf("FilterType: %q not supported for FieldName: %q", fieldType, fieldName)
 		}
-	case DynamicDataPrefix + CostSource:
+	case MetaScPrefix + CostSource:
 		switch fieldType {
 		case MetaString:
 			smcFilter.CostSources = append(smcFilter.CostSources, values...)
@@ -1292,7 +1202,7 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 		default:
 			err = fmt.Errorf("FilterType: %q not supported for FieldName: %q", fieldType, fieldName)
 		}
-	case DynamicDataPrefix + Usage:
+	case MetaScPrefix + Usage:
 		switch fieldType {
 		case MetaGreaterOrEqual:
 			var minUsage time.Duration
@@ -1313,7 +1223,7 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 		default:
 			err = fmt.Errorf("FilterType: %q not supported for FieldName: %q", fieldType, fieldName)
 		}
-	case DynamicDataPrefix + CreatedAt:
+	case MetaScPrefix + CreatedAt:
 		switch fieldType {
 		case MetaGreaterOrEqual:
 			var start time.Time
@@ -1344,39 +1254,183 @@ func AppendToSMCostFilter(smcFilter *SMCostFilter, fieldType, fieldName string,
 	return smcFilter, err
 }
 
-type RPCCDRsFilterWithArgDispatcher struct {
+type RPCCDRsFilterWithAPIOpts struct {
 	*RPCCDRsFilter
-	*ArgDispatcher
-	*TenantArg
+	APIOpts map[string]any
+	Tenant  string
 }
 
-type ArgsGetCacheItemIDsWithArgDispatcher struct {
-	*ArgDispatcher
-	TenantArg
+type ArgsGetCacheItemIDsWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
 	ArgsGetCacheItemIDs
 }
 
-type ArgsGetCacheItemWithArgDispatcher struct {
-	*ArgDispatcher
-	TenantArg
+type ArgsGetCacheItemWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
 	ArgsGetCacheItem
 }
 
-type AttrReloadCacheWithArgDispatcher struct {
-	*ArgDispatcher
-	TenantArg
-	AttrReloadCache
+// NewAttrReloadCacheWithOpts returns the ArgCache populated with nil
+func NewAttrReloadCacheWithOpts() *AttrReloadCacheWithAPIOpts {
+	return &AttrReloadCacheWithAPIOpts{
+		DestinationIDs:           []string{MetaAny},
+		ReverseDestinationIDs:    []string{MetaAny},
+		RatingPlanIDs:            []string{MetaAny},
+		RatingProfileIDs:         []string{MetaAny},
+		ActionIDs:                []string{MetaAny},
+		ActionPlanIDs:            []string{MetaAny},
+		AccountActionPlanIDs:     []string{MetaAny},
+		ActionTriggerIDs:         []string{MetaAny},
+		SharedGroupIDs:           []string{MetaAny},
+		ResourceProfileIDs:       []string{MetaAny},
+		ResourceIDs:              []string{MetaAny},
+		StatsQueueIDs:            []string{MetaAny},
+		StatsQueueProfileIDs:     []string{MetaAny},
+		ThresholdIDs:             []string{MetaAny},
+		ThresholdProfileIDs:      []string{MetaAny},
+		FilterIDs:                []string{MetaAny},
+		RouteProfileIDs:          []string{MetaAny},
+		AttributeProfileIDs:      []string{MetaAny},
+		ChargerProfileIDs:        []string{MetaAny},
+		DispatcherProfileIDs:     []string{MetaAny},
+		DispatcherHostIDs:        []string{MetaAny},
+		TimingIDs:                []string{MetaAny},
+		AttributeFilterIndexIDs:  []string{MetaAny},
+		ResourceFilterIndexIDs:   []string{MetaAny},
+		StatFilterIndexIDs:       []string{MetaAny},
+		ThresholdFilterIndexIDs:  []string{MetaAny},
+		RouteFilterIndexIDs:      []string{MetaAny},
+		ChargerFilterIndexIDs:    []string{MetaAny},
+		DispatcherFilterIndexIDs: []string{MetaAny},
+		FilterIndexIDs:           []string{MetaAny},
+		Dispatchers:              []string{MetaAny},
+	}
 }
 
-type AttrCacheIDsWithArgDispatcher struct {
-	*ArgDispatcher
-	TenantArg
+func NewAttrReloadCacheWithOptsFromMap(arg map[string][]string, tnt string, opts map[string]any) *AttrReloadCacheWithAPIOpts {
+	return &AttrReloadCacheWithAPIOpts{
+		Tenant:  tnt,
+		APIOpts: opts,
+
+		DestinationIDs:        arg[CacheDestinations],
+		ReverseDestinationIDs: arg[CacheReverseDestinations],
+		RatingPlanIDs:         arg[CacheRatingPlans],
+		RatingProfileIDs:      arg[CacheRatingProfiles],
+		ActionIDs:             arg[CacheActions],
+		ActionPlanIDs:         arg[CacheActionPlans],
+		AccountActionPlanIDs:  arg[CacheAccountActionPlans],
+		ActionTriggerIDs:      arg[CacheActionTriggers],
+		SharedGroupIDs:        arg[CacheSharedGroups],
+		ResourceProfileIDs:    arg[CacheResourceProfiles],
+		ResourceIDs:           arg[CacheResources],
+		StatsQueueIDs:         arg[CacheStatQueues],
+		StatsQueueProfileIDs:  arg[CacheStatQueueProfiles],
+		ThresholdIDs:          arg[CacheThresholds],
+		ThresholdProfileIDs:   arg[CacheThresholdProfiles],
+		FilterIDs:             arg[CacheFilters],
+		RouteProfileIDs:       arg[CacheRouteProfiles],
+		AttributeProfileIDs:   arg[CacheAttributeProfiles],
+		ChargerProfileIDs:     arg[CacheChargerProfiles],
+		DispatcherProfileIDs:  arg[CacheDispatcherProfiles],
+		DispatcherHostIDs:     arg[CacheDispatcherHosts],
+		Dispatchers:           arg[CacheDispatchers],
+
+		TimingIDs:                arg[CacheTimings],
+		AttributeFilterIndexIDs:  arg[CacheAttributeFilterIndexes],
+		ResourceFilterIndexIDs:   arg[CacheResourceFilterIndexes],
+		StatFilterIndexIDs:       arg[CacheStatFilterIndexes],
+		ThresholdFilterIndexIDs:  arg[CacheThresholdFilterIndexes],
+		RouteFilterIndexIDs:      arg[CacheRouteFilterIndexes],
+		ChargerFilterIndexIDs:    arg[CacheChargerFilterIndexes],
+		DispatcherFilterIndexIDs: arg[CacheDispatcherFilterIndexes],
+		FilterIndexIDs:           arg[CacheReverseFilterIndexes],
+	}
+}
+
+type AttrReloadCacheWithAPIOpts struct {
+	APIOpts                  map[string]any `json:",omitempty"`
+	Tenant                   string         `json:",omitempty"`
+	DestinationIDs           []string       `json:",omitempty"`
+	ReverseDestinationIDs    []string       `json:",omitempty"`
+	RatingPlanIDs            []string       `json:",omitempty"`
+	RatingProfileIDs         []string       `json:",omitempty"`
+	ActionIDs                []string       `json:",omitempty"`
+	ActionPlanIDs            []string       `json:",omitempty"`
+	AccountActionPlanIDs     []string       `json:",omitempty"`
+	ActionTriggerIDs         []string       `json:",omitempty"`
+	SharedGroupIDs           []string       `json:",omitempty"`
+	ResourceProfileIDs       []string       `json:",omitempty"`
+	ResourceIDs              []string       `json:",omitempty"`
+	StatsQueueIDs            []string       `json:",omitempty"`
+	StatsQueueProfileIDs     []string       `json:",omitempty"`
+	ThresholdIDs             []string       `json:",omitempty"`
+	ThresholdProfileIDs      []string       `json:",omitempty"`
+	FilterIDs                []string       `json:",omitempty"`
+	RouteProfileIDs          []string       `json:",omitempty"`
+	AttributeProfileIDs      []string       `json:",omitempty"`
+	ChargerProfileIDs        []string       `json:",omitempty"`
+	DispatcherProfileIDs     []string       `json:",omitempty"`
+	DispatcherHostIDs        []string       `json:",omitempty"`
+	Dispatchers              []string       `json:",omitempty"`
+	TimingIDs                []string       `json:",omitempty"`
+	AttributeFilterIndexIDs  []string       `json:",omitempty"`
+	ResourceFilterIndexIDs   []string       `json:",omitempty"`
+	StatFilterIndexIDs       []string       `json:",omitempty"`
+	ThresholdFilterIndexIDs  []string       `json:",omitempty"`
+	RouteFilterIndexIDs      []string       `json:",omitempty"`
+	ChargerFilterIndexIDs    []string       `json:",omitempty"`
+	DispatcherFilterIndexIDs []string       `json:",omitempty"`
+	FilterIndexIDs           []string       `json:",omitempty"`
+}
+
+func (a *AttrReloadCacheWithAPIOpts) Map() map[string][]string {
+	return map[string][]string{
+		CacheDestinations:        a.DestinationIDs,
+		CacheReverseDestinations: a.ReverseDestinationIDs,
+		CacheRatingPlans:         a.RatingPlanIDs,
+		CacheRatingProfiles:      a.RatingProfileIDs,
+		CacheActions:             a.ActionIDs,
+		CacheActionPlans:         a.ActionPlanIDs,
+		CacheAccountActionPlans:  a.AccountActionPlanIDs,
+		CacheActionTriggers:      a.ActionTriggerIDs,
+		CacheSharedGroups:        a.SharedGroupIDs,
+		CacheResourceProfiles:    a.ResourceProfileIDs,
+		CacheResources:           a.ResourceIDs,
+		CacheStatQueues:          a.StatsQueueIDs,
+		CacheStatQueueProfiles:   a.StatsQueueProfileIDs,
+		CacheThresholds:          a.ThresholdIDs,
+		CacheThresholdProfiles:   a.ThresholdProfileIDs,
+		CacheFilters:             a.FilterIDs,
+		CacheRouteProfiles:       a.RouteProfileIDs,
+		CacheAttributeProfiles:   a.AttributeProfileIDs,
+		CacheChargerProfiles:     a.ChargerProfileIDs,
+		CacheDispatcherProfiles:  a.DispatcherProfileIDs,
+		CacheDispatcherHosts:     a.DispatcherHostIDs,
+		CacheDispatchers:         a.Dispatchers,
+
+		CacheTimings:                 a.TimingIDs,
+		CacheAttributeFilterIndexes:  a.AttributeFilterIndexIDs,
+		CacheResourceFilterIndexes:   a.ResourceFilterIndexIDs,
+		CacheStatFilterIndexes:       a.StatFilterIndexIDs,
+		CacheThresholdFilterIndexes:  a.ThresholdFilterIndexIDs,
+		CacheRouteFilterIndexes:      a.RouteFilterIndexIDs,
+		CacheChargerFilterIndexes:    a.ChargerFilterIndexIDs,
+		CacheDispatcherFilterIndexes: a.DispatcherFilterIndexIDs,
+		CacheReverseFilterIndexes:    a.FilterIndexIDs,
+	}
+}
+
+type AttrCacheIDsWithAPIOpts struct {
+	APIOpts  map[string]any
+	Tenant   string
 	CacheIDs []string
 }
 
-type ArgsGetGroupWithArgDispatcher struct {
-	*ArgDispatcher
-	TenantArg
+type ArgsGetGroupWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
 	ArgsGetGroup
 }
 
@@ -1399,12 +1453,7 @@ type SessionFilter struct {
 	Limit   *int
 	Filters []string
 	Tenant  string
-	*ArgDispatcher
-}
-
-type ArgDispatcher struct {
-	APIKey  *string
-	RouteID *string
+	APIOpts map[string]any
 }
 
 type RatingPlanCostArg struct {
@@ -1412,7 +1461,12 @@ type RatingPlanCostArg struct {
 	Destination   string
 	SetupTime     string
 	Usage         string
-	*ArgDispatcher
+	APIOpts       map[string]any
+}
+type SessionIDsWithArgsDispatcher struct {
+	IDs     []string
+	Tenant  string
+	APIOpts map[string]any
 }
 
 type GetCostOnRatingPlansArgs struct {
@@ -1423,7 +1477,7 @@ type GetCostOnRatingPlansArgs struct {
 	SetupTime     time.Time
 	Usage         time.Duration
 	RatingPlanIDs []string
-	*ArgDispatcher
+	APIOpts       map[string]any
 }
 
 type GetMaxSessionTimeOnAccountsArgs struct {
@@ -1433,9 +1487,59 @@ type GetMaxSessionTimeOnAccountsArgs struct {
 	SetupTime   time.Time
 	Usage       time.Duration
 	AccountIDs  []string
-	*ArgDispatcher
+	APIOpts     map[string]any
 }
 
-type DurationArgs struct {
-	DurationTime time.Duration
+type ArgExportToFolder struct {
+	Path  string
+	Items []string
+}
+
+// DPRArgs are the arguments used by dispatcher to send a Disconnect-Peer-Request
+type DPRArgs struct {
+	OriginHost      string
+	OriginRealm     string
+	DisconnectCause int
+}
+
+type ArgCacheReplicateSet struct {
+	CacheID  string
+	ItemID   string
+	Value    any
+	Tenant   string
+	APIOpts  map[string]any
+	GroupIDs []string
+}
+
+// Compiler are objects that need post compiling
+type Compiler interface {
+	Compile() error
+}
+
+type ArgCacheReplicateRemove struct {
+	CacheID string
+	ItemID  string
+	APIOpts map[string]any
+	Tenant  string
+}
+
+type AttrsExecuteActions struct {
+	ActionPlanID string
+	TimeStart    time.Time
+	TimeEnd      time.Time // replay the action timings between the two dates
+	APIOpts      map[string]any
+	Tenant       string
+}
+
+type AttrsExecuteActionPlans struct {
+	ActionPlanIDs []string
+	Tenant        string
+	AccountID     string
+	APIOpts       map[string]any
+}
+
+type ArgExportCDRs struct {
+	ExporterIDs []string // exporterIDs is used to said which exporter are using to export the cdrs
+	Verbose     bool     // verbose is used to inform the user about the positive and negative exported cdrs
+	RPCCDRsFilter
 }

@@ -104,7 +104,7 @@ func testDestinationFromFolder(t *testing.T) {
 	if err := tutorialRpc.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testDestinationGetCostFor1002(t *testing.T) {
@@ -117,8 +117,8 @@ func testDestinationGetCostFor1002(t *testing.T) {
 		Usage:       "1m",
 	}
 	var rply *engine.EventCost
-	if err := tutorialRpc.Call(utils.APIerSv1GetCost, attrs, &rply); err != nil {
-		t.Error("Unexpected nil error received: ", err.Error())
+	if err := tutorialRpc.Call(utils.APIerSv1GetCost, &attrs, &rply); err != nil {
+		t.Error("Unexpected error received: ", err.Error())
 	} else if *rply.Cost != 0.01 {
 		t.Errorf("Unexpected cost received: %f", *rply.Cost)
 	}
@@ -134,8 +134,8 @@ func testDestinationGetCostFor1003(t *testing.T) {
 		Usage:       "1m",
 	}
 	var rply *engine.EventCost
-	if err := tutorialRpc.Call(utils.APIerSv1GetCost, attrs, &rply); err != nil {
-		t.Error("Unexpected nil error received: ", err.Error())
+	if err := tutorialRpc.Call(utils.APIerSv1GetCost, &attrs, &rply); err != nil {
+		t.Error("Unexpected error received: ", err.Error())
 	} else if *rply.Cost != 0.3 {
 		t.Errorf("Unexpected cost received: %f", *rply.Cost)
 	}

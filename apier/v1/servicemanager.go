@@ -32,26 +32,26 @@ type ServiceManagerV1 struct {
 	sm *servmanager.ServiceManager // Need to have them capitalize so we can export in V2
 }
 
-func (servManager *ServiceManagerV1) StartService(args dispatchers.ArgStartServiceWithApiKey, reply *string) (err error) {
+func (servManager *ServiceManagerV1) StartService(args *dispatchers.ArgStartServiceWithAPIOpts, reply *string) (err error) {
 	return servManager.sm.V1StartService(args.ArgStartService, reply)
 }
 
-func (servManager *ServiceManagerV1) StopService(args dispatchers.ArgStartServiceWithApiKey, reply *string) (err error) {
+func (servManager *ServiceManagerV1) StopService(args *dispatchers.ArgStartServiceWithAPIOpts, reply *string) (err error) {
 	return servManager.sm.V1StopService(args.ArgStartService, reply)
 }
 
-func (servManager *ServiceManagerV1) ServiceStatus(args dispatchers.ArgStartServiceWithApiKey, reply *string) (err error) {
+func (servManager *ServiceManagerV1) ServiceStatus(args *dispatchers.ArgStartServiceWithAPIOpts, reply *string) (err error) {
 	return servManager.sm.V1ServiceStatus(args.ArgStartService, reply)
 }
 
 // Ping return pong if the service is active
-func (servManager *ServiceManagerV1) Ping(ign *utils.CGREventWithArgDispatcher, reply *string) error {
+func (servManager *ServiceManagerV1) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
 }
 
-// Call implements birpc.ClientConnector interface for internal RPC
+// Call implements rpcclient.ClientConnector interface for internal RPC
 func (servManager *ServiceManagerV1) Call(serviceMethod string,
-	args interface{}, reply interface{}) error {
+	args any, reply any) error {
 	return utils.APIerRPCCall(servManager, serviceMethod, args, reply)
 }

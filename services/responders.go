@@ -21,33 +21,46 @@ package services
 import (
 	"sync"
 
-	"github.com/cgrates/birpc"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewResponderService returns the Resonder Service
-func NewResponderService(cfg *config.CGRConfig, server *utils.Server,
-	internalRALsChan chan birpc.ClientConnector,
-	exitChan chan bool) *ResponderService {
+func NewResponderService(cfg *config.CGRConfig, server *cores.Server,
+	internalRALsChan chan rpcclient.ClientConnector,
+	shdChan *utils.SyncedChan, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup,
+	filterSCh chan *engine.FilterS) *ResponderService {
 	return &ResponderService{
-		connChan: internalRALsChan,
-		cfg:      cfg,
-		server:   server,
-		exitChan: exitChan,
+		connChan:  internalRALsChan,
+		cfg:       cfg,
+		server:    server,
+		shdChan:   shdChan,
+		anz:       anz,
+		srvDep:    srvDep,
+		filterSCh: filterSCh,
+		syncChans: make(map[string]chan *engine.Responder),
 	}
 }
 
 // ResponderService implements Service interface
+// this service is manged by the RALs as a component
 type ResponderService struct {
 	sync.RWMutex
-	cfg      *config.CGRConfig
-	server   *utils.Server
-	exitChan chan bool
+	cfg     *config.CGRConfig
+	server  *cores.Server
+	shdChan *utils.SyncedChan
 
-	resp     *engine.Responder
-	connChan chan birpc.ClientConnector
+	resp      *engine.Responder
+	connChan  chan rpcclient.ClientConnector
+	anz       *AnalyzerService
+	srvDep    map[string]*sync.WaitGroup
+	syncChans map[string]chan *engine.Responder
+
+	filterSCh chan *engine.FilterS
 }
 
 // Start should handle the sercive start
@@ -56,11 +69,14 @@ func (resp *ResponderService) Start() (err error) {
 	if resp.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
 	}
+	filterS := <-resp.filterSCh
+	resp.filterSCh <- filterS
 
 	resp.Lock()
 	defer resp.Unlock()
 	resp.resp = &engine.Responder{
-		ExitChan:         resp.exitChan,
+		FilterS:          filterS,
+		ShdChan:          resp.shdChan,
 		MaxComputedUsage: resp.cfg.RalsCfg().MaxComputedUsage,
 	}
 
@@ -68,9 +84,8 @@ func (resp *ResponderService) Start() (err error) {
 		resp.server.RpcRegister(resp.resp)
 	}
 
-	utils.RegisterRpcParams("", resp.resp)
-
-	resp.connChan <- resp.resp // Rater done
+	resp.connChan <- resp.anz.GetInternalCodec(resp.resp, utils.ResponderS) // Rater done
+	resp.sync()
 	return
 }
 
@@ -87,6 +102,9 @@ func (resp *ResponderService) Shutdown() (err error) {
 	resp.Lock()
 	resp.resp = nil
 	<-resp.connChan
+	for _, c := range resp.syncChans {
+		c <- nil // just tell the services that responder is nil
+	}
 	resp.Unlock()
 	return
 }
@@ -95,6 +113,10 @@ func (resp *ResponderService) Shutdown() (err error) {
 func (resp *ResponderService) IsRunning() bool {
 	resp.RLock()
 	defer resp.RUnlock()
+	return resp.isRunning()
+}
+
+func (resp *ResponderService) isRunning() bool {
 	return resp != nil && resp.resp != nil
 }
 
@@ -113,4 +135,34 @@ func (resp *ResponderService) GetResponder() *engine.Responder {
 // ShouldRun returns if the service should be running
 func (resp *ResponderService) ShouldRun() bool {
 	return resp.cfg.RalsCfg().Enabled
+}
+
+// RegisterSyncChan used by dependent subsystems to register a channel to reload only the responder(thread safe)
+func (resp *ResponderService) RegisterSyncChan(srv string, c chan *engine.Responder) {
+	resp.Lock()
+	resp.syncChans[srv] = c
+	if resp.isRunning() {
+		c <- resp.resp
+	}
+	resp.Unlock()
+}
+
+// UnregisterSyncChan used by dependent subsystems to unregister a channel
+func (resp *ResponderService) UnregisterSyncChan(srv string) {
+	resp.Lock()
+	c, has := resp.syncChans[srv]
+	if has {
+		close(c)
+		delete(resp.syncChans, srv)
+	}
+	resp.Unlock()
+}
+
+// sync sends the responder over syncChansv (not thread safe)
+func (resp *ResponderService) sync() {
+	if resp.isRunning() {
+		for _, c := range resp.syncChans {
+			c <- resp.resp
+		}
+	}
 }

@@ -47,6 +47,7 @@
 "filters": {								
 	"stats_conns": ["conn1"],
 	"resources_conns": ["conn1"],
+	"apiers_conns": ["conn1"],
 },
 
 
@@ -69,6 +70,19 @@
 	"indexed_selects":false,					
 	"store_interval": "1s",
 },
+
+
+"attributes": {
+	"enabled": true,
+},
+
+
+"chargers": {
+	"enabled": true,
+	"suffix_indexed_fields": ["*req.Subject"],
+	"attributes_conns": ["*internal"],
+},
+
 
 "apiers": {
 	"enabled": true,

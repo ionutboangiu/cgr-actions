@@ -19,9 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package agents
 
 import (
-	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/cgrates/cgrates/config"
@@ -29,87 +29,18 @@ import (
 	"github.com/miekg/dns"
 )
 
-const (
-	QueryType   = "QueryType"
-	E164Address = "E164Address"
-	QueryName   = "QueryName"
-	DomainName  = "DomainName"
-)
-
-// e164FromNAPTR extracts the E164 address out of a NAPTR name record
-func e164FromNAPTR(name string) (e164 string, err error) {
-	i := strings.Index(name, ".e164.")
-	if i == -1 {
-		return "", errors.New("unknown format")
-	}
-	e164 = utils.ReverseString(
-		strings.Replace(name[:i], ".", "", -1))
-	return
-}
-
-// domainNameFromNAPTR extracts the domain part out of a NAPTR name record
-func domainNameFromNAPTR(name string) (dName string) {
-	i := strings.Index(name, ".e164.")
-	if i == -1 {
-		dName = name
-	} else {
-		dName = name[i:]
-	}
-	return strings.Trim(dName, ".")
-}
-
-// newDADataProvider constructs a DataProvider for a diameter message
-func newDNSDataProvider(req *dns.Msg,
-	w dns.ResponseWriter) utils.DataProvider {
-	return &dnsDP{req: req, w: w,
-		cache: utils.MapStorage{}}
-}
-
-// dnsDP implements engien.DataProvider, serving as dns.Msg decoder
-// cache is used to cache queries within the message
-type dnsDP struct {
-	req   *dns.Msg
-	w     dns.ResponseWriter
-	cache utils.MapStorage
-}
-
-// String is part of engine.DataProvider interface
-// when called, it will display the already parsed values out of cache
-func (dP *dnsDP) String() string {
-	return utils.ToJSON(dP.req)
-}
-
-// FieldAsString is part of engine.DataProvider interface
-func (dP *dnsDP) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
-	valIface, err = dP.FieldAsInterface(fldPath)
-	if err != nil {
-		return
-	}
-	return utils.IfaceAsString(valIface), nil
-}
-
-// RemoteHost is part of engine.DataProvider interface
-func (dP *dnsDP) RemoteHost() net.Addr {
-	return utils.NewNetAddr(dP.w.RemoteAddr().Network(), dP.w.RemoteAddr().String())
-}
-
-// FieldAsInterface is part of engine.DataProvider interface
-func (dP *dnsDP) FieldAsInterface(fldPath []string) (data interface{}, err error) {
-	if data, err = dP.cache.FieldAsInterface(fldPath); err != nil {
-		if err != utils.ErrNotFound { // item found in cache
-			return nil, err
+func newDnsReply(req *dns.Msg) (rply *dns.Msg) {
+	rply = new(dns.Msg)
+	rply.SetReply(req)
+	if len(req.Question) > 0 {
+		rply.Question = make([]dns.Question, len(req.Question))
+		for i, q := range req.Question {
+			rply.Question[i] = q
 		}
-		err = nil // cancel previous err
-	} else {
-		return // data was found in cache
 	}
-	data = ""
-	// Return Question[0] by default
-	if len(dP.req.Question) != 0 {
-		data = dP.req.Question[0]
+	if opts := rply.IsEdns0(); opts != nil {
+		rply.SetEdns0(4096, false).IsEdns0().Option = opts.Option
 	}
-	dP.cache.Set(fldPath, data)
 	return
 }
 
@@ -123,111 +54,703 @@ func dnsWriteMsg(w dns.ResponseWriter, msg *dns.Msg) (err error) {
 	return
 }
 
-// appendDNSAnswer will append the right answer payload to the message
-func appendDNSAnswer(msg *dns.Msg) (err error) {
-	switch msg.Question[0].Qtype {
-	case dns.TypeA:
-		msg.Answer = append(msg.Answer,
-			&dns.A{
-				Hdr: dns.RR_Header{
-					Name:   msg.Question[0].Name,
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
-					Ttl:    60},
-			},
-		)
-	case dns.TypeNAPTR:
-		msg.Answer = append(msg.Answer,
-			&dns.NAPTR{
-				Hdr: dns.RR_Header{
-					Name:   msg.Question[0].Name,
-					Rrtype: msg.Question[0].Qtype,
-					Class:  dns.ClassINET,
-					Ttl:    60},
-			},
-		)
-	default:
-		return fmt.Errorf("unsupported DNS type: <%v>", msg.Question[0].Qtype)
+func newDnsDP(req *dns.Msg) utils.DataProvider {
+	return &dnsDP{
+		req:  config.NewObjectDP(req),
+		opts: config.NewObjectDP(req.IsEdns0()),
+	}
+}
+
+type dnsDP struct {
+	req  utils.DataProvider
+	opts utils.DataProvider
+}
+
+func (dp dnsDP) String() string { return dp.req.String() }
+func (dp dnsDP) FieldAsInterface(fldPath []string) (o any, e error) {
+	if len(fldPath) != 0 && strings.HasPrefix(fldPath[0], utils.DNSOption) {
+		return dp.opts.FieldAsInterface(fldPath)
+	}
+	return dp.req.FieldAsInterface(fldPath)
+}
+func (dp dnsDP) FieldAsString(fldPath []string) (string, error) {
+	valIface, err := dp.FieldAsInterface(fldPath)
+	if err != nil {
+		return utils.EmptyString, err
+	}
+	return utils.IfaceAsString(valIface), nil
+}
+
+func updateDNSMsgFromNM(msg *dns.Msg, nm *utils.OrderedNavigableMap, qType uint16, qName string) (err error) {
+	msgFields := make(utils.StringSet) // work around to NMap issue
+	for el := nm.GetFirstElement(); el != nil; el = el.Next() {
+		path := el.Value
+		itm, _ := nm.Field(path)
+		switch path[0] { // go for each posible field
+		case utils.DNSId:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Id = uint16(vItm)
+		case utils.DNSResponse:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Response = vItm
+		case utils.DNSOpcode:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Opcode = int(vItm)
+		case utils.DNSAuthoritative:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Authoritative = vItm
+		case utils.DNSTruncated:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Truncated = vItm
+		case utils.DNSRecursionDesired:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.RecursionDesired = vItm
+		case utils.DNSRecursionAvailable:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.RecursionAvailable = vItm
+		case utils.DNSZero:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Zero = vItm
+		case utils.DNSAuthenticatedData:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.AuthenticatedData = vItm
+		case utils.DNSCheckingDisabled:
+			var vItm bool
+			if vItm, err = utils.IfaceAsBool(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.CheckingDisabled = vItm
+		case utils.DNSRcode:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(itm.Data); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[0], err.Error())
+			}
+			msg.Rcode = int(vItm)
+		case utils.DNSQuestion:
+			if msg.Question, err = updateDnsQuestions(msg.Question, path[1:len(path)-1], itm.Data, itm.NewBranch); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[:len(path)-1], err.Error())
+			}
+		case utils.DNSAnswer:
+			newBranch := itm.NewBranch ||
+				len(msg.Answer) == 0 ||
+				msgFields.Has(path[0])
+			if newBranch { // force append if the same path was already used
+				msgFields = make(utils.StringSet)      // reset the fields inside since we have a new message
+				msgFields.Add(strings.Join(path, ".")) // detect new branch
+			}
+			if msg.Answer, err = updateDnsAnswer(msg.Answer, qType, qName, path[1:len(path)-1], itm.Data, newBranch); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[:len(path)-1], err.Error())
+			}
+		case utils.DNSNs: //ToDO
+		case utils.DNSExtra: //ToDO
+		case utils.DNSOption:
+			opts := msg.IsEdns0()
+			if opts == nil {
+				opts = msg.SetEdns0(4096, false).IsEdns0()
+			}
+			if opts.Option, err = updateDnsOption(opts.Option, path[1:len(path)-1], itm.Data, itm.NewBranch); err != nil {
+				return fmt.Errorf("item: <%s>, err: %s", path[:len(path)-1], err.Error())
+			}
+		default:
+		}
+
 	}
 	return
 }
 
-// updateDNSMsgFromNM will update DNS message with values from NavigableMap
-func updateDNSMsgFromNM(msg *dns.Msg, nm *utils.OrderedNavigableMap) (err error) {
-	msgFields := make(map[string]struct{}) // work around to NMap issue
-	for el := nm.GetFirstElement(); el != nil; el = el.Next() {
-		val := el.Value
-		var nmIt utils.NMInterface
-		if nmIt, err = nm.Field(val); err != nil {
+// updateDnsQuestion
+func updateDnsQuestions(q []dns.Question, path []string, value any, newBranch bool) (_ []dns.Question, err error) {
+	var idx int
+	var field string
+	switch len(path) {
+	case 1: // only the field so update the last one
+		if newBranch || len(q) == 0 {
+			q = append(q, dns.Question{})
+		}
+		idx = len(q) - 1
+		field = path[0]
+	case 2: // the index is specified
+		if idx, err = strconv.Atoi(path[0]); err != nil {
 			return
 		}
-		cfgItm, cast := nmIt.(*config.NMItem)
-		if !cast {
-			return fmt.Errorf("cannot cast val: %s into *config.NMItem", nmIt)
+		if lq := len(q); idx > lq {
+			err = utils.ErrWrongPath
+			return
+		} else if lq == idx {
+			q = append(q, dns.Question{})
 		}
-		if len(cfgItm.Path) == 0 {
-			return errors.New("empty path in config item")
+		field = path[1]
+	default:
+		err = utils.ErrWrongPath
+		return
+	}
+	switch field {
+	case utils.DNSName:
+		q[idx].Name = utils.IfaceAsString(value)
+	case utils.DNSQtype:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
 		}
-		apnd := len(msg.Answer) == 0
-		if _, has := msgFields[cfgItm.Path[0]]; has { // force append if the same path was already used
-			apnd = true
+		q[idx].Qtype = uint16(vItm)
+	case utils.DNSQclass:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
 		}
-		if apnd {
-			if err = appendDNSAnswer(msg); err != nil {
+		q[idx].Qclass = uint16(vItm)
+	default:
+		err = utils.ErrWrongPath
+		return
+	}
+
+	return q, nil
+}
+
+func updateDnsOption(q []dns.EDNS0, path []string, value any, newBranch bool) (_ []dns.EDNS0, err error) {
+	var idx int
+	var field string
+	switch len(path) {
+	case 1: // only the field so update the last one
+		field = path[0]
+		if newBranch ||
+			len(q) == 0 {
+			var o dns.EDNS0
+			if o, err = createDnsOption(field, value); err != nil {
 				return
 			}
-			msgFields = make(map[string]struct{}) // reset the fields inside since we have a new message
+			return append(q, o), nil
 		}
-		itmData := cfgItm.Data
-		switch cfgItm.Path[0] {
-		case utils.Rcode:
-			var itm int64
-			if itm, err = utils.IfaceAsInt64(itmData); err != nil {
-				return fmt.Errorf("item: <%s>, err: %s", cfgItm.Path[0], err.Error())
-			}
-			msg.Rcode = int(itm)
-		case utils.Order:
-			if msg.Question[0].Qtype != dns.TypeNAPTR {
-				return fmt.Errorf("field <%s> only works with NAPTR", utils.Order)
-			}
-			var itm int64
-			if itm, err = utils.IfaceAsInt64(itmData); err != nil {
-				return fmt.Errorf("item: <%s>, err: %s", cfgItm.Path[0], err.Error())
-			}
-			msg.Answer[len(msg.Answer)-1].(*dns.NAPTR).Order = uint16(itm)
-		case utils.Preference:
-			if msg.Question[0].Qtype != dns.TypeNAPTR {
-				return fmt.Errorf("field <%s> only works with NAPTR", utils.Preference)
-			}
-			var itm int64
-			if itm, err = utils.IfaceAsInt64(itmData); err != nil {
-				return fmt.Errorf("item: <%s>, err: %s", cfgItm.Path[0], err.Error())
-			}
-			msg.Answer[len(msg.Answer)-1].(*dns.NAPTR).Preference = uint16(itm)
-		case utils.Flags:
-			if msg.Question[0].Qtype != dns.TypeNAPTR {
-				return fmt.Errorf("field <%s> only works with NAPTR", utils.Flags)
-			}
-			msg.Answer[len(msg.Answer)-1].(*dns.NAPTR).Flags = utils.IfaceAsString(itmData)
-		case utils.Service:
-			if msg.Question[0].Qtype != dns.TypeNAPTR {
-				return fmt.Errorf("field <%s> only works with NAPTR", utils.Service)
-			}
-			msg.Answer[len(msg.Answer)-1].(*dns.NAPTR).Service = utils.IfaceAsString(itmData)
-		case utils.Regexp:
-			if msg.Question[0].Qtype != dns.TypeNAPTR {
-				return fmt.Errorf("field <%s> only works with NAPTR", utils.Regexp)
-			}
-			msg.Answer[len(msg.Answer)-1].(*dns.NAPTR).Regexp = utils.IfaceAsString(itmData)
-		case utils.Replacement:
-			if msg.Question[0].Qtype != dns.TypeNAPTR {
-				return fmt.Errorf("field <%s> only works with NAPTR", utils.Replacement)
-			}
-			msg.Answer[len(msg.Answer)-1].(*dns.NAPTR).Replacement = utils.IfaceAsString(itmData)
+		idx = len(q) - 1
+	case 2: // the index is specified
+		field = path[1]
+		if idx, err = strconv.Atoi(path[0]); err != nil {
+			return
 		}
+		if lq := len(q); idx > lq {
+			err = utils.ErrWrongPath
+			return
+		} else if lq == idx {
+			var o dns.EDNS0
+			if o, err = createDnsOption(field, value); err != nil {
+				return
+			}
+			return append(q, o), nil
+		}
+	default:
+		err = utils.ErrWrongPath
+		return
+	}
+	switch v := q[idx].(type) {
+	case *dns.EDNS0_NSID:
+		if field != utils.DNSNsid {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.Nsid = utils.IfaceAsString(value)
+	case *dns.EDNS0_SUBNET:
+		switch field {
+		case utils.DNSFamily:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Family = uint16(vItm)
+		case utils.DNSSourceNetmask:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.SourceNetmask = uint8(vItm)
+		case utils.DNSSourceScope:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.SourceScope = uint8(vItm)
+		case utils.Address:
+			v.Address = net.ParseIP(utils.IfaceAsString(value))
+		default:
+			err = utils.ErrWrongPath
+			return
+		}
+	case *dns.EDNS0_COOKIE:
+		if field != utils.DNSCookie {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.Cookie = utils.IfaceAsString(value)
+	case *dns.EDNS0_UL:
+		switch field {
+		case utils.DNSLease:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Lease = uint32(vItm)
+		case utils.DNSKeyLease:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.KeyLease = uint32(vItm)
+		default:
+			err = utils.ErrWrongPath
+			return
+		}
+	case *dns.EDNS0_LLQ:
+		switch field {
+		case utils.VersionName:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Version = uint16(vItm)
+		case utils.DNSOpcode:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Opcode = uint16(vItm)
+		case utils.Error:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Error = uint16(vItm)
+		case utils.DNSId:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Id = uint64(vItm)
+		case utils.DNSLeaseLife:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.LeaseLife = uint32(vItm)
+		default:
+			err = utils.ErrWrongPath
+			return
+		}
+	case *dns.EDNS0_DAU:
+		if field != utils.DNSDAU {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.AlgCode = []uint8(utils.IfaceAsString(value))
+	case *dns.EDNS0_DHU:
+		if field != utils.DNSDHU {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.AlgCode = []uint8(utils.IfaceAsString(value))
+	case *dns.EDNS0_N3U:
+		if field != utils.DNSN3U {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.AlgCode = []uint8(utils.IfaceAsString(value))
+	case *dns.EDNS0_EXPIRE:
+		if field != utils.DNSExpire {
+			err = utils.ErrWrongPath
+			return
+		}
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Expire = uint32(vItm)
+	case *dns.EDNS0_TCP_KEEPALIVE:
+		switch field {
+		case utils.Length: //
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Length = uint16(vItm)
+		case utils.DNSTimeout: //
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.Timeout = uint16(vItm)
+		default:
+			err = utils.ErrWrongPath
+			return
+		}
+	case *dns.EDNS0_PADDING:
+		if field != utils.DNSPadding {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.Padding = []byte(utils.IfaceAsString(value))
+	case *dns.EDNS0_EDE:
+		switch field {
+		case utils.DNSInfoCode:
+			var vItm int64
+			if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+				return
+			}
+			v.InfoCode = uint16(vItm)
+		case utils.DNSExtraText:
+			v.ExtraText = utils.IfaceAsString(value)
+		default:
+			err = utils.ErrWrongPath
+			return
+		}
+	case *dns.EDNS0_ESU:
+		if field != utils.DNSUri {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.Uri = utils.IfaceAsString(value)
+	case *dns.EDNS0_LOCAL: // if already there you can change data
+		if field != utils.DNSData {
+			err = utils.ErrWrongPath
+			return
+		}
+		v.Data = []byte(utils.IfaceAsString(value))
+	case nil:
+		err = fmt.Errorf("unsupported dns option type <%T>", v)
+	default:
+		err = fmt.Errorf("unsupported dns option type <%T>", v)
+	}
+	return q, err
+}
 
-		msgFields[cfgItm.Path[0]] = struct{}{} // detect new branch
+func createDnsOption(field string, value any) (o dns.EDNS0, err error) {
+	switch field {
+	case utils.DNSNsid: // EDNS0_NSID
+		o = &dns.EDNS0_NSID{Nsid: utils.IfaceAsString(value)}
+	case utils.DNSFamily: // EDNS0_SUBNET
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_SUBNET{Family: uint16(vItm)}
+	case utils.DNSSourceNetmask: // EDNS0_SUBNET
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_SUBNET{SourceNetmask: uint8(vItm)}
+	case utils.DNSSourceScope: // EDNS0_SUBNET
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_SUBNET{SourceScope: uint8(vItm)}
+	case utils.Address: // EDNS0_SUBNET
+		o = &dns.EDNS0_SUBNET{Address: net.ParseIP(utils.IfaceAsString(value))}
+	case utils.DNSCookie: // EDNS0_COOKIE
+		o = &dns.EDNS0_COOKIE{Cookie: utils.IfaceAsString(value)}
+	case utils.DNSLease: // EDNS0_UL
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_UL{Lease: uint32(vItm)}
+	case utils.DNSKeyLease: // EDNS0_UL
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_UL{KeyLease: uint32(vItm)}
+	case utils.VersionName: // EDNS0_LLQ
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_LLQ{Version: uint16(vItm)}
+	case utils.DNSOpcode: // EDNS0_LLQ
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_LLQ{Opcode: uint16(vItm)}
+	case utils.Error: // EDNS0_LLQ
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_LLQ{Error: uint16(vItm)}
+	case utils.DNSId: // EDNS0_LLQ
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_LLQ{Id: uint64(vItm)}
+	case utils.DNSLeaseLife: // EDNS0_LLQ
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_LLQ{LeaseLife: uint32(vItm)}
+	case utils.DNSDAU: // EDNS0_DAU
+		o = &dns.EDNS0_DAU{AlgCode: []uint8(utils.IfaceAsString(value))}
+	case utils.DNSDHU: // EDNS0_DHU
+		o = &dns.EDNS0_DHU{AlgCode: []uint8(utils.IfaceAsString(value))}
+	case utils.DNSN3U: // EDNS0_N3U
+		o = &dns.EDNS0_N3U{AlgCode: []uint8(utils.IfaceAsString(value))}
+	case utils.DNSExpire: // EDNS0_EXPIRE
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_EXPIRE{Expire: uint32(vItm)}
+	case utils.Length: // EDNS0_TCP_KEEPALIVE
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_TCP_KEEPALIVE{Length: uint16(vItm)}
+	case utils.DNSTimeout: // EDNS0_TCP_KEEPALIVE
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_TCP_KEEPALIVE{Timeout: uint16(vItm)}
+	case utils.DNSPadding: // EDNS0_PADDING
+		o = &dns.EDNS0_PADDING{Padding: []byte(utils.IfaceAsString(value))}
+	case utils.DNSInfoCode: // EDNS0_EDE
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		o = &dns.EDNS0_EDE{InfoCode: uint16(vItm)}
+	case utils.DNSExtraText: // EDNS0_EDE
+		o = &dns.EDNS0_EDE{ExtraText: utils.IfaceAsString(value)}
+	case utils.DNSUri: // EDNS0_ESU
+		o = &dns.EDNS0_ESU{Uri: utils.IfaceAsString(value)}
+	default:
+		err = fmt.Errorf("can not create option from field <%q>", field)
+	}
+	return
+}
 
+func updateDnsAnswer(q []dns.RR, qType uint16, qName string, path []string, value any, newBranch bool) (_ []dns.RR, err error) {
+	var idx int
+	if lPath := len(path); lPath == 0 {
+		err = utils.ErrWrongPath
+		return
+	} else {
+		var hasIdx bool
+		if idx, err = strconv.Atoi(path[0]); err == nil {
+			hasIdx = true
+		}
+		err = nil
+		if !hasIdx || lPath == 1 { // only the field so update the last one
+			if newBranch || len(q) == 0 {
+				var a dns.RR
+				if a, err = newDNSAnswer(qType, qName); err != nil {
+					return
+				}
+				q = append(q, a)
+			}
+			idx = len(q) - 1
+		} else { // the index is specified
+			if lq := len(q); idx > lq {
+				err = utils.ErrWrongPath
+				return
+			} else if lq == idx {
+				var a dns.RR
+				if a, err = newDNSAnswer(qType, qName); err != nil {
+					return
+				}
+				q = append(q, a)
+			}
+			path = path[1:]
+		}
+	}
+
+	switch v := q[idx].(type) {
+	case *dns.NAPTR:
+		err = updateDnsNAPTRAnswer(v, path, value)
+	case *dns.SRV:
+		err = updateDnsSRVAnswer(v, path, value)
+	case *dns.A:
+		if len(path) < 1 ||
+			(path[0] != utils.DNSHdr && len(path) != 1) ||
+			(path[0] == utils.DNSHdr && len(path) != 2) {
+			err = utils.ErrWrongPath
+			return
+		}
+		switch path[0] {
+		case utils.DNSHdr:
+			err = updateDnsRRHeader(&v.Hdr, path[1:], value)
+		case utils.DNSA:
+			v.A = net.ParseIP(utils.IfaceAsString(value))
+			if v.A == nil {
+				err = fmt.Errorf("invalid IP address <%v>",
+					utils.IfaceAsString(value))
+				return
+			}
+		default:
+			err = utils.ErrWrongPath
+		}
+	case nil:
+		err = fmt.Errorf("unsupported dns option type <%T>", v)
+	default:
+		err = fmt.Errorf("unsupported dns option type <%T>", v)
+	}
+
+	return q, err
+}
+
+// appendDNSAnswer will append the right answer payload to the message
+func newDNSAnswer(qType uint16, qName string) (a dns.RR, err error) {
+	hdr := dns.RR_Header{
+		Name:   qName,
+		Rrtype: qType,
+		Class:  dns.ClassINET,
+		Ttl:    60,
+	}
+	switch qType {
+	case dns.TypeA:
+		a = &dns.A{Hdr: hdr}
+	case dns.TypeNAPTR:
+		a = &dns.NAPTR{Hdr: hdr}
+	case dns.TypeSRV:
+		a = &dns.SRV{Hdr: hdr}
+	default:
+		err = fmt.Errorf("unsupported DNS type: <%v>", dns.TypeToString[qType])
+	}
+	return
+}
+
+func updateDnsSRVAnswer(v *dns.SRV, path []string, value any) (err error) {
+	if len(path) < 1 ||
+		(path[0] != utils.DNSHdr && len(path) != 1) ||
+		(path[0] == utils.DNSHdr && len(path) != 2) {
+		err = utils.ErrWrongPath
+		return
+	}
+	switch path[0] {
+	case utils.DNSHdr:
+		err = updateDnsRRHeader(&v.Hdr, path[1:], value)
+	case utils.DNSPriority:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Priority = uint16(vItm)
+	case utils.Weight:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Weight = uint16(vItm)
+	case utils.DNSPort:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Port = uint16(vItm)
+	case utils.DNSTarget:
+		v.Target = utils.IfaceAsString(value)
+	default:
+		err = utils.ErrWrongPath
+	}
+	return
+}
+
+func updateDnsNAPTRAnswer(v *dns.NAPTR, path []string, value any) (err error) {
+	if len(path) < 1 ||
+		(path[0] != utils.DNSHdr && len(path) != 1) ||
+		(path[0] == utils.DNSHdr && len(path) != 2) {
+		return utils.ErrWrongPath
+	}
+	switch path[0] {
+	case utils.DNSHdr:
+		return updateDnsRRHeader(&v.Hdr, path[1:], value)
+	case utils.Order:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Order = uint16(vItm)
+	case utils.Preference:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Preference = uint16(vItm)
+	case utils.Flags:
+		v.Flags = utils.IfaceAsString(value)
+	case utils.Service:
+		v.Service = utils.IfaceAsString(value)
+	case utils.Regexp:
+		v.Regexp = utils.IfaceAsString(value)
+	case utils.Replacement:
+		v.Replacement = utils.IfaceAsString(value)
+	default:
+		return utils.ErrWrongPath
+	}
+	return
+}
+
+func updateDnsRRHeader(v *dns.RR_Header, path []string, value any) (err error) {
+	if len(path) != 1 {
+		return utils.ErrWrongPath
+	}
+	switch path[0] {
+	case utils.DNSName:
+		v.Name = utils.IfaceAsString(value)
+	case utils.DNSRrtype:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Rrtype = uint16(vItm)
+	case utils.DNSClass:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Class = uint16(vItm)
+	case utils.DNSTtl:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Ttl = uint32(vItm)
+	case utils.DNSRdlength:
+		var vItm int64
+		if vItm, err = utils.IfaceAsTInt64(value); err != nil {
+			return
+		}
+		v.Rdlength = uint16(vItm)
+	default:
+		return utils.ErrWrongPath
 	}
 	return
 }

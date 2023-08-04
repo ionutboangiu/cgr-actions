@@ -25,7 +25,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
@@ -44,15 +43,15 @@ func main() {
 	if cdrsMasterCfg, err = config.NewCGRConfigFromPath(cdrsMasterCfgPath); err != nil {
 		log.Fatal("Got config error: ", err.Error())
 	}
-	cdrsMasterRpc, err = rpcclient.NewRPCClient(context.TODO(), utils.TCP, cdrsMasterCfg.ListenCfg().RPCJSONListen, false, "", "", "", 1, 1,
-		0, utils.FibDuration, time.Second, 2*time.Second, rpcclient.JSONrpc, nil, false, nil)
+	cdrsMasterRpc, err = rpcclient.NewRPCClient(utils.TCP, cdrsMasterCfg.ListenCfg().RPCJSONListen, false, "", "", "", 1, 1,
+		time.Second, 2*time.Second, rpcclient.JSONrpc, nil, false, nil)
 	if err != nil {
 		log.Fatal("Could not connect to rater: ", err.Error())
 	}
 	cdrs := make([]*engine.CDR, 0)
 	for i := 0; i < 10000; i++ {
 		cdr := &engine.CDR{OriginID: fmt.Sprintf("httpjsonrpc_%d", i),
-			ToR: utils.VOICE, OriginHost: "192.168.1.1", Source: "UNKNOWN", RequestType: utils.META_PSEUDOPREPAID,
+			ToR: utils.MetaVoice, OriginHost: "192.168.1.1", Source: "UNKNOWN", RequestType: utils.MetaPseudoPrepaid,
 			Tenant: "cgrates.org", Category: "call", Account: "1001", Subject: "1001", Destination: "1002",
 			SetupTime: time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC), AnswerTime: time.Date(2013, 12, 7, 8, 42, 26, 0, time.UTC),
 			Usage: time.Duration(10) * time.Second, ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"}}
@@ -60,7 +59,7 @@ func main() {
 	}
 	var reply string
 	for _, cdr := range cdrs {
-		if err := cdrsMasterRpc.Call(context.TODO(), utils.CdrsV2ProcessCdr, cdr, &reply); err != nil {
+		if err := cdrsMasterRpc.Call(utils.CDRsV1ProcessCDR, cdr, &reply); err != nil {
 			log.Fatal("Unexpected error: ", err.Error())
 		} else if reply != utils.OK {
 			log.Fatal("Unexpected reply received: ", reply)

@@ -49,9 +49,9 @@ func TestV1AccountAsAccount(t *testing.T) {
 	v1Acc := &v1Account{
 		Id: "*OUT:CUSTOMER_1:rif",
 		BalanceMap: map[string]v1BalanceChain{
-			utils.DATA:  {d1b},
-			utils.VOICE: {v1b},
-			utils.MONETARY: {&v1Balance{
+			utils.MetaData:  {d1b},
+			utils.MetaVoice: {v1b},
+			utils.MetaMonetary: {&v1Balance{
 				Value: 21,
 				Timings: []*engine.RITiming{
 					{
@@ -102,9 +102,9 @@ func TestV1AccountAsAccount(t *testing.T) {
 	testAccount := &engine.Account{
 		ID: "CUSTOMER_1:rif",
 		BalanceMap: map[string]engine.Balances{
-			utils.DATA:     {d2},
-			utils.VOICE:    {v2},
-			utils.MONETARY: {m2},
+			utils.MetaData:     {d2},
+			utils.MetaVoice:    {v2},
+			utils.MetaMonetary: {m2},
 		},
 		UnitCounters:   engine.UnitCounters{},
 		ActionTriggers: engine.ActionTriggers{},

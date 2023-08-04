@@ -45,34 +45,15 @@ type v2ActionTrigger struct {
 	LastExecutionTime time.Time
 }
 
-type v2ActionTriggers []*v2ActionTrigger
-
 func (m *Migrator) migrateCurrentThresholds() (err error) {
 	var ids []string
 	//Thresholds
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ThresholdPrefix)
-	if err != nil {
-		return err
-	}
 	for _, id := range ids {
 		tntID := strings.SplitN(strings.TrimPrefix(id, utils.ThresholdPrefix), utils.InInFieldSep, 2)
 		if len(tntID) < 2 {
 			return fmt.Errorf("Invalid key <%s> when migrating thresholds", id)
 		}
-		ths, err := m.dmIN.DataManager().GetThreshold(tntID[0], tntID[1], false, false, utils.NonTransactional)
-		if err != nil {
-			return err
-		}
-		if ths == nil || m.dryRun {
-			continue
-		}
-		if err := m.dmOut.DataManager().SetThreshold(ths); err != nil {
-			return err
-		}
-		if err := m.dmIN.DataManager().RemoveThreshold(tntID[0], tntID[1], utils.NonTransactional); err != nil {
-			return err
-		}
-		m.stats[utils.Thresholds] += 1
+
 	}
 	//ThresholdProfiles
 	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ThresholdProfilePrefix)
@@ -84,68 +65,48 @@ func (m *Migrator) migrateCurrentThresholds() (err error) {
 		if len(tntID) < 2 {
 			return fmt.Errorf("Invalid key <%s> when migrating threshold profiles", id)
 		}
-		ths, err := m.dmIN.DataManager().GetThresholdProfile(tntID[0], tntID[1], false, false, utils.NonTransactional)
+		thps, err := m.dmIN.DataManager().GetThresholdProfile(tntID[0], tntID[1], false, false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
-		if ths == nil || m.dryRun {
+		ths, err := m.dmIN.DataManager().GetThreshold(tntID[0], tntID[1], false, false, utils.NonTransactional)
+		if err != nil {
+			return err
+		}
+		if thps == nil || m.dryRun {
 			continue
 		}
-		if err := m.dmOut.DataManager().SetThresholdProfile(ths, true); err != nil {
+		if err := m.dmOut.DataManager().SetThresholdProfile(thps, true); err != nil {
 			return err
 		}
-		if err := m.dmIN.DataManager().RemoveThresholdProfile(tntID[0], tntID[1], utils.NonTransactional, false); err != nil {
+		// update the threshold in the new DB
+		if ths != nil {
+			if err := m.dmOut.DataManager().SetThreshold(ths); err != nil {
+				return err
+			}
+		}
+		if err := m.dmIN.DataManager().RemoveThresholdProfile(tntID[0], tntID[1], false); err != nil {
 			return err
 		}
+		m.stats[utils.Thresholds]++
 	}
 	return
 }
 
-func (m *Migrator) migrateV2ActionTriggers() (err error) {
+func (m *Migrator) migrateV2ActionTriggers() (thp *engine.ThresholdProfile, th *engine.Threshold, filter *engine.Filter, err error) {
 	var v2ACT *v2ActionTrigger
-	for {
-		v2ACT, err = m.dmIN.getV2ActionTrigger()
-		if err != nil && err != utils.ErrNoMoreData {
-			return err
-		}
-		if err == utils.ErrNoMoreData {
-			break
-		}
-		if v2ACT.ID != "" {
-			thp, th, filter, err := v2ACT.AsThreshold()
-			if err != nil {
-				return err
-			}
-			if m.dryRun {
-				continue
-			}
-			if err := m.dmOut.DataManager().SetFilter(filter); err != nil {
-				return err
-			}
-			if err := m.dmOut.DataManager().SetThreshold(th); err != nil {
-				return err
-			}
-			if err := m.dmOut.DataManager().SetThresholdProfile(thp, true); err != nil {
-				return err
-			}
-			m.stats[utils.Thresholds] += 1
-		}
-	}
-	if m.dryRun {
+	if v2ACT, err = m.dmIN.getV2ActionTrigger(); err != nil {
 		return
 	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.Thresholds: engine.CurrentStorDBVersions()[utils.Thresholds]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating Thresholds version into dataDB", err.Error()))
+	if v2ACT.ID != "" {
+		if thp, th, filter, err = v2ACT.AsThreshold(); err != nil {
+			return
+		}
 	}
 	return
 }
 
-func (m *Migrator) migrateV2Thresholds() (err error) {
+func (m *Migrator) removeV2Thresholds() (err error) {
 	var v2T *v2Threshold
 	for {
 		v2T, err = m.dmIN.getV2ThresholdProfile()
@@ -155,64 +116,108 @@ func (m *Migrator) migrateV2Thresholds() (err error) {
 		if err == utils.ErrNoMoreData {
 			break
 		}
-		if v2T == nil || m.dryRun {
-			continue
-		}
-		th := v2T.V2toV3Threshold()
-
 		if err = m.dmIN.remV2ThresholdProfile(v2T.Tenant, v2T.ID); err != nil {
 			return err
 		}
-		if err = m.dmOut.DataManager().SetThresholdProfile(th, true); err != nil {
-			return err
-		}
-		m.stats[utils.Thresholds] += 1
 	}
-	if m.dryRun {
+	return
+}
+
+func (m *Migrator) migrateV2Thresholds() (v3 *engine.ThresholdProfile, err error) {
+	var v2T *v2Threshold
+	if v2T, err = m.dmIN.getV2ThresholdProfile(); err != nil {
 		return
 	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.Thresholds: engine.CurrentDataDBVersions()[utils.Thresholds]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating Thresholds version into dataDB", err.Error()))
+	if v2T == nil {
+		return
 	}
+	v3 = v2T.V2toV3Threshold()
 	return
 }
 
 func (m *Migrator) migrateThresholds() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmOut.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.Thresholds); err != nil {
+		return
 	}
-	switch vrs[utils.Thresholds] {
-	case current[utils.Thresholds]:
-		if m.sameDataDB {
+	migrated := true
+	migratedFrom := 0
+	var th *engine.Threshold
+	var filter *engine.Filter
+	var v3 *engine.ThresholdProfile
+	var v4 *engine.ThresholdProfile
+	for {
+		version := vrs[utils.Thresholds]
+		migratedFrom = int(version)
+		for {
+			switch version {
+			default:
+				return fmt.Errorf("Unsupported version %v", version)
+			case current[utils.Thresholds]:
+				migrated = false
+				if m.sameDataDB {
+					break
+				}
+				if err = m.migrateCurrentThresholds(); err != nil {
+					return
+				}
+			case 1:
+				if v3, th, filter, err = m.migrateV2ActionTriggers(); err != nil && err != utils.ErrNoMoreData {
+					return
+				}
+				version = 3
+			case 2:
+				if v3, err = m.migrateV2Thresholds(); err != nil && err != utils.ErrNoMoreData {
+					return
+				}
+				version = 3
+			case 3:
+				if v4, err = m.migrateV3ToV4Threshold(v3); err != nil && err != utils.ErrNoMoreData {
+					return
+				} else if err == utils.ErrNoMoreData {
+					break
+				}
+				version = 4
+			}
+			if version == current[utils.Thresholds] || err == utils.ErrNoMoreData {
+				break
+			}
+		}
+		if err == utils.ErrNoMoreData || !migrated {
 			break
 		}
-		if err = m.migrateCurrentThresholds(); err != nil {
-			return err
+
+		if !m.dryRun {
+			//set threshond
+			if migratedFrom == 1 {
+				if err = m.dmOut.DataManager().SetFilter(filter, true); err != nil {
+					return
+				}
+			}
+			if err = m.dmOut.DataManager().SetThresholdProfile(v4, true); err != nil {
+				return
+			}
+			if migratedFrom == 1 { // do it after SetThresholdProfile to overwrite the created threshold
+				if err = m.dmOut.DataManager().SetThreshold(th); err != nil {
+					return
+				}
+			}
 		}
-	case 1:
-		if err = m.migrateV2ActionTriggers(); err != nil {
-			return err
+		m.stats[utils.Thresholds]++
+	}
+	if m.dryRun || !migrated {
+		return nil
+	}
+	// remove old threshonds
+	if !m.sameDataDB && migratedFrom == 2 {
+		if err = m.removeV2Thresholds(); err != nil && err != utils.ErrNoMoreData {
+			return
 		}
-	case 2:
-		if err = m.migrateV2Thresholds(); err != nil {
-			return err
-		}
+	}
+	// All done, update version wtih current one
+	if err = m.setVersions(utils.Thresholds); err != nil {
+		return
 	}
 	return m.ensureIndexesDataDB(engine.ColTps)
 }
@@ -310,17 +315,17 @@ func (m *Migrator) SasThreshold(v2ATR *engine.ActionTrigger) (err error) {
 			return err
 		}
 		if filter != nil {
-			if err := m.dmOut.DataManager().SetFilter(filter); err != nil {
+			if err := m.dmOut.DataManager().SetFilter(filter, true); err != nil {
 				return err
 			}
-		}
-		if err := m.dmOut.DataManager().SetThreshold(th); err != nil {
-			return err
 		}
 		if err := m.dmOut.DataManager().SetThresholdProfile(thp, true); err != nil {
 			return err
 		}
-		m.stats[utils.Thresholds] += 1
+		if err := m.dmOut.DataManager().SetThreshold(th); err != nil {
+			return err
+		}
+		m.stats[utils.Thresholds]++
 	}
 	// All done, update version wtih current one
 	vrs = engine.Versions{utils.Thresholds: engine.CurrentStorDBVersions()[utils.Thresholds]}
@@ -427,4 +432,17 @@ func (v2T v2Threshold) V2toV3Threshold() (th *engine.ThresholdProfile) {
 		th.MaxHits = -1
 	}
 	return
+}
+
+func (m *Migrator) migrateV3ToV4Threshold(v3sts *engine.ThresholdProfile) (v4Cpp *engine.ThresholdProfile, err error) {
+	if v3sts == nil {
+		// read data from DataDB
+		if v3sts, err = m.dmIN.getV3ThresholdProfile(); err != nil {
+			return
+		}
+	}
+	if v3sts.FilterIDs, err = migrateInlineFilterV4(v3sts.FilterIDs); err != nil {
+		return
+	}
+	return v3sts, nil
 }

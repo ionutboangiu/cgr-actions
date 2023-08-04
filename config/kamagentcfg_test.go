@@ -22,57 +22,62 @@ import (
 	"testing"
 
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 func TestKamAgentCfgloadFromJsonCfg(t *testing.T) {
-	var kamagcfg, expected KamAgentCfg
-	if err := kamagcfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(kamagcfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, kamagcfg)
+	cfgJSON := &KamAgentJsonCfg{
+		Enabled:        utils.BoolPointer(true),
+		Sessions_conns: &[]string{"*internal"},
+		Create_cdr:     utils.BoolPointer(true),
+		Evapi_conns: &[]*KamConnJsonCfg{
+			{
+				Alias:      utils.StringPointer("randomAlias"),
+				Address:    utils.StringPointer("127.0.0.1:8448"),
+				Reconnects: utils.IntPointer(10),
+			},
+		},
+		Timezone: utils.StringPointer("Local"),
 	}
-	if err := kamagcfg.loadFromJsonCfg(new(KamAgentJsonCfg)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(kamagcfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, kamagcfg)
-	}
-	cfgJSONStr := `{
-"kamailio_agent": {
-	"enabled": false,						// starts SessionManager service: <true|false>
-	"sessions_conns": ["*internal"],
-	"create_cdr": false,					// create CDR out of events and sends them to CDRS component
-	"timezone": "",							// timezone of the Kamailio server
-	"evapi_conns":[							// instantiate connections to multiple Kamailio servers
-		{"address": "127.0.0.1:8448", "reconnects": 5}
-	],
-},
-}`
-	expected = KamAgentCfg{
+	expected := &KamAgentCfg{
+		Enabled:       true,
 		SessionSConns: []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS)},
-		EvapiConns:    []*KamConnCfg{{Address: "127.0.0.1:8448", Reconnects: 5}},
+		CreateCdr:     true,
+		EvapiConns:    []*KamConnCfg{{Address: "127.0.0.1:8448", Reconnects: 10, Alias: "randomAlias"}},
+		Timezone:      "Local",
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	jsnCfg := NewDefaultCGRConfig()
+	if err = jsnCfg.kamAgentCfg.loadFromJSONCfg(cfgJSON); err != nil {
 		t.Error(err)
-	} else if jsnKamAgCfg, err := jsnCfg.KamAgentJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = kamagcfg.loadFromJsonCfg(jsnKamAgCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, kamagcfg) {
-		t.Errorf("Expected: %+v , recived: %+v", utils.ToJSON(expected), utils.ToJSON(kamagcfg))
+	} else if !reflect.DeepEqual(expected, jsnCfg.kamAgentCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(jsnCfg.kamAgentCfg))
 	}
+	cfgJson := &KamAgentJsonCfg{
+
+		Evapi_conns: &[]*KamConnJsonCfg{
+			{
+				Max_reconnect_interval: utils.StringPointer("test"),
+			},
+		}}
+
+	if err := jsnCfg.kamAgentCfg.loadFromJSONCfg(cfgJson); err != nil {
+
+		t.Error(err)
+	}
+
 }
 
 func TestKamConnCfgloadFromJsonCfg(t *testing.T) {
 	var kamcocfg, expected KamConnCfg
-	if err := kamcocfg.loadFromJsonCfg(nil); err != nil {
+	if err := kamcocfg.loadFromJSONCfg(nil); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(kamcocfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, kamcocfg)
+		t.Errorf("Expected: %+v ,received: %+v", expected, kamcocfg)
 	}
-	if err := kamcocfg.loadFromJsonCfg(new(KamConnJsonCfg)); err != nil {
+	if err := kamcocfg.loadFromJSONCfg(new(KamConnJsonCfg)); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(kamcocfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, kamcocfg)
+		t.Errorf("Expected: %+v ,received: %+v", expected, kamcocfg)
 	}
 	json := &KamConnJsonCfg{
 		Address:    utils.StringPointer("127.0.0.1:8448"),
@@ -82,72 +87,76 @@ func TestKamConnCfgloadFromJsonCfg(t *testing.T) {
 		Address:    "127.0.0.1:8448",
 		Reconnects: 5,
 	}
-	if err = kamcocfg.loadFromJsonCfg(json); err != nil {
+	if err = kamcocfg.loadFromJSONCfg(json); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expected, kamcocfg) {
-		t.Errorf("Expected: %+v , recived: %+v", utils.ToJSON(expected), utils.ToJSON(kamcocfg))
+		t.Errorf("Expected: %+v , received: %+v", utils.ToJSON(expected), utils.ToJSON(kamcocfg))
 	}
 }
 
 func TestKamAgentCfgAsMapInterface(t *testing.T) {
-	var kamagcfg KamAgentCfg
 	cfgJSONStr := `{
 		"kamailio_agent": {
-			"enabled": false,
-			"sessions_conns": [""],
-			"create_cdr": false,
-			"timezone": "",
+			"sessions_conns": ["*birpc_internal", "*conn1","*conn2", "*internal"],
+			"create_cdr": true,
+			"timezone": "UTC",
 			"evapi_conns":[
-				{"address": "127.0.0.1:8448", "reconnects": 5}
+				{"address": "127.0.0.1:8448", "reconnects": 5, "alias": ""}
 			],
 		},
 	}`
-	eMap := map[string]interface{}{
-		"enabled":        false,
-		"sessions_conns": []string{""},
-		"create_cdr":     false,
-		"timezone":       "",
-		"evapi_conns": []map[string]interface{}{
-			{"address": "127.0.0.1:8448", "reconnects": 5, "alias": ""},
+	eMap := map[string]any{
+		utils.EnabledCfg:       false,
+		utils.SessionSConnsCfg: []string{rpcclient.BiRPCInternal, "*conn1", "*conn2", utils.MetaInternal},
+		utils.CreateCdrCfg:     true,
+		utils.TimezoneCfg:      "UTC",
+		utils.EvapiConnsCfg: []map[string]any{
+			{utils.AddressCfg: "127.0.0.1:8448", utils.ReconnectsCfg: 5, utils.MaxReconnectIntervalCfg: "0s", utils.AliasCfg: ""},
 		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnKamAgCfg, err := jsnCfg.KamAgentJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = kamagcfg.loadFromJsonCfg(jsnKamAgCfg); err != nil {
-		t.Error(err)
-	} else if rcv := kamagcfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.kamAgentCfg.AsMapInterface(); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
 	}
+}
 
-	cfgJSONStr = `{
-	"kamailio_agent": {
-		"enabled": false,
-		"sessions_conns": ["*internal"],
-		"create_cdr": false,
-		"timezone": "",
-		"evapi_conns":[
-			{"address": "127.0.0.1:8448", "reconnects": 5}
-		],
-	},
+func TestKamAgentCfgAsMapInterface1(t *testing.T) {
+	cfgJSONStr := `{
+	"kamailio_agent": {},
 }`
-	eMap = map[string]interface{}{
-		"enabled":        false,
-		"sessions_conns": []string{"*internal"},
-		"create_cdr":     false,
-		"timezone":       "",
-		"evapi_conns": []map[string]interface{}{
-			{"address": "127.0.0.1:8448", "reconnects": 5, "alias": ""},
+	eMap := map[string]any{
+		utils.EnabledCfg:       false,
+		utils.SessionSConnsCfg: []string{rpcclient.BiRPCInternal},
+		utils.CreateCdrCfg:     false,
+		utils.TimezoneCfg:      "",
+		utils.EvapiConnsCfg: []map[string]any{
+			{utils.AddressCfg: "127.0.0.1:8448", utils.ReconnectsCfg: 5, utils.MaxReconnectIntervalCfg: "0s", utils.AliasCfg: ""},
 		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnKamAgCfg, err := jsnCfg.KamAgentJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = kamagcfg.loadFromJsonCfg(jsnKamAgCfg); err != nil {
-		t.Error(err)
-	} else if rcv := kamagcfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.kamAgentCfg.AsMapInterface(); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expected %+v \n, received %+v", eMap, rcv)
+	}
+}
+
+func TestKamAgentCfgClone(t *testing.T) {
+	ban := &KamAgentCfg{
+		Enabled:       true,
+		SessionSConns: []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS), "*conn1"},
+		CreateCdr:     true,
+		EvapiConns:    []*KamConnCfg{{Address: "127.0.0.1:8448", Reconnects: 10, Alias: "randomAlias"}},
+		Timezone:      "Local",
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if rcv.SessionSConns[1] = ""; ban.SessionSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.EvapiConns[0].Alias = ""; ban.EvapiConns[0].Alias != "randomAlias" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

@@ -1,5 +1,5 @@
 {{ ansible_managed | comment }}
-%global version 0.10.3~dev
+%global version 0.11.0~dev
 
 %define debug_package  %{nil}
 %global _logdir	       /var/log/%name
@@ -96,6 +96,7 @@ mkdir -p $RPM_BUILD_ROOT%{_spooldir}/cdre/csv
 mkdir -p $RPM_BUILD_ROOT%{_spooldir}/cdre/fwv
 mkdir -p $RPM_BUILD_ROOT%{_spooldir}/tpe
 mkdir -p $RPM_BUILD_ROOT%{_spooldir}/failed_posts
+mkdir -p $RPM_BUILD_ROOT%{_spooldir}/analyzers
 mkdir -p $RPM_BUILD_ROOT%{_libdir}/cache_dump
 mkdir -p $RPM_BUILD_ROOT/etc/logrotate.d
 mkdir -p $RPM_BUILD_ROOT/etc/rsyslog.d

@@ -25,11 +25,13 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
@@ -37,6 +39,7 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+// CSVStorage the basic csv storage
 type CSVStorage struct {
 	sep       rune
 	generator func() csvReaderCloser
@@ -56,20 +59,20 @@ type CSVStorage struct {
 	statsFn                  []string
 	thresholdsFn             []string
 	filterFn                 []string
-	suppProfilesFn           []string
+	routeProfilesFn          []string
 	attributeProfilesFn      []string
 	chargerProfilesFn        []string
 	dispatcherProfilesFn     []string
 	dispatcherHostsFn        []string
 }
 
+// NewCSVStorage creates a CSV storege that takes the data from the paths specified
 func NewCSVStorage(sep rune,
 	destinationsFn, timingsFn, ratesFn, destinationratesFn,
 	destinationratetimingsFn, ratingprofilesFn, sharedgroupsFn,
 	actionsFn, actiontimingsFn, actiontriggersFn, accountactionsFn,
-	resProfilesFn, statsFn, thresholdsFn,
-	filterFn, suppProfilesFn, attributeProfilesFn,
-	chargerProfilesFn, dispatcherProfilesFn, dispatcherHostsFn []string) *CSVStorage {
+	resProfilesFn, statsFn, thresholdsFn, filterFn, routeProfilesFn,
+	attributeProfilesFn, chargerProfilesFn, dispatcherProfilesFn, dispatcherHostsFn []string) *CSVStorage {
 	return &CSVStorage{
 		sep:                      sep,
 		generator:                NewCsvFile,
@@ -88,7 +91,7 @@ func NewCSVStorage(sep rune,
 		statsFn:                  statsFn,
 		thresholdsFn:             thresholdsFn,
 		filterFn:                 filterFn,
-		suppProfilesFn:           suppProfilesFn,
+		routeProfilesFn:          routeProfilesFn,
 		attributeProfilesFn:      attributeProfilesFn,
 		chargerProfilesFn:        chargerProfilesFn,
 		dispatcherProfilesFn:     dispatcherProfilesFn,
@@ -96,108 +99,86 @@ func NewCSVStorage(sep rune,
 	}
 }
 
-func NewFileCSVStorage(sep rune, dataPath string, recursive bool) *CSVStorage {
-	destinations_paths := []string{path.Join(dataPath, utils.DestinationsCsv)}
-	timings_paths := []string{path.Join(dataPath, utils.TimingsCsv)}
-	rates_paths := []string{path.Join(dataPath, utils.RatesCsv)}
-	destination_rates_paths := []string{path.Join(dataPath, utils.DestinationRatesCsv)}
-	rating_plans_paths := []string{path.Join(dataPath, utils.RatingPlansCsv)}
-	rating_profiles_paths := []string{path.Join(dataPath, utils.RatingProfilesCsv)}
-	shared_groups_paths := []string{path.Join(dataPath, utils.SharedGroupsCsv)}
-	actions_paths := []string{path.Join(dataPath, utils.ActionsCsv)}
-	action_plans_paths := []string{path.Join(dataPath, utils.ActionPlansCsv)}
-	action_triggers_paths := []string{path.Join(dataPath, utils.ActionTriggersCsv)}
-	account_actions_paths := []string{path.Join(dataPath, utils.AccountActionsCsv)}
-	resources_paths := []string{path.Join(dataPath, utils.ResourcesCsv)}
-	stats_paths := []string{path.Join(dataPath, utils.StatsCsv)}
-	thresholds_paths := []string{path.Join(dataPath, utils.ThresholdsCsv)}
-	filters_paths := []string{path.Join(dataPath, utils.FiltersCsv)}
-	suppliers_paths := []string{path.Join(dataPath, utils.SuppliersCsv)}
-	attributes_paths := []string{path.Join(dataPath, utils.AttributesCsv)}
-	chargers_paths := []string{path.Join(dataPath, utils.ChargersCsv)}
-	dispatcherprofiles_paths := []string{path.Join(dataPath, utils.DispatcherProfilesCsv)}
-	dispatcherhosts_paths := []string{path.Join(dataPath, utils.DispatcherHostsCsv)}
-
-	if recursive {
-		allFoldersPath, err := getAllFolders(dataPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		destinations_paths = appendName(allFoldersPath, utils.DestinationsCsv)
-		timings_paths = appendName(allFoldersPath, utils.TimingsCsv)
-		rates_paths = appendName(allFoldersPath, utils.RatesCsv)
-		destination_rates_paths = appendName(allFoldersPath, utils.DestinationRatesCsv)
-		rating_plans_paths = appendName(allFoldersPath, utils.RatingPlansCsv)
-		rating_profiles_paths = appendName(allFoldersPath, utils.RatingProfilesCsv)
-		shared_groups_paths = appendName(allFoldersPath, utils.SharedGroupsCsv)
-		actions_paths = appendName(allFoldersPath, utils.ActionsCsv)
-		action_plans_paths = appendName(allFoldersPath, utils.ActionPlansCsv)
-		action_triggers_paths = appendName(allFoldersPath, utils.ActionTriggersCsv)
-		account_actions_paths = appendName(allFoldersPath, utils.AccountActionsCsv)
-		resources_paths = appendName(allFoldersPath, utils.ResourcesCsv)
-		stats_paths = appendName(allFoldersPath, utils.StatsCsv)
-		thresholds_paths = appendName(allFoldersPath, utils.ThresholdsCsv)
-		filters_paths = appendName(allFoldersPath, utils.FiltersCsv)
-		suppliers_paths = appendName(allFoldersPath, utils.SuppliersCsv)
-		attributes_paths = appendName(allFoldersPath, utils.AttributesCsv)
-		chargers_paths = appendName(allFoldersPath, utils.ChargersCsv)
-		dispatcherprofiles_paths = appendName(allFoldersPath, utils.DispatcherProfilesCsv)
-		dispatcherhosts_paths = appendName(allFoldersPath, utils.DispatcherHostsCsv)
+// NewFileCSVStorage returns a csv storage that uses all files from the folder
+func NewFileCSVStorage(sep rune, dataPath string) (*CSVStorage, error) {
+	allFoldersPath, err := getAllFolders(dataPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve the folders from data path '%s': %s", dataPath, err.Error())
 	}
+	destinationsPaths := appendName(allFoldersPath, utils.DestinationsCsv)
+	timingsPaths := appendName(allFoldersPath, utils.TimingsCsv)
+	ratesPaths := appendName(allFoldersPath, utils.RatesCsv)
+	destinationRatesPaths := appendName(allFoldersPath, utils.DestinationRatesCsv)
+	ratingPlansPaths := appendName(allFoldersPath, utils.RatingPlansCsv)
+	ratingProfilesPaths := appendName(allFoldersPath, utils.RatingProfilesCsv)
+	sharedGroupsPaths := appendName(allFoldersPath, utils.SharedGroupsCsv)
+	actionsPaths := appendName(allFoldersPath, utils.ActionsCsv)
+	actionPlansPaths := appendName(allFoldersPath, utils.ActionPlansCsv)
+	actionTriggersPaths := appendName(allFoldersPath, utils.ActionTriggersCsv)
+	accountActionsPaths := appendName(allFoldersPath, utils.AccountActionsCsv)
+	resourcesPaths := appendName(allFoldersPath, utils.ResourcesCsv)
+	statsPaths := appendName(allFoldersPath, utils.StatsCsv)
+	thresholdsPaths := appendName(allFoldersPath, utils.ThresholdsCsv)
+	filtersPaths := appendName(allFoldersPath, utils.FiltersCsv)
+	routesPaths := appendName(allFoldersPath, utils.RoutesCsv)
+	attributesPaths := appendName(allFoldersPath, utils.AttributesCsv)
+	chargersPaths := appendName(allFoldersPath, utils.ChargersCsv)
+	dispatcherprofilesPaths := appendName(allFoldersPath, utils.DispatcherProfilesCsv)
+	dispatcherhostsPaths := appendName(allFoldersPath, utils.DispatcherHostsCsv)
 	return NewCSVStorage(sep,
-		destinations_paths,
-		timings_paths,
-		rates_paths,
-		destination_rates_paths,
-		rating_plans_paths,
-		rating_profiles_paths,
-		shared_groups_paths,
-		actions_paths,
-		action_plans_paths,
-		action_triggers_paths,
-		account_actions_paths,
-		resources_paths,
-		stats_paths,
-		thresholds_paths,
-		filters_paths,
-		suppliers_paths,
-		attributes_paths,
-		chargers_paths,
-		dispatcherprofiles_paths,
-		dispatcherhosts_paths,
-	)
+		destinationsPaths,
+		timingsPaths,
+		ratesPaths,
+		destinationRatesPaths,
+		ratingPlansPaths,
+		ratingProfilesPaths,
+		sharedGroupsPaths,
+		actionsPaths,
+		actionPlansPaths,
+		actionTriggersPaths,
+		accountActionsPaths,
+		resourcesPaths,
+		statsPaths,
+		thresholdsPaths,
+		filtersPaths,
+		routesPaths,
+		attributesPaths,
+		chargersPaths,
+		dispatcherprofilesPaths,
+		dispatcherhostsPaths,
+	), nil
 }
 
+// NewStringCSVStorage creates a csv storage from strings
 func NewStringCSVStorage(sep rune,
 	destinationsFn, timingsFn, ratesFn, destinationratesFn,
 	destinationratetimingsFn, ratingprofilesFn, sharedgroupsFn,
-	actionsFn, actiontimingsFn, actiontriggersFn,
-	accountactionsFn, resProfilesFn, statsFn,
-	thresholdsFn, filterFn, suppProfilesFn,
-	attributeProfilesFn, chargerProfilesFn,
-	dispatcherProfilesFn, dispatcherHostsFn string) *CSVStorage {
+	actionsFn, actiontimingsFn, actiontriggersFn, accountactionsFn,
+	resProfilesFn, statsFn, thresholdsFn, filterFn, routeProfilesFn,
+	attributeProfilesFn, chargerProfilesFn, dispatcherProfilesFn, dispatcherHostsFn string) *CSVStorage {
 	c := NewCSVStorage(sep, []string{destinationsFn}, []string{timingsFn},
 		[]string{ratesFn}, []string{destinationratesFn}, []string{destinationratetimingsFn},
 		[]string{ratingprofilesFn}, []string{sharedgroupsFn}, []string{actionsFn},
 		[]string{actiontimingsFn}, []string{actiontriggersFn}, []string{accountactionsFn},
 		[]string{resProfilesFn}, []string{statsFn}, []string{thresholdsFn}, []string{filterFn},
-		[]string{suppProfilesFn}, []string{attributeProfilesFn}, []string{chargerProfilesFn},
+		[]string{routeProfilesFn}, []string{attributeProfilesFn}, []string{chargerProfilesFn},
 		[]string{dispatcherProfilesFn}, []string{dispatcherHostsFn})
 	c.generator = NewCsvString
 	return c
 }
 
-func NewGoogleCSVStorage(sep rune, spreadsheetId, cfgPath string) (*CSVStorage, error) {
-	sht, err := newSheet(cfgPath)
+// NewGoogleCSVStorage creates a csv storege from google sheets
+func NewGoogleCSVStorage(sep rune, spreadsheetID string) (*CSVStorage, error) {
+	sht, err := newSheet()
 	if err != nil {
 		return nil, err
 	}
-	sheetNames, err := getSpreatsheetTabs(spreadsheetId, sht)
+	sheetNames, err := getSpreatsheetTabs(spreadsheetID, sht)
 	if err != nil {
 		return nil, err
 	}
 	getIfExist := func(name string) []string {
-		if _, has := sheetNames[name]; has {
+		if sheetNames.Has(name) {
 			return []string{name}
 		}
 		return []string{}
@@ -218,18 +199,147 @@ func NewGoogleCSVStorage(sep rune, spreadsheetId, cfgPath string) (*CSVStorage, 
 		getIfExist(utils.Stats),
 		getIfExist(utils.Thresholds),
 		getIfExist(utils.Filters),
-		getIfExist(utils.Suppliers),
+		getIfExist(utils.Routes),
 		getIfExist(utils.Attributes),
 		getIfExist(utils.Chargers),
 		getIfExist(utils.DispatcherProfiles),
-		getIfExist(utils.DispatcherHosts))
+		getIfExist(utils.DispatcherHosts),
+	)
 	c.generator = func() csvReaderCloser {
 		return &csvGoogle{
-			spreadsheetId: spreadsheetId,
+			spreadsheetID: spreadsheetID,
 			srv:           sht,
 		}
 	}
 	return c, nil
+}
+
+// NewURLCSVStorage returns a CSVStorage that can parse URLs
+func NewURLCSVStorage(sep rune, dataPath string) *CSVStorage {
+	var destinationsPaths []string
+	var timingsPaths []string
+	var ratesPaths []string
+	var destinationRatesPaths []string
+	var ratingPlansPaths []string
+	var ratingProfilesPaths []string
+	var sharedGroupsPaths []string
+	var actionsPaths []string
+	var actionPlansPaths []string
+	var actionTriggersPaths []string
+	var accountActionsPaths []string
+	var resourcesPaths []string
+	var statsPaths []string
+	var thresholdsPaths []string
+	var filtersPaths []string
+	var routesPaths []string
+	var attributesPaths []string
+	var chargersPaths []string
+	var dispatcherprofilesPaths []string
+	var dispatcherhostsPaths []string
+
+	for _, baseURL := range strings.Split(dataPath, utils.InfieldSep) {
+		if !strings.HasSuffix(baseURL, utils.CSVSuffix) {
+			destinationsPaths = append(destinationsPaths, joinURL(baseURL, utils.DestinationsCsv))
+			timingsPaths = append(timingsPaths, joinURL(baseURL, utils.TimingsCsv))
+			ratesPaths = append(ratesPaths, joinURL(baseURL, utils.RatesCsv))
+			destinationRatesPaths = append(destinationRatesPaths, joinURL(baseURL, utils.DestinationRatesCsv))
+			ratingPlansPaths = append(ratingPlansPaths, joinURL(baseURL, utils.RatingPlansCsv))
+			ratingProfilesPaths = append(ratingProfilesPaths, joinURL(baseURL, utils.RatingProfilesCsv))
+			sharedGroupsPaths = append(sharedGroupsPaths, joinURL(baseURL, utils.SharedGroupsCsv))
+			actionsPaths = append(actionsPaths, joinURL(baseURL, utils.ActionsCsv))
+			actionPlansPaths = append(actionPlansPaths, joinURL(baseURL, utils.ActionPlansCsv))
+			actionTriggersPaths = append(actionTriggersPaths, joinURL(baseURL, utils.ActionTriggersCsv))
+			accountActionsPaths = append(accountActionsPaths, joinURL(baseURL, utils.AccountActionsCsv))
+			resourcesPaths = append(resourcesPaths, joinURL(baseURL, utils.ResourcesCsv))
+			statsPaths = append(statsPaths, joinURL(baseURL, utils.StatsCsv))
+			thresholdsPaths = append(thresholdsPaths, joinURL(baseURL, utils.ThresholdsCsv))
+			filtersPaths = append(filtersPaths, joinURL(baseURL, utils.FiltersCsv))
+			routesPaths = append(routesPaths, joinURL(baseURL, utils.RoutesCsv))
+			attributesPaths = append(attributesPaths, joinURL(baseURL, utils.AttributesCsv))
+			chargersPaths = append(chargersPaths, joinURL(baseURL, utils.ChargersCsv))
+			dispatcherprofilesPaths = append(dispatcherprofilesPaths, joinURL(baseURL, utils.DispatcherProfilesCsv))
+			dispatcherhostsPaths = append(dispatcherhostsPaths, joinURL(baseURL, utils.DispatcherHostsCsv))
+			continue
+		}
+		switch {
+		case strings.HasSuffix(baseURL, utils.DestinationsCsv):
+			destinationsPaths = append(destinationsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.TimingsCsv):
+			timingsPaths = append(timingsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.RatesCsv):
+			ratesPaths = append(ratesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.DestinationRatesCsv):
+			destinationRatesPaths = append(destinationRatesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.RatingPlansCsv):
+			ratingPlansPaths = append(ratingPlansPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.RatingProfilesCsv):
+			ratingProfilesPaths = append(ratingProfilesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.SharedGroupsCsv):
+			sharedGroupsPaths = append(sharedGroupsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.ActionsCsv):
+			actionsPaths = append(actionsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.ActionPlansCsv):
+			actionPlansPaths = append(actionPlansPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.ActionTriggersCsv):
+			actionTriggersPaths = append(actionTriggersPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.AccountActionsCsv):
+			accountActionsPaths = append(accountActionsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.ResourcesCsv):
+			resourcesPaths = append(resourcesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.StatsCsv):
+			statsPaths = append(statsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.ThresholdsCsv):
+			thresholdsPaths = append(thresholdsPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.FiltersCsv):
+			filtersPaths = append(filtersPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.RoutesCsv):
+			routesPaths = append(routesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.AttributesCsv):
+			attributesPaths = append(attributesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.ChargersCsv):
+			chargersPaths = append(chargersPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.DispatcherProfilesCsv):
+			dispatcherprofilesPaths = append(dispatcherprofilesPaths, baseURL)
+		case strings.HasSuffix(baseURL, utils.DispatcherHostsCsv):
+			dispatcherhostsPaths = append(dispatcherhostsPaths, baseURL)
+		}
+	}
+
+	c := NewCSVStorage(sep,
+		destinationsPaths,
+		timingsPaths,
+		ratesPaths,
+		destinationRatesPaths,
+		ratingPlansPaths,
+		ratingProfilesPaths,
+		sharedGroupsPaths,
+		actionsPaths,
+		actionPlansPaths,
+		actionTriggersPaths,
+		accountActionsPaths,
+		resourcesPaths,
+		statsPaths,
+		thresholdsPaths,
+		filtersPaths,
+		routesPaths,
+		attributesPaths,
+		chargersPaths,
+		dispatcherprofilesPaths,
+		dispatcherhostsPaths,
+	)
+	c.generator = func() csvReaderCloser {
+		return &csvURL{}
+	}
+	return c
+}
+
+func joinURL(baseURL, fn string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL + fn
+	}
+	u.Path = path.Join(u.Path, fn)
+	return u.String()
 }
 
 func getAllFolders(inPath string) (paths []string, err error) {
@@ -247,13 +357,13 @@ func getAllFolders(inPath string) (paths []string, err error) {
 
 func appendName(paths []string, fileName string) (out []string) {
 	out = make([]string, len(paths))
-	for i, path_ := range paths {
-		out[i] = path.Join(path_, fileName)
+	for i, basePath := range paths {
+		out[i] = path.Join(basePath, fileName)
 	}
 	return
 }
 
-func (csvs *CSVStorage) proccesData(listType interface{}, fns []string, process func(interface{})) error {
+func (csvs *CSVStorage) proccesData(listType any, fns []string, process func(any)) error {
 	collumnCount := getColumnCount(listType)
 	for _, fileName := range fns {
 		csvReader := csvs.generator()
@@ -285,9 +395,9 @@ func (csvs *CSVStorage) proccesData(listType interface{}, fns []string, process 
 }
 
 func (csvs *CSVStorage) GetTPTimings(tpid, id string) ([]*utils.ApierTPTiming, error) {
-	var tpTimings TpTimings
-	if err := csvs.proccesData(TpTiming{}, csvs.timingsFn, func(tp interface{}) {
-		tm := tp.(TpTiming)
+	var tpTimings TimingMdls
+	if err := csvs.proccesData(TimingMdl{}, csvs.timingsFn, func(tp any) {
+		tm := tp.(TimingMdl)
 		tm.Tpid = tpid
 		tpTimings = append(tpTimings, tm)
 	}); err != nil {
@@ -297,9 +407,9 @@ func (csvs *CSVStorage) GetTPTimings(tpid, id string) ([]*utils.ApierTPTiming, e
 }
 
 func (csvs *CSVStorage) GetTPDestinations(tpid, id string) ([]*utils.TPDestination, error) {
-	var tpDests TpDestinations
-	if err := csvs.proccesData(TpDestination{}, csvs.destinationsFn, func(tp interface{}) {
-		d := tp.(TpDestination)
+	var tpDests DestinationMdls
+	if err := csvs.proccesData(DestinationMdl{}, csvs.destinationsFn, func(tp any) {
+		d := tp.(DestinationMdl)
 		d.Tpid = tpid
 		tpDests = append(tpDests, d)
 	}); err != nil {
@@ -308,10 +418,10 @@ func (csvs *CSVStorage) GetTPDestinations(tpid, id string) ([]*utils.TPDestinati
 	return tpDests.AsTPDestinations(), nil
 }
 
-func (csvs *CSVStorage) GetTPRates(tpid, id string) ([]*utils.TPRate, error) {
-	var tpRates TpRates
-	if err := csvs.proccesData(TpRate{}, csvs.ratesFn, func(tp interface{}) {
-		r := tp.(TpRate)
+func (csvs *CSVStorage) GetTPRates(tpid, id string) ([]*utils.TPRateRALs, error) {
+	var tpRates RateMdls
+	if err := csvs.proccesData(RateMdl{}, csvs.ratesFn, func(tp any) {
+		r := tp.(RateMdl)
 		r.Tpid = tpid
 		tpRates = append(tpRates, r)
 	}); err != nil {
@@ -321,33 +431,33 @@ func (csvs *CSVStorage) GetTPRates(tpid, id string) ([]*utils.TPRate, error) {
 }
 
 func (csvs *CSVStorage) GetTPDestinationRates(tpid, id string, p *utils.Paginator) ([]*utils.TPDestinationRate, error) {
-	var tpDestinationRates TpDestinationRates
-	if err := csvs.proccesData(TpDestinationRate{}, csvs.destinationratesFn, func(tp interface{}) {
-		dr := tp.(TpDestinationRate)
+	var tpDestinationRates DestinationRateMdls
+	if err := csvs.proccesData(DestinationRateMdl{}, csvs.destinationratesFn, func(tp any) {
+		dr := tp.(DestinationRateMdl)
 		dr.Tpid = tpid
 		tpDestinationRates = append(tpDestinationRates, dr)
 	}); err != nil {
 		return nil, err
 	}
-	return tpDestinationRates.AsTPDestinationRates()
+	return tpDestinationRates.AsTPDestinationRates(), nil
 }
 
 func (csvs *CSVStorage) GetTPRatingPlans(tpid, id string, p *utils.Paginator) ([]*utils.TPRatingPlan, error) {
-	var tpRatingPlans TpRatingPlans
-	if err := csvs.proccesData(TpRatingPlan{}, csvs.destinationratetimingsFn, func(tp interface{}) {
-		rp := tp.(TpRatingPlan)
+	var tpRatingPlans RatingPlanMdls
+	if err := csvs.proccesData(RatingPlanMdl{}, csvs.destinationratetimingsFn, func(tp any) {
+		rp := tp.(RatingPlanMdl)
 		rp.Tpid = tpid
 		tpRatingPlans = append(tpRatingPlans, rp)
 	}); err != nil {
 		return nil, err
 	}
-	return tpRatingPlans.AsTPRatingPlans()
+	return tpRatingPlans.AsTPRatingPlans(), nil
 }
 
 func (csvs *CSVStorage) GetTPRatingProfiles(filter *utils.TPRatingProfile) ([]*utils.TPRatingProfile, error) {
-	var tpRatingProfiles TpRatingProfiles
-	if err := csvs.proccesData(TpRatingProfile{}, csvs.ratingprofilesFn, func(tp interface{}) {
-		rpf := tp.(TpRatingProfile)
+	var tpRatingProfiles RatingProfileMdls
+	if err := csvs.proccesData(RatingProfileMdl{}, csvs.ratingprofilesFn, func(tp any) {
+		rpf := tp.(RatingProfileMdl)
 		if filter != nil {
 			rpf.Tpid = filter.TPid
 			rpf.Loadid = filter.LoadId
@@ -356,61 +466,61 @@ func (csvs *CSVStorage) GetTPRatingProfiles(filter *utils.TPRatingProfile) ([]*u
 	}); err != nil {
 		return nil, err
 	}
-	return tpRatingProfiles.AsTPRatingProfiles()
+	return tpRatingProfiles.AsTPRatingProfiles(), nil
 }
 
 func (csvs *CSVStorage) GetTPSharedGroups(tpid, id string) ([]*utils.TPSharedGroups, error) {
-	var tpSharedGroups TpSharedGroups
-	if err := csvs.proccesData(TpSharedGroup{}, csvs.sharedgroupsFn, func(tp interface{}) {
-		sg := tp.(TpSharedGroup)
+	var tpSharedGroups SharedGroupMdls
+	if err := csvs.proccesData(SharedGroupMdl{}, csvs.sharedgroupsFn, func(tp any) {
+		sg := tp.(SharedGroupMdl)
 		sg.Tpid = tpid
 		tpSharedGroups = append(tpSharedGroups, sg)
 	}); err != nil {
 		return nil, err
 	}
-	return tpSharedGroups.AsTPSharedGroups()
+	return tpSharedGroups.AsTPSharedGroups(), nil
 }
 
 func (csvs *CSVStorage) GetTPActions(tpid, id string) ([]*utils.TPActions, error) {
-	var tpActions TpActions
-	if err := csvs.proccesData(TpAction{}, csvs.actionsFn, func(tp interface{}) {
-		a := tp.(TpAction)
+	var tpActions ActionMdls
+	if err := csvs.proccesData(ActionMdl{}, csvs.actionsFn, func(tp any) {
+		a := tp.(ActionMdl)
 		a.Tpid = tpid
 		tpActions = append(tpActions, a)
 	}); err != nil {
 		return nil, err
 	}
-	return tpActions.AsTPActions()
+	return tpActions.AsTPActions(), nil
 }
 
 func (csvs *CSVStorage) GetTPActionPlans(tpid, id string) ([]*utils.TPActionPlan, error) {
-	var tpActionPlans TpActionPlans
-	if err := csvs.proccesData(TpActionPlan{}, csvs.actiontimingsFn, func(tp interface{}) {
-		ap := tp.(TpActionPlan)
+	var tpActionPlans ActionPlanMdls
+	if err := csvs.proccesData(ActionPlanMdl{}, csvs.actiontimingsFn, func(tp any) {
+		ap := tp.(ActionPlanMdl)
 		ap.Tpid = tpid
 		tpActionPlans = append(tpActionPlans, ap)
 	}); err != nil {
 		return nil, err
 	}
-	return tpActionPlans.AsTPActionPlans()
+	return tpActionPlans.AsTPActionPlans(), nil
 }
 
 func (csvs *CSVStorage) GetTPActionTriggers(tpid, id string) ([]*utils.TPActionTriggers, error) {
-	var tpActionTriggers TpActionTriggers
-	if err := csvs.proccesData(TpActionTrigger{}, csvs.actiontriggersFn, func(tp interface{}) {
-		at := tp.(TpActionTrigger)
+	var tpActionTriggers ActionTriggerMdls
+	if err := csvs.proccesData(ActionTriggerMdl{}, csvs.actiontriggersFn, func(tp any) {
+		at := tp.(ActionTriggerMdl)
 		at.Tpid = tpid
 		tpActionTriggers = append(tpActionTriggers, at)
 	}); err != nil {
 		return nil, err
 	}
-	return tpActionTriggers.AsTPActionTriggers()
+	return tpActionTriggers.AsTPActionTriggers(), nil
 }
 
 func (csvs *CSVStorage) GetTPAccountActions(filter *utils.TPAccountActions) ([]*utils.TPAccountActions, error) {
-	var tpAccountActions TpAccountActions
-	if err := csvs.proccesData(TpAccountAction{}, csvs.accountactionsFn, func(tp interface{}) {
-		aa := tp.(TpAccountAction)
+	var tpAccountActions AccountActionMdls
+	if err := csvs.proccesData(AccountActionMdl{}, csvs.accountactionsFn, func(tp any) {
+		aa := tp.(AccountActionMdl)
 		if filter != nil {
 			aa.Tpid = filter.TPid
 			aa.Loadid = filter.LoadId
@@ -419,13 +529,13 @@ func (csvs *CSVStorage) GetTPAccountActions(filter *utils.TPAccountActions) ([]*
 	}); err != nil {
 		return nil, err
 	}
-	return tpAccountActions.AsTPAccountActions()
+	return tpAccountActions.AsTPAccountActions(), nil
 }
 
 func (csvs *CSVStorage) GetTPResources(tpid, tenant, id string) ([]*utils.TPResourceProfile, error) {
-	var tpResLimits TpResources
-	if err := csvs.proccesData(TpResource{}, csvs.resProfilesFn, func(tp interface{}) {
-		tpLimit := tp.(TpResource)
+	var tpResLimits ResourceMdls
+	if err := csvs.proccesData(ResourceMdl{}, csvs.resProfilesFn, func(tp any) {
+		tpLimit := tp.(ResourceMdl)
 		tpLimit.Tpid = tpid
 		tpResLimits = append(tpResLimits, &tpLimit)
 	}); err != nil {
@@ -435,9 +545,9 @@ func (csvs *CSVStorage) GetTPResources(tpid, tenant, id string) ([]*utils.TPReso
 }
 
 func (csvs *CSVStorage) GetTPStats(tpid, tenant, id string) ([]*utils.TPStatProfile, error) {
-	var tpStats TpStats
-	if err := csvs.proccesData(TpStat{}, csvs.statsFn, func(tp interface{}) {
-		tPstats := tp.(TpStat)
+	var tpStats StatMdls
+	if err := csvs.proccesData(StatMdl{}, csvs.statsFn, func(tp any) {
+		tPstats := tp.(StatMdl)
 		tPstats.Tpid = tpid
 		tpStats = append(tpStats, &tPstats)
 	}); err != nil {
@@ -447,9 +557,9 @@ func (csvs *CSVStorage) GetTPStats(tpid, tenant, id string) ([]*utils.TPStatProf
 }
 
 func (csvs *CSVStorage) GetTPThresholds(tpid, tenant, id string) ([]*utils.TPThresholdProfile, error) {
-	var tpThreshold TpThresholds
-	if err := csvs.proccesData(TpThreshold{}, csvs.thresholdsFn, func(tp interface{}) {
-		tHresholdCfg := tp.(TpThreshold)
+	var tpThreshold ThresholdMdls
+	if err := csvs.proccesData(ThresholdMdl{}, csvs.thresholdsFn, func(tp any) {
+		tHresholdCfg := tp.(ThresholdMdl)
 		tHresholdCfg.Tpid = tpid
 		tpThreshold = append(tpThreshold, &tHresholdCfg)
 	}); err != nil {
@@ -459,9 +569,9 @@ func (csvs *CSVStorage) GetTPThresholds(tpid, tenant, id string) ([]*utils.TPThr
 }
 
 func (csvs *CSVStorage) GetTPFilters(tpid, tenant, id string) ([]*utils.TPFilterProfile, error) {
-	var tpFilter TpFilterS
-	if err := csvs.proccesData(TpFilter{}, csvs.filterFn, func(tp interface{}) {
-		fIlterCfg := tp.(TpFilter)
+	var tpFilter FilterMdls
+	if err := csvs.proccesData(FilterMdl{}, csvs.filterFn, func(tp any) {
+		fIlterCfg := tp.(FilterMdl)
 		fIlterCfg.Tpid = tpid
 		tpFilter = append(tpFilter, &fIlterCfg)
 	}); err != nil {
@@ -470,22 +580,22 @@ func (csvs *CSVStorage) GetTPFilters(tpid, tenant, id string) ([]*utils.TPFilter
 	return tpFilter.AsTPFilter(), nil
 }
 
-func (csvs *CSVStorage) GetTPSuppliers(tpid, tenant, id string) ([]*utils.TPSupplierProfile, error) {
-	var tpSPPs TpSuppliers
-	if err := csvs.proccesData(TpSupplier{}, csvs.suppProfilesFn, func(tp interface{}) {
-		suppProfile := tp.(TpSupplier)
+func (csvs *CSVStorage) GetTPRoutes(tpid, tenant, id string) ([]*utils.TPRouteProfile, error) {
+	var tpRoutes RouteMdls
+	if err := csvs.proccesData(RouteMdl{}, csvs.routeProfilesFn, func(tp any) {
+		suppProfile := tp.(RouteMdl)
 		suppProfile.Tpid = tpid
-		tpSPPs = append(tpSPPs, &suppProfile)
+		tpRoutes = append(tpRoutes, &suppProfile)
 	}); err != nil {
 		return nil, err
 	}
-	return tpSPPs.AsTPSuppliers(), nil
+	return tpRoutes.AsTPRouteProfile(), nil
 }
 
 func (csvs *CSVStorage) GetTPAttributes(tpid, tenant, id string) ([]*utils.TPAttributeProfile, error) {
-	var tpAls TPAttributes
-	if err := csvs.proccesData(TPAttribute{}, csvs.attributeProfilesFn, func(tp interface{}) {
-		attributeProfile := tp.(TPAttribute)
+	var tpAls AttributeMdls
+	if err := csvs.proccesData(AttributeMdl{}, csvs.attributeProfilesFn, func(tp any) {
+		attributeProfile := tp.(AttributeMdl)
 		attributeProfile.Tpid = tpid
 		tpAls = append(tpAls, &attributeProfile)
 	}); err != nil {
@@ -495,9 +605,9 @@ func (csvs *CSVStorage) GetTPAttributes(tpid, tenant, id string) ([]*utils.TPAtt
 }
 
 func (csvs *CSVStorage) GetTPChargers(tpid, tenant, id string) ([]*utils.TPChargerProfile, error) {
-	var tpCPPs TPChargers
-	if err := csvs.proccesData(TPCharger{}, csvs.chargerProfilesFn, func(tp interface{}) {
-		cpp := tp.(TPCharger)
+	var tpCPPs ChargerMdls
+	if err := csvs.proccesData(ChargerMdl{}, csvs.chargerProfilesFn, func(tp any) {
+		cpp := tp.(ChargerMdl)
 		cpp.Tpid = tpid
 		tpCPPs = append(tpCPPs, &cpp)
 	}); err != nil {
@@ -507,9 +617,9 @@ func (csvs *CSVStorage) GetTPChargers(tpid, tenant, id string) ([]*utils.TPCharg
 }
 
 func (csvs *CSVStorage) GetTPDispatcherProfiles(tpid, tenant, id string) ([]*utils.TPDispatcherProfile, error) {
-	var tpDPPs TPDispatcherProfiles
-	if err := csvs.proccesData(TPDispatcherProfile{}, csvs.dispatcherProfilesFn, func(tp interface{}) {
-		dpp := tp.(TPDispatcherProfile)
+	var tpDPPs DispatcherProfileMdls
+	if err := csvs.proccesData(DispatcherProfileMdl{}, csvs.dispatcherProfilesFn, func(tp any) {
+		dpp := tp.(DispatcherProfileMdl)
 		dpp.Tpid = tpid
 		tpDPPs = append(tpDPPs, &dpp)
 	}); err != nil {
@@ -519,15 +629,19 @@ func (csvs *CSVStorage) GetTPDispatcherProfiles(tpid, tenant, id string) ([]*uti
 }
 
 func (csvs *CSVStorage) GetTPDispatcherHosts(tpid, tenant, id string) ([]*utils.TPDispatcherHost, error) {
-	var tpDDHs TPDispatcherHosts
-	if err := csvs.proccesData(TPDispatcherHost{}, csvs.dispatcherHostsFn, func(tp interface{}) {
-		dpp := tp.(TPDispatcherHost)
+	var tpDDHs DispatcherHostMdls
+	if err := csvs.proccesData(DispatcherHostMdl{}, csvs.dispatcherHostsFn, func(tp any) {
+		dpp := tp.(DispatcherHostMdl)
 		dpp.Tpid = tpid
 		tpDDHs = append(tpDDHs, &dpp)
 	}); err != nil {
 		return nil, err
 	}
-	return tpDDHs.AsTPDispatcherHosts(), nil
+	result, err := tpDDHs.AsTPDispatcherHosts()
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (csvs *CSVStorage) GetTpIds(colName string) ([]string, error) {
@@ -561,7 +675,7 @@ func (c *csvFile) Open(fn string, sep rune, nrFields int) (err error) {
 	}
 	c.csvReader = csv.NewReader(c.fp)
 	c.csvReader.Comma = sep
-	c.csvReader.Comment = utils.COMMENT_CHAR
+	c.csvReader.Comment = utils.CommentChar
 	c.csvReader.FieldsPerRecord = nrFields
 	c.csvReader.TrailingComma = true
 	return
@@ -588,7 +702,7 @@ type csvString struct {
 func (c *csvString) Open(data string, sep rune, nrFields int) (err error) {
 	c.csvReader = csv.NewReader(strings.NewReader(data))
 	c.csvReader.Comma = sep
-	c.csvReader.Comment = utils.COMMENT_CHAR
+	c.csvReader.Comment = utils.CommentChar
 	c.csvReader.FieldsPerRecord = nrFields
 	c.csvReader.TrailingComma = true
 	return
@@ -604,20 +718,27 @@ func (c *csvString) Close() { // no need for close
 // Google
 
 // Retrieve a token, saves the token, then returns the generated client.
-func getClient(config *oauth2.Config, configPath string) (*http.Client, error) {
+func getClient(cfg *oauth2.Config, configPath string) (*http.Client, error) {
 	// The file token.json stores the user's access and refresh tokens, and is
 	// created automatically when the authorization flow completes for the first
 	// time.
-	tokFile := path.Join(configPath, utils.GoogleConfigDirName, utils.GoogleTokenFileName)
-	tok, err := tokenFromFile(tokFile)
+	tok := &oauth2.Token{}
+	raw, err := getCfgJSONData(config.CgrConfig().LoaderCgrCfg().GapiToken)
 	if err != nil {
-		tok, err = getTokenFromWeb(config)
+		tok, err = getTokenFromWeb(cfg)
 		if err != nil {
 			return nil, err
 		}
-		saveToken(tokFile, tok)
+		path2TokFileb := config.CgrConfig().LoaderCgrCfg().GapiToken
+		path2TokFile := string(path2TokFileb[1 : len(path2TokFileb)-1])
+		if err := os.MkdirAll(filepath.Dir(path2TokFile), os.FileMode(0777)); err != nil { // create the directory if not exists
+			return nil, err
+		}
+		saveToken(path2TokFile, tok)
+	} else if err = json.Unmarshal(raw, tok); err != nil {
+		return nil, err
 	}
-	return config.Client(context.Background(), tok), nil
+	return cfg.Client(context.Background(), tok), nil
 }
 
 // Request a token from the web, then returns the retrieved token.
@@ -639,18 +760,6 @@ func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	return tok, err
 }
 
-// Retrieves a token from a local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
-}
-
 // Saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) {
 	fmt.Printf("Saving credential file to: %s\n", path)
@@ -663,20 +772,35 @@ func saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-func newSheet(configPath string) (sht *sheets.Service, err error) { //*google_api
-	b, err := os.ReadFile(path.Join(configPath, utils.GoogleConfigDirName, utils.GoogleCredentialsFileName))
-	if err != nil {
+func getCfgJSONData(raw json.RawMessage) (data []byte, err error) {
+	if len(raw) == 0 {
+		return
+	}
+	if raw[0] == '{' && raw[len(raw)-1] == '}' {
+		data = raw
+		return
+	}
+	dataPath := string(raw[1 : len(raw)-1])
+	if !strings.HasSuffix(dataPath, utils.JSNSuffix) {
+		dataPath = path.Join(dataPath, utils.GoogleCredentialsFileName)
+	}
+	return os.ReadFile(dataPath)
+}
+
+func newSheet() (sht *sheets.Service, err error) { //*google_api
+	var cred []byte
+	var cfgPathDir string
+	if cred, err = getCfgJSONData(config.CgrConfig().LoaderCgrCfg().GapiCredentials); err != nil {
 		err = fmt.Errorf("Unable to read client secret file: %v", err)
 		return
 	}
-
 	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets.readonly")
+	config, err := google.ConfigFromJSON(cred, "https://www.googleapis.com/auth/spreadsheets.readonly")
 	if err != nil {
 		err = fmt.Errorf("Unable to parse client secret file to config: %v", err)
 		return
 	}
-	client, err := getClient(config, configPath)
+	client, err := getClient(config, cfgPathDir)
 	if err != nil {
 		return nil, err
 	}
@@ -687,21 +811,21 @@ func newSheet(configPath string) (sht *sheets.Service, err error) { //*google_ap
 	return
 }
 
-func getSpreatsheetTabs(spreadsheetId string, srv *sheets.Service) (sheetsName map[string]struct{}, err error) {
-	sheetsName = make(map[string]struct{})
-	sht, err := srv.Spreadsheets.Get(spreadsheetId).Do()
+func getSpreatsheetTabs(spreadsheetID string, srv *sheets.Service) (sheetsName utils.StringSet, err error) {
+	sheetsName = make(utils.StringSet)
+	sht, err := srv.Spreadsheets.Get(spreadsheetID).Do()
 	if err != nil {
 		err = fmt.Errorf("Unable get the information about spreadsheet because: %v", err)
 		return
 	}
 	for _, sheet := range sht.Sheets {
-		sheetsName[sheet.Properties.Title] = struct{}{}
+		sheetsName.Add(sheet.Properties.Title)
 	}
 	return
 }
 
 type csvGoogle struct {
-	spreadsheetId string
+	spreadsheetID string
 	srv           *sheets.Service
 	response      *sheets.ValueRange
 	indx          int
@@ -709,7 +833,7 @@ type csvGoogle struct {
 }
 
 func (c *csvGoogle) Open(data string, sep rune, nrFields int) (err error) {
-	c.response, err = c.srv.Spreadsheets.Values.Get(c.spreadsheetId, data).Do()
+	c.response, err = c.srv.Spreadsheets.Values.Get(c.spreadsheetID, data).Do()
 	if err != nil {
 		return
 	}
@@ -721,7 +845,7 @@ func (c *csvGoogle) Open(data string, sep rune, nrFields int) (err error) {
 	return
 }
 
-func (c *csvGoogle) getNextRow() (row []interface{}, err error) {
+func (c *csvGoogle) getNextRow() (row []any, err error) {
 	if len(c.response.Values) <= c.indx {
 		return nil, io.EOF
 	}
@@ -753,4 +877,44 @@ func (c *csvGoogle) Read() (record []string, err error) {
 }
 
 func (c *csvGoogle) Close() { // no need for close
+}
+
+type csvURL struct {
+	csvReader *csv.Reader
+	page      io.ReadCloser
+}
+
+func (c *csvURL) Open(fn string, sep rune, nrFields int) (err error) {
+	if _, err = url.ParseRequestURI(fn); err != nil {
+		return
+	}
+	var myClient = &http.Client{
+		Timeout: config.CgrConfig().GeneralCfg().ReplyTimeout,
+	}
+	var req *http.Response
+	req, err = myClient.Get(fn)
+	if err != nil {
+		return utils.ErrPathNotReachable(fn)
+	}
+	if req.StatusCode != http.StatusOK {
+		return utils.ErrNotFound
+	}
+	c.page = req.Body
+
+	c.csvReader = csv.NewReader(c.page)
+	c.csvReader.Comma = sep
+	c.csvReader.Comment = utils.CommentChar
+	c.csvReader.FieldsPerRecord = nrFields
+	c.csvReader.TrailingComma = true
+	return
+}
+
+func (c *csvURL) Read() (record []string, err error) {
+	return c.csvReader.Read()
+}
+
+func (c *csvURL) Close() {
+	if c.page != nil {
+		c.page.Close()
+	}
 }

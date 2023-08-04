@@ -29,7 +29,7 @@ func init() {
 	c := &CmdThresholdsForEvent{
 		name:      "thresholds_for_event",
 		rpcMethod: utils.ThresholdSv1GetThresholdsForEvent,
-		rpcParams: &engine.ArgsProcessEvent{},
+		rpcParams: &utils.CGREvent{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -38,7 +38,7 @@ func init() {
 type CmdThresholdsForEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *engine.ArgsProcessEvent
+	rpcParams *utils.CGREvent
 	*CommandExecuter
 }
 
@@ -50,9 +50,9 @@ func (self *CmdThresholdsForEvent) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdThresholdsForEvent) RpcParams(reset bool) interface{} {
+func (self *CmdThresholdsForEvent) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.ArgsProcessEvent{ArgDispatcher: new(utils.ArgDispatcher)}
+		self.rpcParams = new(utils.CGREvent)
 	}
 	return self.rpcParams
 }
@@ -61,7 +61,7 @@ func (self *CmdThresholdsForEvent) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdThresholdsForEvent) RpcResult() interface{} {
-	var s *engine.Thresholds
+func (self *CmdThresholdsForEvent) RpcResult() any {
+	var s engine.Thresholds
 	return &s
 }

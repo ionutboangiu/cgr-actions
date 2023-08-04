@@ -28,13 +28,13 @@ import (
 
 func (m *Migrator) migrateCurrentDestinations() (err error) {
 	var ids []string
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.DESTINATION_PREFIX)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.DestinationPrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		idg := strings.TrimPrefix(id, utils.DESTINATION_PREFIX)
-		dst, err := m.dmIN.DataManager().GetDestination(idg, true, utils.NonTransactional)
+		idg := strings.TrimPrefix(id, utils.DestinationPrefix)
+		dst, err := m.dmIN.DataManager().GetDestination(idg, false, true, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
@@ -44,7 +44,7 @@ func (m *Migrator) migrateCurrentDestinations() (err error) {
 		if err := m.dmOut.DataManager().SetDestination(dst, utils.NonTransactional); err != nil {
 			return err
 		}
-		m.stats[utils.Destinations] += 1
+		m.stats[utils.Destinations]++
 	}
 	return
 }
@@ -52,37 +52,56 @@ func (m *Migrator) migrateCurrentDestinations() (err error) {
 func (m *Migrator) migrateDestinations() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmIN.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.Destinations); err != nil {
+		return
 	}
-	switch vrs[utils.Destinations] {
-	case current[utils.Destinations]:
-		if m.sameDataDB {
-			return
+	migrated := true
+	for {
+		version := vrs[utils.Destinations]
+		for {
+			switch version {
+			default:
+				return fmt.Errorf("Unsupported version %v", version)
+			case current[utils.Destinations]:
+				migrated = false
+				if m.sameDataDB {
+					break
+				}
+				if err = m.migrateCurrentDestinations(); err != nil {
+					return
+				}
+			}
+			if version == current[utils.Destinations] || err == utils.ErrNoMoreData {
+				break
+			}
 		}
-		return m.migrateCurrentDestinations()
+		if err == utils.ErrNoMoreData || !migrated {
+			break
+		}
+
+		// if !m.dryRun  {
+		// 		if err = m.dmIN.DataManager().SetDestination(v2, true); err != nil {
+		// 	return
+		// }
+		// }
+		m.stats[utils.Destinations]++
+	}
+	// All done, update version wtih current one
+	if err = m.setVersions(utils.Destinations); err != nil {
+		return
 	}
 	return
 }
 
 func (m *Migrator) migrateCurrentReverseDestinations() (err error) {
 	var ids []string
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.REVERSE_DESTINATION_PREFIX)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ReverseDestinationPrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		id := strings.TrimPrefix(id, utils.REVERSE_DESTINATION_PREFIX)
-		rdst, err := m.dmIN.DataManager().GetReverseDestination(id, true, utils.NonTransactional)
+		id := strings.TrimPrefix(id, utils.ReverseDestinationPrefix)
+		rdst, err := m.dmIN.DataManager().GetReverseDestination(id, false, true, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
@@ -90,7 +109,7 @@ func (m *Migrator) migrateCurrentReverseDestinations() (err error) {
 			continue
 		}
 		for _, rdid := range rdst {
-			rdstn, err := m.dmIN.DataManager().GetDestination(rdid, true, utils.NonTransactional)
+			rdstn, err := m.dmIN.DataManager().GetDestination(rdid, false, true, utils.NonTransactional)
 			if err != nil {
 				return err
 			}
@@ -100,10 +119,10 @@ func (m *Migrator) migrateCurrentReverseDestinations() (err error) {
 			if err := m.dmOut.DataManager().SetDestination(rdstn, utils.NonTransactional); err != nil {
 				return err
 			}
-			if err := m.dmOut.DataManager().SetReverseDestination(rdstn, utils.NonTransactional); err != nil {
+			if err := m.dmOut.DataManager().SetReverseDestination(rdstn.Id, rdstn.Prefixes, utils.NonTransactional); err != nil {
 				return err
 			}
-			m.stats[utils.ReverseDestinations] += 1
+			m.stats[utils.ReverseDestinations]++
 		}
 	}
 	return
@@ -112,7 +131,7 @@ func (m *Migrator) migrateCurrentReverseDestinations() (err error) {
 func (m *Migrator) migrateReverseDestinations() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmOut.DataManager().DataDB().GetVersions("")
+	vrs, err = m.dmIN.DataManager().DataDB().GetVersions("")
 	if err != nil {
 		return utils.NewCGRError(utils.Migrator,
 			utils.ServerErrorCaps,

@@ -31,12 +31,14 @@ import (
 
 // NewDiameterAgent returns the Diameter Agent
 func NewDiameterAgent(cfg *config.CGRConfig, filterSChan chan *engine.FilterS,
-	exitChan chan bool, connMgr *engine.ConnManager) servmanager.Service {
+	shdChan *utils.SyncedChan, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &DiameterAgent{
 		cfg:         cfg,
 		filterSChan: filterSChan,
-		exitChan:    exitChan,
+		shdChan:     shdChan,
 		connMgr:     connMgr,
+		srvDep:      srvDep,
 	}
 }
 
@@ -45,10 +47,16 @@ type DiameterAgent struct {
 	sync.RWMutex
 	cfg         *config.CGRConfig
 	filterSChan chan *engine.FilterS
-	exitChan    chan bool
+	shdChan     *utils.SyncedChan
+	stopChan    chan struct{}
 
 	da      *agents.DiameterAgent
 	connMgr *engine.ConnManager
+
+	lnet  string
+	laddr string
+
+	srvDep map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -62,31 +70,49 @@ func (da *DiameterAgent) Start() (err error) {
 
 	da.Lock()
 	defer da.Unlock()
+	return da.start(filterS)
+}
 
+func (da *DiameterAgent) start(filterS *engine.FilterS) (err error) {
 	da.da, err = agents.NewDiameterAgent(da.cfg, filterS, da.connMgr)
 	if err != nil {
 		utils.Logger.Err(fmt.Sprintf("<%s> error: %s!",
 			utils.DiameterAgent, err))
 		return
 	}
-
-	go func() {
-		if err = da.da.ListenAndServe(); err != nil {
+	da.lnet = da.cfg.DiameterAgentCfg().ListenNet
+	da.laddr = da.cfg.DiameterAgentCfg().Listen
+	da.stopChan = make(chan struct{})
+	go func(d *agents.DiameterAgent) {
+		if err = d.ListenAndServe(da.stopChan); err != nil {
 			utils.Logger.Err(fmt.Sprintf("<%s> error: %s!",
 				utils.DiameterAgent, err))
+			da.shdChan.CloseOnce()
 		}
-		da.exitChan <- true
-	}()
+	}(da.da)
 	return
 }
 
 // Reload handles the change of config
 func (da *DiameterAgent) Reload() (err error) {
-	return
+	da.Lock()
+	defer da.Unlock()
+	if da.lnet == da.cfg.DiameterAgentCfg().ListenNet &&
+		da.laddr == da.cfg.DiameterAgentCfg().Listen {
+		return
+	}
+	close(da.stopChan)
+	filterS := <-da.filterSChan
+	da.filterSChan <- filterS
+	return da.start(filterS)
 }
 
 // Shutdown stops the service
 func (da *DiameterAgent) Shutdown() (err error) {
+	da.Lock()
+	close(da.stopChan)
+	da.da = nil
+	da.Unlock()
 	return // no shutdown for the momment
 }
 

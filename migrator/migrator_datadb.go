@@ -28,14 +28,19 @@ type MigratorDataDB interface {
 	remV1Account(id string) (err error)
 	getV1ActionPlans() (v1aps *v1ActionPlans, err error)
 	setV1ActionPlans(x *v1ActionPlans) (err error)
+	remV1ActionPlans(x *v1ActionPlans) (err error)
 	getV1Actions() (v1acs *v1Actions, err error)
 	setV1Actions(x *v1Actions) (err error)
+	remV1Actions(x v1Actions) (err error)
 	getV1ActionTriggers() (v1acts *v1ActionTriggers, err error)
 	setV1ActionTriggers(x *v1ActionTriggers) (err error)
+	remV1ActionTriggers(x *v1ActionTriggers) (err error)
 	getV1SharedGroup() (v1acts *v1SharedGroup, err error)
 	setV1SharedGroup(x *v1SharedGroup) (err error)
 	getV1Stats() (v1st *v1Stat, err error)
 	setV1Stats(x *v1Stat) (err error)
+	getV2Stats() (v2 *engine.StatQueue, err error)
+	setV2Stats(v2 *engine.StatQueue) (err error)
 	getV2ActionTrigger() (v2at *v2ActionTrigger, err error)
 	setV2ActionTrigger(x *v2ActionTrigger) (err error)
 	getv2Account() (v2Acnt *v2Account, err error)
@@ -65,10 +70,23 @@ type MigratorDataDB interface {
 	getV4AttributeProfile() (v4attrPrf *v4AttributeProfile, err error)
 	setV4AttributeProfile(x *v4AttributeProfile) (err error)
 	remV4AttributeProfile(tenant, id string) (err error)
+	getV5AttributeProfile() (v5attrPrf *engine.AttributeProfile, err error)
 
 	getV1Filter() (v1Fltr *v1Filter, err error)
 	setV1Filter(x *v1Filter) (err error)
 	remV1Filter(tenant, id string) (err error)
+	getV4Filter() (v1Fltr *engine.Filter, err error)
+
+	getSupplier() (spl *SupplierProfile, err error)
+	setSupplier(spl *SupplierProfile) (err error)
+	remSupplier(tenant, id string) (err error)
+
+	getV1ChargerProfile() (v1chrPrf *engine.ChargerProfile, err error)
+	getV1DispatcherProfile() (v1chrPrf *engine.DispatcherProfile, err error)
+	getV1RouteProfile() (v1chrPrf *engine.RouteProfile, err error)
+
+	getV3Stats() (v1st *engine.StatQueueProfile, err error)
+	getV3ThresholdProfile() (v2T *engine.ThresholdProfile, err error)
 
 	DataManager() *engine.DataManager
 	close()

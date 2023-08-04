@@ -41,12 +41,12 @@ type v1Actions []*v1Action
 
 func (m *Migrator) migrateCurrentActions() (err error) {
 	var ids []string
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ACTION_PREFIX)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ActionPrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		idg := strings.TrimPrefix(id, utils.ACTION_PREFIX)
+		idg := strings.TrimPrefix(id, utils.ActionPrefix)
 		acts, err := m.dmIN.DataManager().GetActions(idg, true, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -54,80 +54,85 @@ func (m *Migrator) migrateCurrentActions() (err error) {
 		if acts == nil || m.dryRun {
 			continue
 		}
-		if err := m.dmOut.DataManager().SetActions(idg, acts, utils.NonTransactional); err != nil {
+		if err := m.dmOut.DataManager().SetActions(idg, acts); err != nil {
 			return err
 		}
-		m.stats[utils.Actions] += 1
+		m.stats[utils.Actions]++
 	}
 	return
 }
 
-func (m *Migrator) migrateV1Actions() (err error) {
+func (m *Migrator) migrateV1Actions() (acts engine.Actions, err error) {
 	var v1ACs *v1Actions
-	var acts engine.Actions
-	for {
-		v1ACs, err = m.dmIN.getV1Actions()
-		if err != nil && err != utils.ErrNoMoreData {
-			return err
-		}
-		if err == utils.ErrNoMoreData {
-			break
-		}
-		if *v1ACs == nil || m.dryRun {
-			continue
-		}
-		for _, v1ac := range *v1ACs {
-			act := v1ac.AsAction()
-			acts = append(acts, act)
 
-		}
-		if err := m.dmOut.DataManager().SetActions(acts[0].Id, acts, utils.NonTransactional); err != nil {
-			return err
-		}
-		m.stats[utils.Actions] += 1
+	if v1ACs, err = m.dmIN.getV1Actions(); err != nil {
+		return nil, err
 	}
-	if m.dryRun {
+	if *v1ACs == nil {
 		return
 	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.Actions: engine.CurrentStorDBVersions()[utils.Actions]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating Actions version into dataDB", err.Error()))
+	for _, v1ac := range *v1ACs {
+		act := v1ac.AsAction()
+		acts = append(acts, act)
+
 	}
+
 	return
 }
 
 func (m *Migrator) migrateActions() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmIN.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.Actions); err != nil {
+		return
 	}
-	switch vrs[utils.Actions] {
-	case current[utils.Actions]:
-		if m.sameDataDB {
+	migrated := true
+	var acts engine.Actions
+	for {
+		version := vrs[utils.Actions]
+		for {
+			switch version {
+			default:
+				return fmt.Errorf("Unsupported version %v", version)
+			case current[utils.Actions]:
+				migrated = false
+				if m.sameDataDB {
+					break
+				}
+				if err = m.migrateCurrentActions(); err != nil {
+					return
+				}
+			case 1:
+				if acts, err = m.migrateV1Actions(); err != nil && err != utils.ErrNoMoreData {
+					return
+				}
+				version = 2
+			}
+			if version == current[utils.Actions] || err == utils.ErrNoMoreData {
+				break
+			}
+		}
+		if err == utils.ErrNoMoreData || !migrated {
 			break
 		}
-		if err = m.migrateCurrentActions(); err != nil {
-			return err
+		if !m.dryRun {
+			if err = m.dmOut.DataManager().SetActions(acts[0].Id, acts); err != nil {
+				return
+			}
 		}
-	case 1:
-		if err = m.migrateV1Actions(); err != nil {
-			return err
-		}
+		m.stats[utils.Actions]++
 	}
+
+	if m.dryRun || !migrated {
+		return nil
+	}
+	// remove old actions
+
+	// All done, update version wtih current one
+	if err = m.setVersions(utils.Actions); err != nil {
+		return
+	}
+
 	return m.ensureIndexesDataDB(engine.ColAct)
 }
 
@@ -171,7 +176,7 @@ func (v1Act v1Action) AsAction() (act *engine.Action) {
 	if v1Act.Balance.Weight != 0 {
 		bf.Weight = utils.Float64Pointer(v1Act.Balance.Weight)
 	}
-	if v1Act.Balance.Disabled != false {
+	if v1Act.Balance.Disabled {
 		bf.Disabled = utils.BoolPointer(v1Act.Balance.Disabled)
 	}
 	if !v1Act.Balance.ExpirationDate.IsZero() {

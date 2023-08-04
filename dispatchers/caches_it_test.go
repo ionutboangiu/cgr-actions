@@ -34,7 +34,6 @@ import (
 
 var sTestsDspChc = []func(t *testing.T){
 	testDspChcPing,
-	testDspChcPingEmptyCGREventWIthArgDispatcher,
 	testDspChcLoadAfterFolder,
 	testDspChcPrecacheStatus,
 	testDspChcGetItemIDs,
@@ -43,7 +42,6 @@ var sTestsDspChc = []func(t *testing.T){
 	testDspChcReloadCache,
 	testDspChcRemoveItem,
 	testDspChcClear,
-	testDspChcFlush,
 }
 
 // Test start here
@@ -83,12 +81,12 @@ func testDspChcPing(t *testing.T) {
 	if dispEngine.RPC == nil {
 		t.Fatal(dispEngine.RPC)
 	}
-	if err := dispEngine.RPC.Call(utils.CacheSv1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+	if err := dispEngine.RPC.Call(utils.CacheSv1Ping, &utils.CGREvent{
+
+		Tenant: "cgrates.org",
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
 	}, &reply); err != nil {
 		t.Error(err)
@@ -97,29 +95,18 @@ func testDspChcPing(t *testing.T) {
 	}
 }
 
-func testDspChcPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	var reply string
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	if err := dispEngine.RPC.Call(utils.CacheSv1Ping,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
-	}
-}
-
 func testDspChcLoadAfterFolder(t *testing.T) {
 	var rcvStats map[string]*ltcache.CacheStats
 	expStats := engine.GetDefaultEmptyCacheStats()
 	expStats[utils.CacheActions].Items = 1
 	expStats[utils.CacheDestinations].Items = 4
-	expStats[utils.CacheLoadIDs].Items = 17
+	expStats[utils.CacheLoadIDs].Items = 18
 	expStats[utils.CacheRPCConnections].Items = 2
-	args := utils.AttrCacheIDsWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+	args := utils.AttrCacheIDsWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 	if err := dispEngine.RPC.Call(utils.CacheSv1GetCacheStats, args, &rcvStats); err != nil {
 		t.Error(err)
@@ -128,36 +115,47 @@ func testDspChcLoadAfterFolder(t *testing.T) {
 	}
 	reply := ""
 	// Simple test that command is executed without errors
-	if err := dispEngine.RPC.Call(utils.CacheSv1LoadCache, utils.AttrReloadCacheWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
-		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-	}, &reply); err != nil {
+	argsR := utils.NewAttrReloadCacheWithOpts()
+	argsR.APIOpts = map[string]any{
+		utils.OptsAPIKey: "chc12345",
+	}
+	argsR.Tenant = "cgrates.org"
+	if err := dispEngine.RPC.Call(utils.CacheSv1LoadCache, argsR, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Error(reply)
 	}
-	expStats[utils.CacheAccountActionPlans].Items = 3
-	expStats[utils.CacheActionPlans].Items = 1
 	expStats[utils.CacheActionPlans].Items = 1
 	expStats[utils.CacheActions].Items = 2
-	expStats[utils.CacheAttributeProfiles].Items = 10
+	expStats[utils.CacheAttributeProfiles].Items = 11
 	expStats[utils.CacheChargerProfiles].Items = 2
 	expStats[utils.CacheFilters].Items = 7
-	expStats[utils.CacheRatingPlans].Items = 5
-	expStats[utils.CacheRatingProfiles].Items = 4
+	expStats[utils.CacheRatingPlans].Items = 6
+	expStats[utils.CacheRatingProfiles].Items = 7
 	expStats[utils.CacheResourceProfiles].Items = 1
 	expStats[utils.CacheResources].Items = 1
 	expStats[utils.CacheReverseDestinations].Items = 4
 	expStats[utils.CacheStatQueueProfiles].Items = 2
 	expStats[utils.CacheStatQueues].Items = 2
-	expStats[utils.CacheSupplierProfiles].Items = 3
+	expStats[utils.CacheRouteProfiles].Items = 3
 	expStats[utils.CacheThresholdProfiles].Items = 2
 	expStats[utils.CacheThresholds].Items = 2
-	expStats[utils.CacheLoadIDs].Items = 20
+	expStats[utils.CacheLoadIDs].Items = 30
+	expStats[utils.CacheTimings].Items = 10
+	expStats[utils.CacheThresholdFilterIndexes].Items = 2
+	expStats[utils.CacheThresholdFilterIndexes].Groups = 1
+	expStats[utils.CacheStatFilterIndexes].Items = 7
+	expStats[utils.CacheStatFilterIndexes].Groups = 1
+	expStats[utils.CacheRouteFilterIndexes].Items = 3
+	expStats[utils.CacheRouteFilterIndexes].Groups = 1
+	expStats[utils.CacheResourceFilterIndexes].Items = 3
+	expStats[utils.CacheResourceFilterIndexes].Groups = 1
+	expStats[utils.CacheChargerFilterIndexes].Items = 1
+	expStats[utils.CacheChargerFilterIndexes].Groups = 1
+	expStats[utils.CacheAttributeFilterIndexes].Items = 11
+	expStats[utils.CacheAttributeFilterIndexes].Groups = 4
+	expStats[utils.CacheReverseFilterIndexes].Items = 8
+	expStats[utils.CacheReverseFilterIndexes].Groups = 6
 	if err := dispEngine.RPC.Call(utils.CacheSv1GetCacheStats, &args, &rcvStats); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expStats, rcvStats) {
@@ -185,7 +183,7 @@ func testDspChcPrecacheStatus(t *testing.T) {
 		utils.CacheThresholdProfiles:       utils.MetaReady,
 		utils.CacheThresholds:              utils.MetaReady,
 		utils.CacheFilters:                 utils.MetaReady,
-		utils.CacheSupplierProfiles:        utils.MetaReady,
+		utils.CacheRouteProfiles:           utils.MetaReady,
 		utils.CacheAttributeProfiles:       utils.MetaReady,
 		utils.CacheChargerProfiles:         utils.MetaReady,
 		utils.CacheDispatcherProfiles:      utils.MetaReady,
@@ -195,7 +193,7 @@ func testDspChcPrecacheStatus(t *testing.T) {
 		utils.CacheResourceFilterIndexes:   utils.MetaReady,
 		utils.CacheStatFilterIndexes:       utils.MetaReady,
 		utils.CacheThresholdFilterIndexes:  utils.MetaReady,
-		utils.CacheSupplierFilterIndexes:   utils.MetaReady,
+		utils.CacheRouteFilterIndexes:      utils.MetaReady,
 		utils.CacheChargerFilterIndexes:    utils.MetaReady,
 		utils.CacheDispatcherFilterIndexes: utils.MetaReady,
 		utils.CacheLoadIDs:                 utils.MetaReady,
@@ -206,16 +204,24 @@ func testDspChcPrecacheStatus(t *testing.T) {
 		utils.CacheRPCConnections:          utils.MetaReady,
 		utils.CacheRPCResponses:            utils.MetaReady,
 		utils.CacheRatingProfilesTmp:       utils.MetaReady,
+		utils.CacheUCH:                     utils.MetaReady,
+		utils.CacheSTIR:                    utils.MetaReady,
+		utils.CacheDispatcherLoads:         utils.MetaReady,
+		utils.CacheDispatchers:             utils.MetaReady,
+		utils.CacheEventCharges:            utils.MetaReady,
 		utils.CacheReverseFilterIndexes:    utils.MetaReady,
+		utils.CacheCapsEvents:              utils.MetaReady,
+
+		utils.MetaAPIBan: utils.MetaReady,
+
+		utils.CacheReplicationHosts: utils.MetaReady,
 	}
 
-	if err := dispEngine.RPC.Call(utils.CacheSv1PrecacheStatus, utils.AttrCacheIDsWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+	if err := dispEngine.RPC.Call(utils.CacheSv1PrecacheStatus, utils.AttrCacheIDsWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}, &reply); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expected, reply) {
@@ -226,16 +232,14 @@ func testDspChcPrecacheStatus(t *testing.T) {
 func testDspChcGetItemIDs(t *testing.T) {
 	var rcvKeys []string
 	expKeys := []string{"cgrates.org:DEFAULT", "cgrates.org:Raw"}
-	argsAPI := utils.ArgsGetCacheItemIDsWithArgDispatcher{
+	argsAPI := utils.ArgsGetCacheItemIDsWithAPIOpts{
 		ArgsGetCacheItemIDs: utils.ArgsGetCacheItemIDs{
 			CacheID: utils.CacheChargerProfiles,
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 	if err := dispEngine.RPC.Call(utils.CacheSv1GetItemIDs, argsAPI, &rcvKeys); err != nil {
 		t.Fatalf("Got error on APIerSv1.GetCacheStats: %s ", err.Error())
@@ -249,17 +253,15 @@ func testDspChcGetItemIDs(t *testing.T) {
 func testDspChcHasItem(t *testing.T) {
 	var reply bool
 	expected := true
-	argsAPI := utils.ArgsGetCacheItemWithArgDispatcher{
+	argsAPI := utils.ArgsGetCacheItemWithAPIOpts{
 		ArgsGetCacheItem: utils.ArgsGetCacheItem{
 			CacheID: utils.CacheChargerProfiles,
 			ItemID:  "cgrates.org:DEFAULT",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 	if err := dispEngine.RPC.Call(utils.CacheSv1HasItem, argsAPI, &reply); err != nil {
 		t.Error(err)
@@ -271,17 +273,15 @@ func testDspChcHasItem(t *testing.T) {
 func testDspChcGetItemExpiryTime(t *testing.T) {
 	var reply time.Time
 	var expected time.Time
-	argsAPI := utils.ArgsGetCacheItemWithArgDispatcher{
+	argsAPI := utils.ArgsGetCacheItemWithAPIOpts{
 		ArgsGetCacheItem: utils.ArgsGetCacheItem{
 			CacheID: utils.CacheChargerProfiles,
 			ItemID:  "cgrates.org:DEFAULT",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 	if err := dispEngine.RPC.Call(utils.CacheSv1GetItemExpiryTime, argsAPI, &reply); err != nil {
 		t.Error(err)
@@ -292,13 +292,11 @@ func testDspChcGetItemExpiryTime(t *testing.T) {
 
 func testDspChcReloadCache(t *testing.T) {
 	reply := ""
-	if err := dispEngine.RPC.Call(utils.CacheSv1ReloadCache, utils.AttrReloadCacheWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+	if err := dispEngine.RPC.Call(utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}, &reply); err != nil {
 		t.Error("Got error on CacheSv1.ReloadCache: ", err.Error())
 	} else if reply != utils.OK {
@@ -308,17 +306,15 @@ func testDspChcReloadCache(t *testing.T) {
 
 func testDspChcRemoveItem(t *testing.T) {
 	var reply bool
-	argsAPI := utils.ArgsGetCacheItemWithArgDispatcher{
+	argsAPI := utils.ArgsGetCacheItemWithAPIOpts{
 		ArgsGetCacheItem: utils.ArgsGetCacheItem{
 			CacheID: utils.CacheChargerProfiles,
 			ItemID:  "cgrates.org:DEFAULT",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 	if err := dispEngine.RPC.Call(utils.CacheSv1HasItem, argsAPI, &reply); err != nil {
 		t.Error(err)
@@ -340,13 +336,11 @@ func testDspChcRemoveItem(t *testing.T) {
 
 func testDspChcClear(t *testing.T) {
 	reply := ""
-	if err := dispEngine.RPC.Call(utils.CacheSv1Clear, utils.AttrCacheIDsWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+	if err := dispEngine.RPC.Call(utils.CacheSv1Clear, utils.AttrCacheIDsWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
@@ -354,46 +348,11 @@ func testDspChcClear(t *testing.T) {
 	}
 	var rcvStats map[string]*ltcache.CacheStats
 	expStats := engine.GetDefaultEmptyCacheStats()
-	if err := dispEngine.RPC.Call(utils.CacheSv1GetCacheStats, utils.AttrCacheIDsWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
+	if err := dispEngine.RPC.Call(utils.CacheSv1GetCacheStats, utils.AttrCacheIDsWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chc12345",
 		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-	}, &rcvStats); err != nil {
-		t.Error("Got error on CacheSv1.GetCacheStats: ", err.Error())
-	} else if !reflect.DeepEqual(expStats, rcvStats) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(expStats), utils.ToJSON(rcvStats))
-	}
-}
-
-func testDspChcFlush(t *testing.T) {
-	reply := ""
-	if err := dispEngine.RPC.Call(utils.CacheSv1FlushCache, utils.AttrReloadCacheWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
-		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		AttrReloadCache: utils.AttrReloadCache{
-			FlushAll: true,
-		},
-	}, &reply); err != nil {
-		t.Error("Got error on CacheSv1.ReloadCache: ", err.Error())
-	} else if reply != utils.OK {
-		t.Error("Calling CacheSv1.ReloadCache got reply: ", reply)
-	}
-	var rcvStats map[string]*ltcache.CacheStats
-	expStats := engine.GetDefaultEmptyCacheStats()
-	if err := dispEngine.RPC.Call(utils.CacheSv1GetCacheStats, utils.AttrCacheIDsWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chc12345"),
-		},
-		TenantArg: utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}, &rcvStats); err != nil {
 		t.Error("Got error on CacheSv1.GetCacheStats: ", err.Error())
 	} else if !reflect.DeepEqual(expStats, rcvStats) {

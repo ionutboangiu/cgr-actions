@@ -37,7 +37,6 @@ var (
 	tpTimingCfgPath   string
 	tpTimingCfg       *config.CGRConfig
 	tpTimingRPC       *rpc.Client
-	tpTimingDataDir   = "/usr/share/cgrates"
 	tpTiming          *utils.ApierTPTiming
 	tpTimingDelay     int
 	tpTimingConfigDIR string //run tests for specific configuration
@@ -80,13 +79,11 @@ func TestTPTimingIT(t *testing.T) {
 
 func testTPTimingsInitCfg(t *testing.T) {
 	var err error
-	tpTimingCfgPath = path.Join(tpTimingDataDir, "conf", "samples", tpTimingConfigDIR)
+	tpTimingCfgPath = path.Join(*dataDir, "conf", "samples", tpTimingConfigDIR)
 	tpTimingCfg, err = config.NewCGRConfigFromPath(tpTimingCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpTimingCfg.DataFolderPath = tpTimingDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpTimingCfg)
 	switch tpTimingConfigDIR {
 	case "tutmongo": // Mongo needs more time to reset db
 		tpTimingDelay = 2000
@@ -120,7 +117,7 @@ func testTPTimingsRpcConn(t *testing.T) {
 
 func testTPTimingsGetTPTimingBeforeSet(t *testing.T) {
 	var reply *utils.ApierTPTiming
-	if err := tpTimingRPC.Call(utils.APIerSv1GetTPTiming, AttrGetTPTiming{TPid: "TPT1", ID: "Timining"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+	if err := tpTimingRPC.Call(utils.APIerSv1GetTPTiming, &AttrGetTPTiming{TPid: "TPT1", ID: "Timining"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 }
@@ -136,7 +133,7 @@ func testTPTimingsSetTPTiming(t *testing.T) {
 		Time:      "15:00:00Z",
 	}
 	var result string
-	if err := tpTimingRPC.Call(utils.APIerSv1SetTPTiming, tpTiming, &result); err != nil {
+	if err := tpTimingRPC.Call(utils.APIerSv1SetTPTiming, &tpTiming, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
@@ -165,7 +162,7 @@ func testTPTimingsGetTPTimingIds(t *testing.T) {
 func testTPTimingsUpdateTPTiming(t *testing.T) {
 	var result string
 	tpTiming.Years = "2015"
-	if err := tpTimingRPC.Call(utils.APIerSv1SetTPTiming, tpTiming, &result); err != nil {
+	if err := tpTimingRPC.Call(utils.APIerSv1SetTPTiming, &tpTiming, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
@@ -192,7 +189,7 @@ func testTPTimingsRemoveTPTiming(t *testing.T) {
 
 func testTPTimingsGetTPTimingAfterRemove(t *testing.T) {
 	var reply *utils.ApierTPTiming
-	if err := tpTimingRPC.Call(utils.APIerSv1GetTPTiming, AttrGetTPTiming{TPid: "TPT1", ID: "Timining"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+	if err := tpTimingRPC.Call(utils.APIerSv1GetTPTiming, &AttrGetTPTiming{TPid: "TPT1", ID: "Timining"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 }

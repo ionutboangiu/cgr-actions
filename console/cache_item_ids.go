@@ -26,7 +26,7 @@ func init() {
 	c := &CmdCacheGetItemIDs{
 		name:      "cache_item_ids",
 		rpcMethod: utils.CacheSv1GetItemIDs,
-		rpcParams: &utils.ArgsGetCacheItemIDsWithArgDispatcher{},
+		rpcParams: &utils.ArgsGetCacheItemIDsWithAPIOpts{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +36,7 @@ func init() {
 type CmdCacheGetItemIDs struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.ArgsGetCacheItemIDsWithArgDispatcher
+	rpcParams *utils.ArgsGetCacheItemIDsWithAPIOpts
 	*CommandExecuter
 }
 
@@ -48,9 +48,9 @@ func (self *CmdCacheGetItemIDs) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdCacheGetItemIDs) RpcParams(reset bool) interface{} {
+func (self *CmdCacheGetItemIDs) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.ArgsGetCacheItemIDsWithArgDispatcher{}
+		self.rpcParams = &utils.ArgsGetCacheItemIDsWithAPIOpts{}
 	}
 	return self.rpcParams
 }
@@ -59,7 +59,7 @@ func (self *CmdCacheGetItemIDs) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdCacheGetItemIDs) RpcResult() interface{} {
+func (self *CmdCacheGetItemIDs) RpcResult() any {
 	var reply []string
 	return &reply
 }

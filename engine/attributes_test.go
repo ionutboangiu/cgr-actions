@@ -15,2205 +15,1561 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
+
 package engine
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
-var (
-	expTimeAttributes = time.Now().Add(time.Duration(20 * time.Minute))
-	attrService       *AttributeService
-	dmAtr             *DataManager
-	attrEvs           = []*AttrArgsProcessEvent{
-		{
-			Context: utils.StringPointer(utils.MetaSessionS),
-			CGREvent: &utils.CGREvent{ //matching AttributeProfile1
-				Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-				ID:     utils.GenUUID(),
-				Event: map[string]interface{}{
-					"Attribute":      "AttributeProfile1",
-					utils.AnswerTime: time.Date(2014, 7, 14, 14, 30, 0, 0, time.UTC),
-					"UsageInterval":  "1s",
-					utils.Weight:     "20.0",
-				},
-			},
-		},
-		{
-			Context: utils.StringPointer(utils.MetaSessionS),
-			CGREvent: &utils.CGREvent{ //matching AttributeProfile2
-				Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-				ID:     utils.GenUUID(),
-				Event: map[string]interface{}{
-					"Attribute": "AttributeProfile2",
-				},
-			},
-		},
-		{
-			Context: utils.StringPointer(utils.MetaSessionS),
-			CGREvent: &utils.CGREvent{ //matching AttributeProfilePrefix
-				Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-				ID:     utils.GenUUID(),
-				Event: map[string]interface{}{
-					"Attribute": "AttributeProfilePrefix",
-				},
-			},
-		},
-		{
-			Context: utils.StringPointer(utils.MetaSessionS),
-			CGREvent: &utils.CGREvent{ //matching AttributeProfilePrefix
-				Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-				ID:     utils.GenUUID(),
-				Event: map[string]interface{}{
-					"DistinctMatch": 20,
-				},
-			},
-		},
-	}
-	atrPs = AttributeProfiles{
-		&AttributeProfile{
-			Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:        "AttributeProfile1",
-			Contexts:  []string{utils.MetaSessionS},
-			FilterIDs: []string{"FLTR_ATTR_1"},
-			ActivationInterval: &utils.ActivationInterval{
-				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				ExpiryTime:     expTimeAttributes,
-			},
-			Attributes: []*Attribute{
-				{
-					Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-					Value: config.NewRSRParsersMustCompile("1010", true, utils.INFIELD_SEP),
-				},
-			},
-			Weight: 20,
-		},
-		&AttributeProfile{
-			Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:        "AttributeProfile2",
-			Contexts:  []string{utils.MetaSessionS},
-			FilterIDs: []string{"FLTR_ATTR_2"},
-			ActivationInterval: &utils.ActivationInterval{
-				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				ExpiryTime:     expTimeAttributes,
-			},
-			Attributes: []*Attribute{
-				{
-					Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-					Value: config.NewRSRParsersMustCompile("1010", true, utils.INFIELD_SEP),
-				},
-			},
-			Weight: 20,
-		},
-		&AttributeProfile{
-			Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:        "AttributeProfilePrefix",
-			Contexts:  []string{utils.MetaSessionS},
-			FilterIDs: []string{"FLTR_ATTR_3"},
-			ActivationInterval: &utils.ActivationInterval{
-				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				ExpiryTime:     expTimeAttributes,
-			},
-			Attributes: []*Attribute{
-				{
-					Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-					Value: config.NewRSRParsersMustCompile("1010", true, utils.INFIELD_SEP),
-				},
-			},
-			Weight: 20,
-		},
-		&AttributeProfile{
-			Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:        "AttributeIDMatch",
-			Contexts:  []string{utils.MetaSessionS},
-			FilterIDs: []string{"*gte:~*req.DistinctMatch:20"},
-			ActivationInterval: &utils.ActivationInterval{
-				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				ExpiryTime:     expTimeAttributes,
-			},
-			Attributes: []*Attribute{
-				{
-					Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-					Value: config.NewRSRParsersMustCompile("1010", true, utils.INFIELD_SEP),
-				},
-			},
-			Weight: 20,
-		},
-	}
-)
+func TestAttributesShutdown(t *testing.T) {
+	alS := &AttributeService{}
 
-func TestAttributePopulateAttrService(t *testing.T) {
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	defaultCfg.AttributeSCfg().ProcessRuns = 1
-	defaultCfg.AttributeSCfg().StringIndexedFields = nil
-	defaultCfg.AttributeSCfg().PrefixIndexedFields = nil
-	defaultCfg.AttributeSCfg().PrefixIndexedFields = nil
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, &FilterS{dm: dmAtr, cfg: defaultCfg}, defaultCfg)
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-}
+	utils.Logger.SetLogLevel(6)
+	utils.Logger.SetSyslog(nil)
 
-func TestAttributeAddFilters(t *testing.T) {
-	fltrAttr1 := &Filter{
-		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:     "FLTR_ATTR_1",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Attribute",
-				Values:  []string{"AttributeProfile1"},
-			},
-			{
-				Type:    utils.MetaGreaterOrEqual,
-				Element: "~*req.UsageInterval",
-				Values:  []string{(1 * time.Second).String()},
-			},
-			{
-				Type:    utils.MetaGreaterOrEqual,
-				Element: "~*req." + utils.Weight,
-				Values:  []string{"9.0"},
-			},
-		},
-	}
-	dmAtr.SetFilter(fltrAttr1)
-	fltrAttr2 := &Filter{
-		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:     "FLTR_ATTR_2",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaString,
-				Element: "~*req.Attribute",
-				Values:  []string{"AttributeProfile2"},
-			},
-		},
-	}
-	dmAtr.SetFilter(fltrAttr2)
-	fltrAttrPrefix := &Filter{
-		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:     "FLTR_ATTR_3",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaPrefix,
-				Element: "~*req.Attribute",
-				Values:  []string{"AttributeProfilePrefix"},
-			},
-		},
-	}
-	dmAtr.SetFilter(fltrAttrPrefix)
-	fltrAttr4 := &Filter{
-		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:     "FLTR_ATTR_4",
-		Rules: []*FilterRule{
-			{
-				Type:    utils.MetaGreaterOrEqual,
-				Element: "~*req." + utils.Weight,
-				Values:  []string{"200.00"},
-			},
-		},
-	}
-	dmAtr.SetFilter(fltrAttr4)
-}
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer func() {
+		log.SetOutput(os.Stderr)
+	}()
 
-func TestAttributeCache(t *testing.T) {
-	for _, atr := range atrPs {
-		if err = dmAtr.SetAttributeProfile(atr, true); err != nil {
-			t.Errorf("Error: %+v", err)
+	exp := []string{
+		"CGRateS <> [INFO] <AttributeS> shutdown initialized",
+		"CGRateS <> [INFO] <AttributeS> shutdown complete",
+	}
+	alS.Shutdown()
+	rcv := strings.Split(buf.String(), "\n")
+
+	for i := 0; i < 2; i++ {
+		rcv[i] = rcv[i][20:]
+		if rcv[i] != exp[i] {
+			t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp[i], rcv[i])
 		}
 	}
-	//verify each attribute from cache
-	for _, atr := range atrPs {
-		if tempAttr, err := dmAtr.GetAttributeProfile(atr.Tenant, atr.ID,
-			true, false, utils.NonTransactional); err != nil {
-			t.Errorf("Error: %+v", err)
-		} else if !reflect.DeepEqual(atr, tempAttr) {
-			t.Errorf("Expecting: %+v, received: %+v", atr, tempAttr)
-		}
+
+	utils.Logger.SetLogLevel(0)
+}
+
+func TestAttributesV1GetAttributeForEventNilCGREvent(t *testing.T) {
+	alS := &AttributeService{}
+	reply := &AttributeProfile{}
+
+	experr := fmt.Sprintf("MANDATORY_IE_MISSING: [%s]", "CGREvent")
+	err := alS.V1GetAttributeForEvent(nil, reply)
+
+	if err == nil || err.Error() != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
 	}
 }
 
-func TestAttributeProfileForEvent(t *testing.T) {
-	atrp, err := attrService.attributeProfileForEvent(attrEvs[0])
-	if err != nil {
-		t.Errorf("Error: %+v", err)
+func TestAttributesV1GetAttributeForEventProfileNotFound(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, nil, nil)
+	alS := &AttributeService{
+		dm:      dm,
+		filterS: &FilterS{},
+		cgrcfg:  cfg,
 	}
-	if !reflect.DeepEqual(atrPs[0], atrp) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(atrPs[0]), utils.ToJSON(atrp))
-	}
+	args := &utils.CGREvent{}
+	reply := &AttributeProfile{}
 
-	atrp, err = attrService.attributeProfileForEvent(attrEvs[1])
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(atrPs[1], atrp) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(atrPs[1]), utils.ToJSON(atrp))
-	}
+	experr := utils.ErrNotFound
+	err := alS.V1GetAttributeForEvent(args, reply)
 
-	atrp, err = attrService.attributeProfileForEvent(attrEvs[2])
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(atrPs[2], atrp) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(atrPs[2]), utils.ToJSON(atrp))
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
 	}
 }
 
-func TestAttributeProcessEvent(t *testing.T) {
-	attrEvs[0].CGREvent.Event["Account"] = "1010" //Field added in event after process
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"AttributeProfile1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Account"},
-		CGREvent:        attrEvs[0].CGREvent,
+func TestAttributesV1GetAttributeForEvent2(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, nil, nil)
+	alS := &AttributeService{
+		dm:      dm,
+		filterS: &FilterS{},
+		cgrcfg:  cfg,
 	}
-	atrp, err := attrService.processEvent(attrEvs[0])
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply, atrp) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRply), utils.ToJSON(atrp))
+	args := &utils.CGREvent{}
+	reply := &AttributeProfile{}
+
+	experr := utils.ErrNotFound
+	err := alS.V1GetAttributeForEvent(args, reply)
+
+	if err == nil || err != experr {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
 	}
 }
 
-func TestAttributeProcessEventWithNotFound(t *testing.T) {
-	attrEvs[3].CGREvent.Event["Account"] = "1010" //Field added in event after process
-	if _, err := attrService.processEvent(attrEvs[3]); err == nil || err != utils.ErrNotFound {
-		t.Errorf("Error: %+v", err)
-	}
-}
-
-func TestAttributeProcessEventWithIDs(t *testing.T) {
-	attrEvs[3].CGREvent.Event["Account"] = "1010" //Field added in event after process
-	attrEvs[3].AttributeIDs = []string{"AttributeIDMatch"}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"AttributeIDMatch"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Account"},
-		CGREvent:        attrEvs[3].CGREvent,
-	}
-	if atrp, err := attrService.processEvent(attrEvs[3]); err != nil {
-	} else if !reflect.DeepEqual(eRply, atrp) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRply), utils.ToJSON(atrp))
-	}
-}
-
-func TestAttributeEventReplyDigest(t *testing.T) {
-	eRpl := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.Account, utils.Subject},
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:      "1001",
-				utils.Subject:      "1001",
-				utils.Destinations: "+491511231234",
-			},
-		},
-	}
-	expRpl := "Account:1001,Subject:1001"
-	val := eRpl.Digest()
-	if !reflect.DeepEqual(val, expRpl) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(expRpl), utils.ToJSON(val))
-	}
-}
-
-func TestAttributeEventReplyDigest2(t *testing.T) {
-	eRpl := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{},
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:      "1001",
-				utils.Subject:      "1001",
-				utils.Destinations: "+491511231234",
-			},
-		},
-	}
-	expRpl := ""
-	val := eRpl.Digest()
-	if !reflect.DeepEqual(val, expRpl) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(expRpl), utils.ToJSON(val))
-	}
-}
-
-func TestAttributeEventReplyDigest3(t *testing.T) {
-	eRpl := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{"*req.Subject"},
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:      "1001",
-				utils.Subject:      "1001",
-				utils.Destinations: "+491511231234",
-			},
-		},
-	}
-	expRpl := "Subject:1001"
-	val := eRpl.Digest()
-	if !reflect.DeepEqual(val, expRpl) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(expRpl), utils.ToJSON(val))
-	}
-}
-
-func TestAttributeEventReplyDigest4(t *testing.T) {
-	eRpl := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{"*req.Subject"},
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSProcessEvent",
-			Event: map[string]interface{}{
-				utils.Account:      "1001",
-				utils.Destinations: "+491511231234",
-			},
-		},
-	}
-	expRpl := ""
-	val := eRpl.Digest()
-	if !reflect.DeepEqual(val, expRpl) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(expRpl), utils.ToJSON(val))
-	}
-}
-
-func TestAttributeIndexer(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf := &AttributeProfile{
+func TestAttributesV1ProcessEvent(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ResourceSConns = []string{}
+	conMng := NewConnManager(cfg, make(map[string]chan rpcclient.ClientConnector))
+	dm := NewDataManager(NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items), nil, conMng)
+	filterS := NewFilterS(cfg, conMng, dm)
+	if err := dm.SetAttributeProfile(&AttributeProfile{
 		Tenant:    "cgrates.org",
-		ID:        "AttrPrf",
-		Contexts:  []string{utils.META_ANY},
-		FilterIDs: []string{"*string:~*req.Account:1007"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     expTimeAttributes,
-		},
+		ID:        "ATTR_CHANGE_TENANT_FROM_USER",
+		Contexts:  []string{utils.MetaAny},
+		FilterIDs: []string{"*string:~*req.Account:dan@itsyscom.com|adrian@itsyscom.com"},
 		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + utils.Account,
-				Value: config.NewRSRParsersMustCompile("1010", true, utils.INFIELD_SEP),
+				Path:  "*tenant",
+				Type:  "*variable",
+				Value: config.NewRSRParsersMustCompile("~*req.Account:s/(.*)@(.*)/${1}.${2}/", utils.InfieldSep),
 			},
-		},
-		Weight: 20,
-	}
-	if err := dmAtr.SetAttributeProfile(attrPrf, true); err != nil {
-		t.Error(err)
-	}
-	eIdxes := map[string]utils.StringMap{
-		"*string:~*req.Account:1007": {
-			"AttrPrf": true,
-		},
-	}
-	rfi1 := NewFilterIndexer(dmAtr, utils.AttributeProfilePrefix,
-		utils.ConcatenatedKey(attrPrf.Tenant, utils.META_ANY))
-	if rcvIdx, err := dmAtr.GetFilterIndexes(utils.PrefixToIndexCache[rfi1.itemType],
-		rfi1.dbKeySuffix, utils.MetaString, nil); err != nil {
-		t.Error(err)
-	} else {
-		if !reflect.DeepEqual(eIdxes, rcvIdx) {
-			t.Errorf("Expecting %+v, received: %+v", eIdxes, rcvIdx)
-		}
-	}
-	//Set AttributeProfile with new context (*sessions)
-	cpAttrPrf := new(AttributeProfile)
-	*cpAttrPrf = *attrPrf
-	cpAttrPrf.Contexts = []string{utils.MetaSessionS}
-	if err := dmAtr.SetAttributeProfile(cpAttrPrf, true); err != nil {
-		t.Error(err)
-	}
-	rfi2 := NewFilterIndexer(dmAtr, utils.AttributeProfilePrefix,
-		utils.ConcatenatedKey(attrPrf.Tenant, utils.MetaSessionS))
-	if rcvIdx, err := dmAtr.GetFilterIndexes(utils.PrefixToIndexCache[rfi2.itemType],
-		rfi2.dbKeySuffix, utils.MetaString, nil); err != nil {
-		t.Error(err)
-	} else {
-		if !reflect.DeepEqual(eIdxes, rcvIdx) {
-			t.Errorf("Expecting %+v, received: %+v", eIdxes, rcvIdx)
-		}
-	}
-	//verify if old index was deleted ( context *any)
-	if _, err := dmAtr.GetFilterIndexes(utils.PrefixToIndexCache[rfi1.itemType],
-		rfi1.dbKeySuffix, utils.MetaString, nil); err != utils.ErrNotFound {
-		t.Error(err)
-	}
-}
-
-func TestAttributeProcessWithMultipleRuns1(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.InitialField:InitialValue"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field1",
-				Value: config.NewRSRParsersMustCompile("Value1", true, utils.INFIELD_SEP),
+				Path:  "*req.Account",
+				Type:  "*variable",
+				Value: config.NewRSRParsersMustCompile("~*req.Account:s/(dan)@(.*)/${1}.${2}/:s/(adrian)@(.*)/andrei.${2}/", utils.InfieldSep),
 			},
-		},
-		Weight: 10,
-	}
-	attrPrf2 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_2",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("Value2", true, utils.INFIELD_SEP),
+				Path:  "*tenant",
+				Type:  "*composed",
+				Value: config.NewRSRParsersMustCompile(".co.uk", utils.InfieldSep),
 			},
 		},
-		Weight: 20,
-	}
-	attrPrf3 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_3",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field2:Value2"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field3",
-				Value: config.NewRSRParsersMustCompile("Value3", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 30,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf2, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf3, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(4),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1", "ATTR_2", "ATTR_3"},
-		AlteredFields: []string{
-			utils.MetaReq + utils.NestingSep + "Field1",
-			utils.MetaReq + utils.NestingSep + "Field2",
-			utils.MetaReq + utils.NestingSep + "Field3",
-		},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-				"Field1":       "Value1",
-				"Field2":       "Value2",
-				"Field3":       "Value3",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Fatalf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessWithMultipleRuns2(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.InitialField:InitialValue"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field1",
-				Value: config.NewRSRParsersMustCompile("Value1", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 10,
-	}
-	attrPrf2 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_2",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("Value2", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 20,
-	}
-	attrPrf3 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_3",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.NotFound:NotFound"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field3",
-				Value: config.NewRSRParsersMustCompile("Value3", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 30,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf2, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf3, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(4),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1", "ATTR_2"},
-		AlteredFields: []string{utils.MetaReq + utils.NestingSep + "Field1",
-			utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-				"Field1":       "Value1",
-				"Field2":       "Value2",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessWithMultipleRuns3(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.InitialField:InitialValue"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field1",
-				Value: config.NewRSRParsersMustCompile("Value1", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 10,
-	}
-	attrPrf2 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_2",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("Value2", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 20,
-	}
-	attrPrf3 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_3",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field2:Value2"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field3",
-				Value: config.NewRSRParsersMustCompile("Value3", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 30,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf2, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf3, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(2),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1", "ATTR_2"},
-		AlteredFields: []string{utils.MetaReq + utils.NestingSep + "Field1",
-			utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-				"Field1":       "Value1",
-				"Field2":       "Value2",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessWithMultipleRuns4(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.InitialField:InitialValue"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field1",
-				Value: config.NewRSRParsersMustCompile("Value1", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 10,
-	}
-	attrPrf2 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_2",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("Value2", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 20,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf2, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(4),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1", "ATTR_2"},
-		AlteredFields: []string{utils.MetaReq + utils.NestingSep + "Field1",
-			utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-				"Field1":       "Value1",
-				"Field2":       "Value2",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeMultipleProcessWithBlocker(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-		return
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.InitialField:InitialValue"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field1",
-				Value: config.NewRSRParsersMustCompile("Value1", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 10,
-	}
-	attrPrf2 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_2",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("Value2", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
+		Blocker: false,
 		Weight:  20,
-	}
-	attrPrf3 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_3",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field2:Value2"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field3",
-				Value: config.NewRSRParsersMustCompile("Value3", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 30,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
+	}, true); err != nil {
 		t.Error(err)
 	}
-	if err = dmAtr.SetAttributeProfile(attrPrf2, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf3, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(4),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
+
+	if err := dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:   "adrian.itsyscom.com.co.uk",
+		ID:       "ATTR_MATCH_TENANT",
+		Contexts: []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.Password",
+				Type:  utils.MetaConstant,
+				Value: config.NewRSRParsersMustCompile("CGRATES.ORG", utils.InfieldSep),
 			},
 		},
+		Blocker: false,
+		Weight:  20,
+	}, true); err != nil {
+		t.Error(err)
 	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1", "ATTR_2"},
-		AlteredFields: []string{utils.MetaReq + utils.NestingSep + "Field1",
-			utils.MetaReq + utils.NestingSep + "Field2"},
+
+	alS := NewAttributeService(dm, filterS, cfg)
+	var rply AttrSProcessEventReply
+	expected := AttrSProcessEventReply{
+		MatchedProfiles: []string{"cgrates.org:ATTR_CHANGE_TENANT_FROM_USER", "adrian.itsyscom.com.co.uk:ATTR_MATCH_TENANT"},
+		AlteredFields:   []string{"*req.Account", "*req.Password", "*tenant"},
 		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-				"Field1":       "Value1",
-				"Field2":       "Value2",
+			Tenant: "adrian.itsyscom.com.co.uk",
+			Time:   nil,
+			Event: map[string]any{
+				utils.AccountField: "andrei.itsyscom.com",
+				"Password":         "CGRATES.ORG",
+			},
+			APIOpts: map[string]any{
+				utils.OptsAttributesProcessRuns: 2,
 			},
 		},
+		blocker: false,
 	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
+	if err = alS.V1ProcessEvent(&utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "adrian@itsyscom.com",
+		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 2,
+		},
+	}, &rply); err != nil {
+		t.Errorf("Expected <%+v>, received <%+v>", nil, err)
+	} else if sort.Strings(rply.AlteredFields); !reflect.DeepEqual(expected, rply) {
+		t.Errorf("Expected <%+v>, received <%+v>", utils.ToJSON(expected), utils.ToJSON(rply))
 	}
 }
 
-func TestAttributeMultipleProcessWithBlocker2(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
+func TestAttributesV1ProcessEventErrorMetaSum(t *testing.T) {
 	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.InitialField:InitialValue"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ResourceSConns = []string{}
+	conMng := NewConnManager(cfg, make(map[string]chan rpcclient.ClientConnector))
+	dm := NewDataManager(NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items), nil, conMng)
+	filterS := NewFilterS(cfg, conMng, dm)
+
+	if err := dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:   "cgrates.org",
+		ID:       "ATTR_MATCH_TENANT",
+		Contexts: []string{utils.MetaAny},
 		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field1",
-				Value: config.NewRSRParsersMustCompile("Value1", true, utils.INFIELD_SEP),
+				Path:  "*req.Password",
+				Type:  utils.MetaSum,
+				Value: config.NewRSRParsersMustCompile("CGRATES.ORG", utils.InfieldSep),
 			},
 		},
-		Blocker: true,
-		Weight:  10,
+		Blocker: false,
+		Weight:  20,
+	}, true); err != nil {
+		t.Error(err)
 	}
-	attrPrf2 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_2",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+
+	alS := NewAttributeService(dm, filterS, cfg)
+	var rply AttrSProcessEventReply
+	expErr := "SERVER_ERROR: NotEnoughParameters"
+	if err = alS.V1ProcessEvent(&utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "adrian@itsyscom.com",
 		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 2,
+		},
+	}, &rply); err == nil || err.Error() != expErr {
+		t.Errorf("Expected <%+v>, received <%+v>", expErr, err)
+	}
+
+}
+
+func TestAttributesV1ProcessEventErrorMetaDifference(t *testing.T) {
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ResourceSConns = []string{}
+	conMng := NewConnManager(cfg, make(map[string]chan rpcclient.ClientConnector))
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, nil, conMng)
+	filterS := NewFilterS(cfg, conMng, dm)
+
+	if err := dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:   "cgrates.org",
+		ID:       "ATTR_MATCH_TENANT",
+		Contexts: []string{utils.MetaAny},
 		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("Value2", true, utils.INFIELD_SEP),
+				Path:  "*req.Password",
+				Type:  utils.MetaDifference,
+				Value: config.NewRSRParsersMustCompile("CGRATES.ORG", utils.InfieldSep),
+			},
+		},
+		Blocker: false,
+		Weight:  20,
+	}, true); err != nil {
+		t.Error(err)
+	}
+
+	alS := NewAttributeService(dm, filterS, cfg)
+	var rply AttrSProcessEventReply
+	expErr := "SERVER_ERROR: NotEnoughParameters"
+	if err := alS.V1ProcessEvent(&utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "adrian@itsyscom.com",
+		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 2,
+		},
+	}, &rply); err == nil || err.Error() != expErr {
+		t.Errorf("Expected <%+v>, received <%+v>", expErr, err)
+	}
+
+}
+
+func TestAttributesV1ProcessEventErrorMetaValueExponent(t *testing.T) {
+	Cache.Clear(nil)
+	cfg := config.NewDefaultCGRConfig()
+	cfg.FilterSCfg().ResourceSConns = []string{}
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, nil, nil)
+	filterS := NewFilterS(cfg, nil, dm)
+
+	if err := dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:   "cgrates.org",
+		ID:       "ATTR_MATCH_TENANT",
+		Contexts: []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.Password",
+				Type:  utils.MetaValueExponent,
+				Value: config.NewRSRParsersMustCompile("CGRATES.ORG", utils.InfieldSep),
+			},
+		},
+		Blocker: false,
+		Weight:  20,
+	}, true); err != nil {
+		t.Error(err)
+	}
+
+	alS := NewAttributeService(dm, filterS, cfg)
+	var rply AttrSProcessEventReply
+	expErr := "SERVER_ERROR: invalid arguments <[{\"Rules\":\"CGRATES.ORG\"}]> to *value_exponent"
+	if err := alS.V1ProcessEvent(&utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "adrian@itsyscom.com",
+		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 2,
+		},
+	}, &rply); err == nil || err.Error() != expErr {
+		t.Errorf("Expected <%+v>, received <%+v>", expErr, err)
+	}
+
+}
+
+func TestAttributesattributeProfileForEventAnyCtxFalseNotFound(t *testing.T) {
+
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+	alS.cgrcfg.AttributeSCfg().AnyContext = false
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1002"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
 			},
 		},
 		Weight: 20,
 	}
-	attrPrf3 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_3",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field2:Value2"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field3",
-				Value: config.NewRSRParsersMustCompile("Value3", true, utils.INFIELD_SEP),
-			},
-		},
-		Weight: 30,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
 		t.Error(err)
 	}
-	if err = dmAtr.SetAttributeProfile(attrPrf2, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if err = dmAtr.SetAttributeProfile(attrPrf3, true); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(4),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field1"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"InitialField": "InitialValue",
-				"Field1":       "Value1",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
 
-func TestAttributeProcessValue(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_2",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaAny},
 		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Value: config.NewRSRParsersMustCompile("~*req.Field1", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1": "Value1",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1": "Value1",
-				"Field2": "Value1",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeAttributeFilterIDs(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:   config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:       "ATTR_1",
-		Contexts: []string{utils.META_ANY},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				FilterIDs: []string{"*string:~*req.PassField:Test"},
-				Path:      utils.MetaReq + utils.NestingSep + "PassField",
-				Value:     config.NewRSRParsersMustCompile("Pass", true, utils.INFIELD_SEP),
-			},
-			{
-				FilterIDs: []string{"*string:~*req.PassField:RandomValue"},
-				Path:      utils.MetaReq + utils.NestingSep + "NotPassField",
-				Value:     config.NewRSRParsersMustCompile("NotPass", true, utils.INFIELD_SEP),
-			},
-			{
-				FilterIDs: []string{"*notexists:~*req.RandomField:"},
-				Path:      utils.MetaReq + utils.NestingSep + "RandomField",
-				Value:     config.NewRSRParsersMustCompile("RandomValue", true, utils.INFIELD_SEP),
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
 			},
 		},
 		Weight: 10,
 	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"PassField": "Test",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields: []string{utils.MetaReq + utils.NestingSep + "PassField",
-			utils.MetaReq + utils.NestingSep + "RandomField"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"PassField":   "Pass",
-				"RandomField": "RandomValue",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessEventConstant(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.META_CONSTANT,
-				Value: config.NewRSRParsersMustCompile("ConstVal", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1": "Value1",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1": "Value1",
-				"Field2": "ConstVal",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessEventVariable(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("~*req.Field1", true, utils.INFIELD_SEP),
-			},
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("~*req.TheField", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":   "Value1",
-				"TheField": "TheVal",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":   "Value1",
-				"Field2":   "TheVal",
-				"TheField": "TheVal",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessEventComposed(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.META_COMPOSED,
-				Value: config.NewRSRParsersMustCompile("~*req.Field1", true, utils.INFIELD_SEP),
-			},
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.META_COMPOSED,
-				Value: config.NewRSRParsersMustCompile("_", true, utils.INFIELD_SEP),
-			},
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.META_COMPOSED,
-				Value: config.NewRSRParsersMustCompile("~*req.TheField", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":   "Value1",
-				"TheField": "TheVal",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":   "Value1",
-				"Field2":   "Value1_TheVal",
-				"TheField": "TheVal",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessEventSum(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.MetaSum,
-				Value: config.NewRSRParsersMustCompile("10;~*req.NumField;20", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":   "Value1",
-				"TheField": "TheVal",
-				"NumField": "20",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":   "Value1",
-				"TheField": "TheVal",
-				"NumField": "20",
-				"Field2":   "50",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessEventUsageDifference(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.META_USAGE_DIFFERENCE,
-				Value: config.NewRSRParsersMustCompile("~*req.UnixTimeStamp;~*req.UnixTimeStamp2", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":         "Value1",
-				"TheField":       "TheVal",
-				"UnixTimeStamp":  "1554364297",
-				"UnixTimeStamp2": "1554364287",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":         "Value1",
-				"TheField":       "TheVal",
-				"UnixTimeStamp":  "1554364297",
-				"UnixTimeStamp2": "1554364287",
-				"Field2":         "10s",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributeProcessEventValueExponent(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.MetaValueExponent,
-				Value: config.NewRSRParsersMustCompile("~*req.Multiplier;~*req.Pow", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":     "Value1",
-				"TheField":   "TheVal",
-				"Multiplier": "2",
-				"Pow":        "3",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "Field2"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1":     "Value1",
-				"TheField":   "TheVal",
-				"Multiplier": "2",
-				"Pow":        "3",
-				"Field2":     "2000",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func BenchmarkAttributeProcessEventConstant(b *testing.B) {
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	defaultCfg.AttributeSCfg().ProcessRuns = 1
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, &FilterS{dm: dmAtr, cfg: defaultCfg}, defaultCfg)
-	if err != nil {
-		b.Errorf("Error: %+v", err)
-	}
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		b.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		b.Error(err)
-	} else if test != true {
-		b.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.META_CONSTANT,
-				Value: config.NewRSRParsersMustCompile("ConstVal", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		b.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1": "Value1",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-			b.Errorf("Error: %+v", err)
-		}
-	}
-}
-
-func BenchmarkAttributeProcessEventVariable(b *testing.B) {
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	defaultCfg.AttributeSCfg().ProcessRuns = 1
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, &FilterS{dm: dmAtr, cfg: defaultCfg}, defaultCfg)
-	if err != nil {
-		b.Errorf("Error: %+v", err)
-	}
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		b.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		b.Error(err)
-	} else if test != true {
-		b.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:    config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:        "ATTR_1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"*string:~*req.Field1:Value1"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "Field2",
-				Type:  utils.MetaVariable,
-				Value: config.NewRSRParsersMustCompile("~*req.Field1", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		b.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"Field1": "Value1",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-			b.Errorf("Error: %+v", err)
-		}
-	}
-}
-
-func TestGetAttributeProfileFromInline(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrID := "*sum:*req.Field2:10;~*req.NumField;20"
-	expAttrPrf1 := &AttributeProfile{
-		Tenant:   config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:       attrID,
-		Contexts: []string{utils.META_ANY},
-		Attributes: []*Attribute{{
-			Path:  utils.MetaReq + utils.NestingSep + "Field2",
-			Type:  utils.MetaSum,
-			Value: config.NewRSRParsersMustCompile("10;~*req.NumField;20", true, utils.INFIELD_SEP),
-		}},
-	}
-	attr, err := dm.GetAttributeProfile(config.CgrConfig().GeneralCfg().DefaultTenant, attrID, false, false, "")
-	if err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expAttrPrf1, attr) {
-		t.Errorf("Expecting %+v, received: %+v", utils.ToJSON(expAttrPrf1), utils.ToJSON(attr))
-	}
-}
-
-func TestAttributesProcessEventSIPCID(t *testing.T) {
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if test, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if test != true {
-		t.Errorf("\nExpecting: true got :%+v", test)
-	}
-	attrPrf1 := &AttributeProfile{
-		Tenant:   config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:       "ATTR_1",
-		Contexts: []string{utils.MetaSessionS},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "OriginID",
-				Type:  utils.MetaSIPCID,
-				Value: config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.from", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf1, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"cid":  "12345",
-				"to":   "1001",
-				"from": "1002",
-			},
-		},
-	}
-	eRply := &AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_1"},
-		AlteredFields:   []string{utils.MetaReq + utils.NestingSep + "OriginID"},
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"cid":      "12345",
-				"to":       "1001",
-				"from":     "1002",
-				"OriginID": "12345;1001;1002",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-
-	attrArgs.CGREvent.Event = map[string]interface{}{
-		"cid":  "12345",
-		"to":   "1002",
-		"from": "1001",
-	}
-	eRply.CGREvent.Event = map[string]interface{}{
-		"cid":      "12345",
-		"to":       "1002",
-		"from":     "1001",
-		"OriginID": "12345;1001;1002",
-	}
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	if !reflect.DeepEqual(eRply.MatchedProfiles, reply.MatchedProfiles) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.MatchedProfiles, reply.MatchedProfiles)
-	}
-	if !reflect.DeepEqual(eRply.AlteredFields, reply.AlteredFields) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.AlteredFields, reply.AlteredFields)
-	}
-	if !reflect.DeepEqual(eRply.CGREvent.Event, reply.CGREvent.Event) {
-		t.Errorf("Expecting %+v, received: %+v", eRply.CGREvent.Event, reply.CGREvent.Event)
-	}
-}
-
-func TestAttributesProcessEventSIPCIDNotFoundErr(t *testing.T) {
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, &FilterS{dm: dmAtr, cfg: defaultCfg}, defaultCfg)
+	err = alS.dm.SetAttributeProfile(ap2, true)
 	if err != nil {
 		t.Error(err)
 	}
 
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
 	}
+	lastID := ""
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, err)
+	} else if !reflect.DeepEqual(rcv, ap2) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", ap2, rcv)
+	}
+
+	lastID = "cgrates.org:ATTR_2"
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrNotFound {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventAnyCtxFalseFound(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
 	Cache.Clear(nil)
-	if empty, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if !empty {
-		t.Error("expected DataDB to be empty")
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
 	}
-	attrPrf := &AttributeProfile{
-		Tenant:   config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:       "ATTR_ID",
-		Contexts: []string{utils.MetaSessionS},
+	alS.cgrcfg.AttributeSCfg().AnyContext = false
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaSessionS},
 		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "OriginID",
-				Type:  utils.MetaSIPCID,
-				Value: config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.from", true, utils.INFIELD_SEP),
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
 			},
 		},
-		Blocker: true,
-		Weight:  10,
+		Weight: 20,
 	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf, true); err != nil {
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
 		t.Error(err)
 	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event:  map[string]interface{}{},
+
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_2",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 10,
+	}
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
+	}
+	lastID := ""
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, err)
+	} else if !reflect.DeepEqual(rcv, ap1) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", ap1, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventAnyCtxTrueBothFound(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_2",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 10,
+	}
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
+	}
+	lastID := ""
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, err)
+	} else if !reflect.DeepEqual(rcv, ap1) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", ap1, rcv)
+	}
+
+	ap2.Weight = 30
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, err)
+	} else if !reflect.DeepEqual(rcv, ap2) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", ap2, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventAnyCtxTrueErrMatching(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_2",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 10,
+	}
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
+	}
+	lastID := ""
+
+	dbm := &DataDBMock{
+		GetKeysForPrefixF: func(s string) ([]string, error) {
+			return nil, utils.ErrExists
 		},
 	}
-	var reply AttrSProcessEventReply
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err == nil ||
-		err != utils.ErrNotFound {
+	alS.cgrcfg.AttributeSCfg().IndexedSelects = false
+	alS.dm = NewDataManager(dbm, cfg.CacheCfg(), nil)
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrExists {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrExists, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventAnyCtxTrueNotFound(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1002"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_2",
+		FilterIDs: []string{"*string:~*req.Account:1002"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 10,
+	}
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
+	}
+	lastID := ""
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, nil, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrNotFound {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventNoDBConn(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_2",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 10,
+	}
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
+	}
+	lastID := ""
+	alS.dm = nil
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, []string{"ATTR_3"}, nil, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrNoDatabaseConn {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrNoDatabaseConn, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventErrNotFound(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	apNil := &AttributeProfile{}
+	err = alS.dm.SetAttributeProfile(apNil, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := ""
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+		utils.MetaVars: utils.MapStorage{},
+	}
+	lastID := ""
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, []string{"ATTR_3"}, nil, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrNotFound {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventNotActive(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+	}
+	lastID := ""
+
+	ap.ActivationInterval = &utils.ActivationInterval{
+		ExpiryTime: time.Date(2021, 5, 14, 15, 0, 0, 0, time.UTC),
+	}
+	err = alS.dm.SetAttributeProfile(ap, true)
+	if err != nil {
+		t.Error(err)
+	}
+	actTime := utils.TimePointer(time.Date(2021, 5, 14, 16, 0, 0, 0, time.UTC))
+	tnt := "cgrates.org"
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, nil, actTime, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrNotFound {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesattributeProfileForEventErrPass(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dataDB := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(dataDB, cfg.CacheCfg(), nil)
+	Cache.Clear(nil)
+	alS := &AttributeService{
+		cgrcfg:  cfg,
+		dm:      dm,
+		filterS: NewFilterS(cfg, nil, dm),
+	}
+
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	ap := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_1",
+		FilterIDs: []string{"*string:~*req.Account:1001"},
+		Contexts:  []string{utils.MetaSessionS},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+	err = alS.dm.SetAttributeProfile(ap, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	tnt := "cgrates.org"
+	ctx := utils.StringPointer(utils.MetaSessionS)
+	evNm := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			utils.AccountField: "1001",
+		},
+	}
+	lastID := ""
+
+	evNm = utils.MapStorage{
+		utils.MetaReq:  1,
+		utils.MetaVars: utils.MapStorage{},
+	}
+
+	if rcv, err := alS.attributeProfileForEvent(tnt, ctx, []string{"ATTR_1"}, nil, evNm,
+		lastID, make(map[string]int), 0, false); err == nil || err != utils.ErrWrongPath {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ErrWrongPath, err)
+	} else if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestAttributesParseAttributeSIPCID(t *testing.T) {
+	exp := "12345;1001;1002"
+	dp := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"cid":  "12345",
+			"to":   "1001",
+			"from": "1002",
+		},
+	}
+	if out, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.from", utils.InfieldSep),
+		0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != nil {
+		t.Fatal(err)
+	} else if exp != out {
+		t.Errorf("Expected %q, Received %q", exp, out)
+	}
+
+	dp = utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"cid":  "12345",
+			"to":   "1002",
+			"from": "1001",
+		},
+	}
+	if out, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.from", utils.InfieldSep),
+		0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != nil {
+		t.Fatal(err)
+	} else if exp != out {
+		t.Errorf("Expected %q, Received %q", exp, out)
+	}
+
+	exp = "12345;1001;1002;1003"
+	dp = utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"cid":   "12345",
+			"to":    "1001",
+			"from":  "1002",
+			"extra": "1003",
+		},
+	}
+	if out, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.extra;~*req.from",
+		utils.InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != nil {
+		t.Fatal(err)
+	} else if exp != out {
+		t.Errorf("Expected %q, Received %q", exp, out)
+	}
+
+	dp = utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"cid":   "12345",
+			"to":    "1002",
+			"from":  "1001",
+			"extra": "1003",
+		},
+	}
+	if out, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from",
+		utils.InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != nil {
+		t.Fatal(err)
+	} else if exp != out {
+		t.Errorf("Expected %q, Received %q", exp, out)
+	}
+
+	dp = utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"cid": "12345",
+		},
+	}
+	if val, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != utils.ErrNotFound {
+		t.Errorf("Expected <%+v>, received <%+v>", utils.ErrNotFound, err)
+	} else if val != "12345" {
+		t.Errorf("received  %+v", val)
+	}
+
+	if val, err := ParseAttribute(dp, utils.MetaNone, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != nil {
+		t.Errorf("received <%+v>", err)
+	} else if val != nil {
+		t.Errorf("received  %+v", val)
+	}
+
+	if _, err := ParseAttribute(dp, utils.MetaUsageDifference, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf(",received <%+v>", err)
+	}
+
+	if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaSum, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	}
+
+	if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaDifference, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaMultiply, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaDivide, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaUnixTimestamp, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaDateTime, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaPrefix, "`val", config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err.Error() != "Unclosed unspilit syntax" {
+		t.Errorf("expected <%+v>received <%+v>", "Unclosed unspilit syntax", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaSuffix, "`val", config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err.Error() != "Unclosed unspilit syntax" {
+		t.Errorf("expected <%+v>received <%+v>", "Unclosed unspilit syntax", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, utils.MetaCCUsage, "`val", config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf("received <%+v>", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, "default", utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to;~*req.from", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf("received <%+v>", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{}, "default", utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf("received <%+v>", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "12345"}}, utils.MetaUsageDifference, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra", utils.InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "12345", "extra": "1003"}}, utils.MetaUsageDifference, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err.Error() != "Unsupported time format" {
+		t.Errorf("expected <%+v>received <%+v>", "Unsupported time format", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "0", "extra": "1003"}}, utils.MetaUsageDifference, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err.Error() != "Unsupported time format" {
+		t.Errorf("expected <%+v>received <%+v>", "Unsupported time format", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{}}, utils.MetaUsageDifference, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"extra": "1003", "to": "1001"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "val", "extra": "1003", "to": "1001"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf("received <%+v>", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "12233", "to": "1001"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "12232", "extra": "val", "to": "1001"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf("received <%+v>", err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "12233", "extra": "1001"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil || err != utils.ErrNotFound {
+		t.Errorf("expected <%+v>received <%+v>", utils.ErrNotFound, err)
+	} else if _, err = ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "12232", "extra": "1001", "to": "val"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err == nil {
+		t.Errorf("received <%+v>", err)
+	}
+	expDur := 100000 * time.Nanosecond
+	if val, err := ParseAttribute(utils.MapStorage{utils.MetaReq: utils.MapStorage{"cid": "1000", "extra": "100", "to": "100"}}, utils.MetaCCUsage, utils.EmptyString, config.NewRSRParsersMustCompile("~*req.cid;~*req.extra;~*req.to", utils.
+		InfieldSep), 0, utils.EmptyString, utils.EmptyString, utils.InfieldSep); err != nil {
+		t.Errorf("received <%+v>", err)
+	} else if val != expDur {
+		t.Errorf("expected %v,received %v", expDur, val)
+	}
+}
+func TestAttributesParseAttributeSIPCIDWrongPathErr(t *testing.T) {
+	dp := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"cid":  "12345",
+			"to":   "1001",
+			"from": "1002",
+		},
+		utils.MetaOpts: 13,
+	}
+	value := config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.from;~*opts.WrongPath", utils.InfieldSep)
+	if _, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, value,
+		0, time.UTC.String(), utils.EmptyString, utils.InfieldSep); err == nil ||
+		err.Error() != utils.ErrWrongPath.Error() {
+		t.Errorf("expected: <%+v>, \nreceived: <%+v>", utils.ErrWrongPath, err)
+	}
+}
+
+func TestAttributesParseAttributeSIPCIDNotFoundErr(t *testing.T) {
+	dp := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"to":   "1001",
+			"from": "1002",
+		},
+	}
+	value := config.NewRSRParsersMustCompile("~*req.cid;~*req.to;~*req.from", utils.InfieldSep)
+	if _, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, value,
+		0, time.UTC.String(), utils.EmptyString, utils.InfieldSep); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
 		t.Errorf("expected: <%+v>, \nreceived: <%+v>", utils.ErrNotFound, err)
 	}
 }
 
-func TestAttributesProcessEventSIPCIDWrongPathErr(t *testing.T) {
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, &FilterS{dm: dmAtr, cfg: defaultCfg}, defaultCfg)
-	if err != nil {
-		t.Error(err)
-	}
-
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if empty, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if !empty {
-		t.Error("expected DataDB to be empty")
-	}
-	attrPrf := &AttributeProfile{
-		Tenant:   config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:       "ATTR_ID",
-		Contexts: []string{utils.MetaSessionS},
-		Attributes: []*Attribute{
-			{
-				Path:  utils.MetaReq + utils.NestingSep + "OriginID",
-				Type:  utils.MetaSIPCID,
-				Value: config.NewRSRParsersMustCompile("~*req.cid;~*req.123.a", true, utils.INFIELD_SEP),
-			},
-		},
-		Blocker: true,
-		Weight:  10,
-	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"cid": "12345",
-				"123": struct{}{},
-			},
+func TestAttributesParseAttributeSIPCIDInvalidArguments(t *testing.T) {
+	dp := utils.MapStorage{
+		utils.MetaReq: utils.MapStorage{
+			"to":   "1001",
+			"from": "1002",
 		},
 	}
-	var reply AttrSProcessEventReply
-	experr := `SERVER_ERROR: WRONG_PATH`
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err == nil ||
+	value := config.RSRParsers{}
+	experr := `invalid number of arguments <[]> to *sipcid`
+	if _, err := ParseAttribute(dp, utils.MetaSIPCID, utils.EmptyString, value,
+		0, time.UTC.String(), utils.EmptyString, utils.InfieldSep); err == nil ||
 		err.Error() != experr {
 		t.Errorf("expected: <%+v>, \nreceived: <%+v>", experr, err)
 	}
 }
 
-func TestAttributesProcessEventSIPCIDInvalidArgs(t *testing.T) {
+func TestAttributesV1ProcessEventMultipleRuns1(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.AttributeSCfg().IndexedSelects = false
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(data, cfg.CacheCfg(), nil)
+	filterS := NewFilterS(cfg, nil, dm)
 	Cache.Clear(nil)
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, &FilterS{dm: dmAtr, cfg: defaultCfg}, defaultCfg)
-	if err != nil {
-		t.Error(err)
-	}
+	alS := NewAttributeService(dm, filterS, cfg)
 
-	//refresh the DM
-	if err := dmAtr.DataDB().Flush(""); err != nil {
-		t.Error(err)
-	}
-	Cache.Clear(nil)
-	if empty, err := dmAtr.DataDB().IsDBEmpty(); err != nil {
-		t.Error(err)
-	} else if !empty {
-		t.Error("expected DataDB to be empty")
-	}
-	attrPrf := &AttributeProfile{
-		Tenant:   config.CgrConfig().GeneralCfg().DefaultTenant,
-		ID:       "ATTR_ID",
-		Contexts: []string{utils.MetaSessionS},
+	postpaid := config.NewRSRParsersMustCompile(utils.MetaPostpaid, utils.InfieldSep)
+	pw := config.NewRSRParsersMustCompile("CGRateS.org", utils.InfieldSep)
+
+	ap1 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR1",
+		FilterIDs: []string{"*notexists:~*vars.*processedProfileIDs[<~*vars.*apTenantID>]:"},
+		Contexts:  []string{utils.MetaAny},
 		Attributes: []*Attribute{
 			{
-				Path:  utils.MetaReq + utils.NestingSep + "OriginID",
-				Type:  utils.MetaSIPCID,
-				Value: config.RSRParsers{},
+				Path:  "*req.Password",
+				Type:  utils.MetaConstant,
+				Value: pw,
 			},
 		},
-		Blocker: true,
-		Weight:  10,
+		Weight: 10,
 	}
-	// Add attribute in DM
-	if err := dmAtr.SetAttributeProfile(attrPrf, true); err != nil {
-		t.Error(err)
-	}
-	attrArgs := &AttrArgsProcessEvent{
-		Context:     utils.StringPointer(utils.MetaSessionS),
-		ProcessRuns: utils.IntPointer(1),
-		CGREvent: &utils.CGREvent{
-			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-			ID:     utils.GenUUID(),
-			Event: map[string]interface{}{
-				"cid":  "12345",
-				"to":   "1001",
-				"from": "1002",
-			},
-		},
-	}
-	var reply AttrSProcessEventReply
-	experr := `SERVER_ERROR: invalid number of arguments <[]> to *sipcid`
-	if err := attrService.V1ProcessEvent(attrArgs, &reply); err == nil ||
-		err.Error() != experr {
-		t.Errorf("expected: <%+v>, \n received: <%+v>", experr, err)
-	}
-}
-
-func TestAttributeGetForEvent(t *testing.T) {
-	defaultCfg, _ := config.NewDefaultCGRConfig()
-	data := NewInternalDB(nil, nil, true, defaultCfg.DataDbCfg().Items)
-	dmAtr = NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	attrService, err = NewAttributeService(dmAtr, NewFilterS(defaultCfg, nil, dmAtr), defaultCfg)
+	err = alS.dm.SetAttributeProfile(ap1, true)
 	if err != nil {
 		t.Error(err)
 	}
 
-	args := &AttrArgsProcessEvent{
-		Context: utils.StringPointer("*sessions"),
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testAttributeSGetAttributeForEvent",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "Internal",
-				utils.Account:    "1003",
-			},
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("attr12345"),
-		},
-	}
-	fltr := &Filter{
-		Tenant: "cgrates.org",
-		ID:     "ATTR_FLTR",
-		Rules: []*FilterRule{
+	ap2 := &AttributeProfile{
+		Tenant:   "cgrates.org",
+		ID:       "ATTR2",
+		Contexts: []string{utils.MetaAny},
+		Attributes: []*Attribute{
 			{
-				Type:    utils.MetaString,
-				Element: "~*req.Account",
-				Values:  []string{"1003"},
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
 			},
 		},
-	}
-	dmAtr.SetFilter(fltr)
-	attr := &AttributeProfile{
-		Tenant:    "cgrates.org",
-		ID:        "attributeprofile1",
-		Contexts:  []string{utils.MetaSessionS},
-		FilterIDs: []string{"ATTR_FLTR"},
-		ActivationInterval: &utils.ActivationInterval{
-			ActivationTime: time.Date(2024, 7, 14, 14, 25, 0, 0, time.UTC),
-			ExpiryTime:     time.Date(2025, 7, 14, 14, 25, 0, 0, time.UTC),
-		},
-
 		Weight: 20,
 	}
-	if err := dmAtr.SetAttributeProfile(attr, true); err != nil {
-		t.Error(err)
-	}
-	var reply AttributeProfile
-	if err := attrService.V1GetAttributeForEvent(args, &reply); err != nil {
-		t.Error(err)
-	}
-}
-
-func TestAttrSGetAttributeForEventErrs(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	attrService, err := NewAttributeService(dm, NewFilterS(cfg, nil, dm), cfg)
+	err = alS.dm.SetAttributeProfile(ap2, true)
 	if err != nil {
 		t.Error(err)
 	}
-	testCases := []struct {
-		name     string
-		args     *AttrArgsProcessEvent
-		attrPrfl *AttributeProfile
-	}{
-		{
-			name: "Missing CgrEvent",
-			args: &AttrArgsProcessEvent{},
+
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "AttrProcessEventMultipleRuns",
+		Event: map[string]any{
+			"Password": "passwd",
 		},
-		{
-			name: "AttributeProfile not found",
-			args: &AttrArgsProcessEvent{
-				CGREvent: &utils.CGREvent{
-					Tenant: "cgrates.org",
-					ID:     "CGREvent1",
-					Event: map[string]interface{}{
-						utils.Account:     "1002",
-						utils.Subject:     "1002",
-						utils.Destination: "1001",
-						utils.SetupTime:   time.Date(2022, 12, 1, 14, 25, 0, 0, time.UTC),
-						utils.Usage:       "1m20s",
-					},
-				},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 3,
+			utils.OptsContext:               utils.MetaAny,
+			utils.OptsAttributesProfileIDs:  []string{"ATTR1", "ATTR2"},
+		},
+	}
+	reply := &AttrSProcessEventReply{}
+	exp := &AttrSProcessEventReply{
+		MatchedProfiles: []string{"cgrates.org:ATTR2", "cgrates.org:ATTR1", "cgrates.org:ATTR2"},
+		AlteredFields:   []string{"*req.Password", "*req.RequestType"},
+		CGREvent: &utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "AttrProcessEventMultipleRuns",
+			Event: map[string]any{
+				"Password":        "CGRateS.org",
+				utils.RequestType: utils.MetaPostpaid,
 			},
-			attrPrfl: new(AttributeProfile),
+			APIOpts: map[string]any{
+				utils.OptsAttributesProcessRuns: 3,
+				utils.OptsContext:               utils.MetaAny,
+				utils.OptsAttributesProfileIDs:  []string{"ATTR1", "ATTR2"},
+			},
 		},
 	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := attrService.V1GetAttributeForEvent(tc.args, tc.attrPrfl)
-			if err == nil {
-				t.Error("expected error")
-			}
-		})
+
+	if err := alS.V1ProcessEvent(args, reply); err != nil {
+		t.Error(err)
+	} else {
+		sort.Strings(reply.AlteredFields)
+		if !reflect.DeepEqual(reply, exp) {
+			t.Errorf("expected: <%+v>, \nreceived: <%+v>", utils.ToJSON(exp), utils.ToJSON(reply))
+		}
 	}
+
+	if err := alS.V1ProcessEvent(nil, reply); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestAttributesV1ProcessEventMultipleRuns2(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	cfg.AttributeSCfg().IndexedSelects = false
+	data := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(data, cfg.CacheCfg(), nil)
+	filterS := NewFilterS(cfg, nil, dm)
+	Cache.Clear(nil)
+	alS := NewAttributeService(dm, filterS, cfg)
+
+	postpaid := config.NewRSRParsersMustCompile(utils.MetaPostpaid, utils.InfieldSep)
+	pw := config.NewRSRParsersMustCompile("CGRateS.org", utils.InfieldSep)
+	paypal := config.NewRSRParsersMustCompile("cgrates@paypal.com", utils.InfieldSep)
+
+	ap1 := &AttributeProfile{
+		Tenant:   "cgrates.org",
+		ID:       "ATTR1",
+		Contexts: []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.Password",
+				Type:  utils.MetaConstant,
+				Value: pw,
+			},
+		},
+		Weight: 10,
+	}
+	err = alS.dm.SetAttributeProfile(ap1, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ap2 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR2",
+		FilterIDs: []string{"*exists:~*vars.*processedProfileIDs[cgrates.org:ATTR1]:"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 20,
+	}
+	err = alS.dm.SetAttributeProfile(ap2, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	ap3 := &AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR3",
+		FilterIDs: []string{"*exists:~*vars.*processedProfileIDs[cgrates.org:ATTR2]:"},
+		Contexts:  []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.PaypalAccount",
+				Type:  utils.MetaConstant,
+				Value: paypal,
+			},
+		},
+		Weight: 30,
+	}
+	err = alS.dm.SetAttributeProfile(ap3, true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "AttrProcessEventMultipleRuns",
+		Event:  map[string]any{},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 3,
+			utils.OptsContext:               utils.MetaAny,
+		},
+	}
+
+	reply := &AttrSProcessEventReply{}
+	exp := &AttrSProcessEventReply{
+		MatchedProfiles: []string{"cgrates.org:ATTR1", "cgrates.org:ATTR2", "cgrates.org:ATTR3"},
+		AlteredFields:   []string{"*req.Password", "*req.PaypalAccount", "*req.RequestType"},
+		CGREvent: &utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "AttrProcessEventMultipleRuns",
+			Event: map[string]any{
+				"Password":        "CGRateS.org",
+				"PaypalAccount":   "cgrates@paypal.com",
+				utils.RequestType: utils.MetaPostpaid,
+			},
+			APIOpts: map[string]any{
+				utils.OptsAttributesProcessRuns: 3,
+				utils.OptsContext:               utils.MetaAny,
+			},
+		},
+	}
+	if err := alS.V1ProcessEvent(args, reply); err != nil {
+		t.Error(err)
+	} else {
+		sort.Strings(reply.AlteredFields)
+		if !reflect.DeepEqual(reply, exp) {
+			t.Errorf("expected: <%+v>, \nreceived: <%+v>",
+				utils.ToJSON(exp), utils.ToJSON(reply))
+		}
+	}
+}
+
+func TestArgeesUnmarshalJSON(t *testing.T) {
+	cgr := &CGREventWithEeIDs{
+		EeIDs: []string{"eeID1", "eeID2", "eeID3", "eeID$"},
+		clnb:  true,
+		CGREvent: &utils.CGREvent{
+			Event: map[string]any{
+				utils.CostDetails: "22",
+			},
+		},
+	}
+	if err := cgr.UnmarshalJSON([]byte("val")); err == nil {
+		t.Error(err)
+	} else if err = cgr.UnmarshalJSON([]byte(`{
+		"EeIDs":["eeid1","eeid2"],
+		"Event":{
+				"CostDetails":{
+				 "CGRID":"id1"	}
+			 }
+	  }`)); err != nil {
+		t.Error(err)
+	}
+}
+func TestArgeesRPCClone(t *testing.T) {
+
+	attr := &CGREventWithEeIDs{
+		EeIDs: []string{"eeid1", "eeid2"},
+		CGREvent: &utils.CGREvent{
+			Tenant:  "cgrates.org",
+			ID:      "id",
+			Time:    &time.Time{},
+			Event:   map[string]any{},
+			APIOpts: map[string]any{},
+		},
+		clnb: false,
+	}
+	if val, err := attr.RPCClone(); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(val, attr) {
+		t.Errorf("expected %v,received %v", utils.ToJSON(attr), utils.ToJSON(val))
+	}
+	attr.clnb = true
+	exp := &CGREventWithEeIDs{
+		EeIDs: []string{"eeid1", "eeid2"},
+		CGREvent: &utils.CGREvent{
+			Tenant:  "cgrates.org",
+			ID:      "id",
+			Time:    &time.Time{},
+			Event:   map[string]any{},
+			APIOpts: map[string]any{},
+		},
+	}
+
+	if val, err := attr.RPCClone(); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(val, exp) {
+		t.Errorf("expected %v,received %v", utils.ToJSON(exp), utils.ToJSON(val))
+	}
+}
+
+func TestAttrSV1GetAttributeForEvent(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	filterS := NewFilterS(cfg, nil, dm)
+	Cache.Clear(nil)
+	attS := NewAttributeService(dm, filterS, cfg)
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "AttrEvent",
+		Event: map[string]any{
+			utils.RequestType: utils.MetaPostpaid,
+		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 3,
+			utils.OptsContext:               utils.MetaAny,
+			utils.OptsAttributesProfileIDs:  []string{"ATTR1"},
+		},
+	}
+	postpaid, err := config.NewRSRParsers(utils.MetaPostpaid, utils.InfieldSep)
+	if err != nil {
+		t.Error(err)
+	}
+	dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:   "cgrates.org",
+		ID:       "ATTR1",
+		Contexts: []string{utils.MetaAny},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.RequestType",
+				Type:  utils.MetaConstant,
+				Value: postpaid,
+			},
+		},
+		Weight: 10,
+	}, true)
+	var attrPrf AttributeProfile
+	if err := attS.V1GetAttributeForEvent(args, &attrPrf); err != nil {
+		t.Error(err)
+	}
+
+}
+
+func TestAttributesV1ProcessEventSentryPeer(t *testing.T) {
+	defer func() {
+		cfg2 := config.NewDefaultCGRConfig()
+		config.SetCgrConfig(cfg2)
+	}()
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+
+			if r.URL.EscapedPath() != "/oauth/token" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			contentType := r.Header.Get(utils.ContentType)
+			if contentType != utils.JsonBody {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			var data map[string]string
+			err := json.NewDecoder(r.Body).Decode(&data)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			response := struct {
+				AccessToken string `json:"access_token"`
+			}{
+				AccessToken: "302982309u2u30r23203",
+			}
+			w.WriteHeader(http.StatusOK)
+			err = json.NewEncoder(w).Encode(response)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		responses := map[string]struct {
+			code int
+			body []byte
+		}{
+			"/api/phone-numbers/453904509045": {code: http.StatusNotFound, body: []byte(`{"Number not  found"}`)},
+			"/api/phone-numbers/100":          {code: http.StatusOK, body: []byte(`{"Number  found"}`)},
+		}
+		if val, has := responses[r.URL.EscapedPath()]; has {
+			w.WriteHeader(val.code)
+			if val.body != nil {
+				w.Write(val.body)
+			}
+			return
+		}
+	}))
+	cfg := config.NewDefaultCGRConfig()
+	cfg.SentryPeerCfg().ClientID = "ererwffwssf"
+	cfg.SentryPeerCfg().ClientSecret = "3354rf43f34sf"
+	cfg.SentryPeerCfg().TokenUrl = testServer.URL + "/oauth/token"
+	cfg.SentryPeerCfg().IpsUrl = testServer.URL + "/api/ip-addresses"
+	cfg.SentryPeerCfg().NumbersUrl = testServer.URL + "/api/phone-numbers"
+	cfg.AttributeSCfg().IndexedSelects = false
+	dm := NewDataManager(NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items), nil, nil)
+	if err := dm.SetAttributeProfile(&AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "ATTR_CHECK_DESTINATION",
+		Contexts:  []string{},
+		FilterIDs: []string{"*sentrypeer:~*req.Destination:*number"},
+		Attributes: []*Attribute{
+			{
+				Path:  "*req.Destination",
+				Type:  utils.MetaConstant,
+				Value: config.NewRSRParsersMustCompile("NUM", utils.InfieldSep),
+			}},
+		Blocker: false,
+		Weight:  20}, true); err != nil {
+		t.Error(err)
+	}
+	filterS := NewFilterS(cfg, nil, dm)
+	alS := NewAttributeService(dm, filterS, cfg)
+	var rply AttrSProcessEventReply
+	expected := AttrSProcessEventReply{
+		MatchedProfiles: []string{"cgrates.org:ATTR_CHECK_DESTINATION"},
+		AlteredFields:   []string{"*req.Destination"},
+		CGREvent: &utils.CGREvent{
+			Tenant: "cgrates.org",
+			Time:   nil,
+			Event: map[string]any{
+				utils.AccountField: "account_1001",
+				utils.Destination:  "NUM",
+			},
+			APIOpts: map[string]any{
+				utils.OptsAttributesProcessRuns: 2,
+			},
+		},
+		blocker: false,
+	}
+	config.SetCgrConfig(cfg)
+	if err = alS.V1ProcessEvent(&utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "account_1001",
+			utils.Destination:  "453904509045",
+		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 2,
+		},
+	}, &rply); err != nil {
+		t.Errorf("Expected <%+v>, received <%+v>", nil, err)
+	} else if sort.Strings(rply.AlteredFields); !reflect.DeepEqual(expected, rply) {
+		t.Errorf("Expected <%+v>, received <%+v>", utils.ToJSON(expected), utils.ToJSON(rply))
+	}
+
+	if err = alS.V1ProcessEvent(&utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.AccountField: "account_1001",
+			utils.Destination:  "100",
+		},
+		APIOpts: map[string]any{
+			utils.OptsAttributesProcessRuns: 2,
+		},
+	}, &rply); err == nil {
+		t.Errorf("Expected <%+v>, received <%+v>", err, nil)
+	}
+
 }

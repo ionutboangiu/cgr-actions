@@ -7,11 +7,6 @@
 	"default_request_type": "*pseudoprepaid",			// default request type to consider when missing from requests: <""|*prepaid|*postpaid|*pseudoprepaid|*rated>
 },
 
-"cdre": {
-	"*default": {
-		"export_path": "/tmp/cgrates/cdre",			// path where the exported CDRs will be placed
-	},
-},
 
 "http_agent": [
 	{
@@ -31,7 +26,7 @@
 						"value": "*pseudoprepaid", "mandatory": true},	
 				],
 				"reply_fields":[
-					{"tag": "CDR_ID", "path": "CDR_RESPONSE.CDR_ID", "type": "*composed", 
+					{"tag": "CDR_ID", "path": "CDR_RESPONSE.CDR_ID", "type": "*variable", 
 						"value": "~*req.CDR_ID", "mandatory": true},
 				],
 			}

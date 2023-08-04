@@ -71,20 +71,18 @@ func testTpRatPlnITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpRatPlnCfgIn.StorDbCfg().Type,
 		tpRatPlnCfgIn.StorDbCfg().Host, tpRatPlnCfgIn.StorDbCfg().Port,
 		tpRatPlnCfgIn.StorDbCfg().Name, tpRatPlnCfgIn.StorDbCfg().User,
-		tpRatPlnCfgIn.StorDbCfg().Password, tpRatPlnCfgIn.GeneralCfg().DBDataEncoding, tpRatPlnCfgIn.StorDbCfg().SSLMode,
-		tpRatPlnCfgIn.StorDbCfg().MaxOpenConns, tpRatPlnCfgIn.StorDbCfg().MaxIdleConns,
-		tpRatPlnCfgIn.StorDbCfg().ConnMaxLifetime, tpRatPlnCfgIn.StorDbCfg().StringIndexedFields,
-		tpRatPlnCfgIn.StorDbCfg().PrefixIndexedFields, tpRatPlnCfgIn.StorDbCfg().Items)
+		tpRatPlnCfgIn.StorDbCfg().Password, tpRatPlnCfgIn.GeneralCfg().DBDataEncoding,
+		tpRatPlnCfgIn.StorDbCfg().StringIndexedFields, tpRatPlnCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpRatPlnCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpRatPlnCfgOut.StorDbCfg().Type,
 		tpRatPlnCfgOut.StorDbCfg().Host, tpRatPlnCfgOut.StorDbCfg().Port,
 		tpRatPlnCfgOut.StorDbCfg().Name, tpRatPlnCfgOut.StorDbCfg().User,
-		tpRatPlnCfgOut.StorDbCfg().Password, tpRatPlnCfgOut.GeneralCfg().DBDataEncoding, tpRatPlnCfgIn.StorDbCfg().SSLMode,
-		tpRatPlnCfgIn.StorDbCfg().MaxOpenConns, tpRatPlnCfgIn.StorDbCfg().MaxIdleConns,
-		tpRatPlnCfgIn.StorDbCfg().ConnMaxLifetime, tpRatPlnCfgIn.StorDbCfg().StringIndexedFields,
-		tpRatPlnCfgIn.StorDbCfg().PrefixIndexedFields, tpRatPlnCfgOut.StorDbCfg().Items)
+		tpRatPlnCfgOut.StorDbCfg().Password, tpRatPlnCfgOut.GeneralCfg().DBDataEncoding,
+		tpRatPlnCfgIn.StorDbCfg().StringIndexedFields, tpRatPlnCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpRatPlnCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -129,7 +127,7 @@ func testTpRatPlnITPopulate(t *testing.T) {
 		t.Error("Error when setting TpRatingPlans ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpRatPlnMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpRatPlnMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpRatingPlans ", err.Error())
 	}

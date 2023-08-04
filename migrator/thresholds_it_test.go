@@ -55,7 +55,8 @@ func TestThresholdsITRedis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trsCfgOut, err = config.NewCGRConfigFromPath(trsPathIn)
+	trsPathOut = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	trsCfgOut, err = config.NewCGRConfigFromPath(trsPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,8 @@ func TestThresholdsITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trsCfgOut, err = config.NewCGRConfigFromPath(trsPathIn)
+	trsPathOut = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	trsCfgOut, err = config.NewCGRConfigFromPath(trsPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,25 +144,30 @@ func TestThresholdsITMoveEncoding2(t *testing.T) {
 }
 
 func testTrsITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(trsCfgIn.DataDbCfg().DataDbType,
-		trsCfgIn.DataDbCfg().DataDbHost, trsCfgIn.DataDbCfg().DataDbPort,
-		trsCfgIn.DataDbCfg().DataDbName, trsCfgIn.DataDbCfg().DataDbUser,
-		trsCfgIn.DataDbCfg().DataDbPass, trsCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", trsCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(trsCfgIn.DataDbCfg().Type,
+		trsCfgIn.DataDbCfg().Host, trsCfgIn.DataDbCfg().Port,
+		trsCfgIn.DataDbCfg().Name, trsCfgIn.DataDbCfg().User,
+		trsCfgIn.DataDbCfg().Password, trsCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), trsCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(trsCfgOut.DataDbCfg().DataDbType,
-		trsCfgOut.DataDbCfg().DataDbHost, trsCfgOut.DataDbCfg().DataDbPort,
-		trsCfgOut.DataDbCfg().DataDbName, trsCfgOut.DataDbCfg().DataDbUser,
-		trsCfgOut.DataDbCfg().DataDbPass, trsCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", trsCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(trsCfgOut.DataDbCfg().Type,
+		trsCfgOut.DataDbCfg().Host, trsCfgOut.DataDbCfg().Port,
+		trsCfgOut.DataDbCfg().Name, trsCfgOut.DataDbCfg().User,
+		trsCfgOut.DataDbCfg().Password, trsCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), trsCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	trsMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(trsPathIn, trsPathOut) {
+		trsMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		trsMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -180,15 +187,15 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		UniqueID:       "testUUID",           // individual id
 		ThresholdType:  "*min_event_counter", //*min_event_counter, *max_event_counter, *min_balance_counter, *max_balance_counter, *min_balance, *max_balance, *balance_expired
 		ThresholdValue: 5.32,
-		Recurrent:      false,                          // reset excuted flag each run
-		MinSleep:       time.Duration(5) * time.Second, // Minimum duration between two executions in case of recurrent triggers
+		Recurrent:      false,           // reset excuted flag each run
+		MinSleep:       5 * time.Second, // Minimum duration between two executions in case of recurrent triggers
 		ExpirationDate: tim,
 		ActivationDate: tim,
 		Balance: &engine.BalanceFilter{
 			ID:             utils.StringPointer("TESTZ"),
 			Timings:        []*engine.RITiming{},
 			ExpirationDate: utils.TimePointer(tim),
-			Type:           utils.StringPointer(utils.MONETARY),
+			Type:           utils.StringPointer(utils.MetaMonetary),
 		},
 		Weight:            0,
 		ActionsID:         "Action1",
@@ -214,7 +221,7 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		},
 		Recurrent: true,
 		MinHits:   0,
-		MinSleep:  time.Duration(5 * time.Minute),
+		MinSleep:  5 * time.Minute,
 		Blocker:   false,
 		Weight:    20.0,
 		ActionIDs: []string{},
@@ -230,7 +237,7 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		},
 		MaxHits:   -1,
 		MinHits:   0,
-		MinSleep:  time.Duration(5 * time.Minute),
+		MinSleep:  5 * time.Minute,
 		Blocker:   false,
 		Weight:    20.0,
 		ActionIDs: []string{},
@@ -246,7 +253,7 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		},
 		Recurrent: false,
 		MinHits:   0,
-		MinSleep:  time.Duration(5 * time.Minute),
+		MinSleep:  5 * time.Minute,
 		Blocker:   false,
 		Weight:    20.0,
 		ActionIDs: []string{},
@@ -262,7 +269,7 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		},
 		MaxHits:   1,
 		MinHits:   0,
-		MinSleep:  time.Duration(5 * time.Minute),
+		MinSleep:  5 * time.Minute,
 		Blocker:   false,
 		Weight:    20.0,
 		ActionIDs: []string{},
@@ -334,13 +341,12 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		if err != nil {
 			t.Error("Error when migrating Thresholds ", err.Error())
 		}
-
 		result, err = trsMigrator.dmOut.DataManager().GetThresholdProfile(tresProf2.Tenant, tresProf2.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Error("Error when getting Thresholds ", err.Error())
 		}
 		if !reflect.DeepEqual(tresProf2, result) {
-			t.Errorf("Expectong: %+v, received: %+v", utils.ToJSON(tresProf2), utils.ToJSON(result))
+			t.Errorf("Expecting: %+v,\nReceived: %+v", utils.ToJSON(tresProf2), utils.ToJSON(result))
 		}
 
 		result, err = trsMigrator.dmOut.DataManager().GetThresholdProfile(tresProf3.Tenant, tresProf3.ID, false, false, utils.NonTransactional)
@@ -348,15 +354,17 @@ func testTrsITMigrateAndMove(t *testing.T) {
 			t.Error("Error when getting Thresholds ", err.Error())
 		}
 		if !reflect.DeepEqual(tresProf3, result) {
-			t.Errorf("Expectong: %+v, received: %+v", utils.ToJSON(tresProf3), utils.ToJSON(result))
+			t.Errorf("Expecting: %+v,\nReceived: %+v", utils.ToJSON(tresProf3), utils.ToJSON(result))
 		}
-
+		if trsMigrator.stats[utils.Thresholds] != 4 {
+			t.Errorf("Expected 4, received: %v", trsMigrator.stats[utils.Thresholds])
+		}
 	case utils.Move:
 		if err := trsMigrator.dmIN.DataManager().SetThresholdProfile(tresProf, false); err != nil {
 			t.Error("Error when setting Thresholds ", err.Error())
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := trsMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := trsMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for Thresholds ", err.Error())
 		}
@@ -368,16 +376,20 @@ func testTrsITMigrateAndMove(t *testing.T) {
 		if err != nil {
 			t.Error("Error when getting Thresholds ", err.Error())
 		}
-		if !reflect.DeepEqual(tresProf.ID, result.ID) {
-			t.Errorf("Expecting: %+v, received: %+v", tresProf.ID, result.ID)
-		} else if !reflect.DeepEqual(tresProf.Tenant, result.Tenant) {
-			t.Errorf("Expecting: %+v, received: %+v", tresProf.Tenant, result.Tenant)
-		} else if !reflect.DeepEqual(tresProf.Weight, result.Weight) {
-			t.Errorf("Expecting: %+v, received: %+v", tresProf.Weight, result.Weight)
-		} else if !reflect.DeepEqual(tresProf.ActivationInterval, result.ActivationInterval) {
-			t.Errorf("Expecting: %+v, received: %+v", tresProf.ActivationInterval, result.ActivationInterval)
-		} else if !reflect.DeepEqual(tresProf.MinSleep, result.MinSleep) {
-			t.Errorf("Expecting: %+v, received: %+v", tresProf.MinSleep, result.MinSleep)
+		if result != nil {
+			if !reflect.DeepEqual(tresProf.ID, result.ID) {
+				t.Errorf("Expecting: %+v, received: %+v", tresProf.ID, result.ID)
+			} else if !reflect.DeepEqual(tresProf.Tenant, result.Tenant) {
+				t.Errorf("Expecting: %+v, received: %+v", tresProf.Tenant, result.Tenant)
+			} else if !reflect.DeepEqual(tresProf.Weight, result.Weight) {
+				t.Errorf("Expecting: %+v, received: %+v", tresProf.Weight, result.Weight)
+			} else if !reflect.DeepEqual(tresProf.ActivationInterval, result.ActivationInterval) {
+				t.Errorf("Expecting: %+v, received: %+v", tresProf.ActivationInterval, result.ActivationInterval)
+			} else if !reflect.DeepEqual(tresProf.MinSleep, result.MinSleep) {
+				t.Errorf("Expecting: %+v, received: %+v", tresProf.MinSleep, result.MinSleep)
+			}
+		} else {
+			t.Error("result is nil")
 		}
 	}
 }

@@ -88,8 +88,6 @@ func testTpInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	tpCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpCfg)
 }
 
 // Remove data in both rating and accounting db
@@ -133,7 +131,7 @@ func testTpLoadTariffPlanFromFolder(t *testing.T) {
 
 func testTpBalanceCounter(t *testing.T) {
 	tStart := time.Date(2016, 3, 31, 0, 0, 0, 0, time.UTC)
-	cd := &engine.CallDescriptorWithArgDispatcher{
+	cd := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			Category:      "call",
 			Tenant:        "cgrates.org",
@@ -141,7 +139,7 @@ func testTpBalanceCounter(t *testing.T) {
 			Destination:   "+49",
 			DurationIndex: 0,
 			TimeStart:     tStart,
-			TimeEnd:       tStart.Add(time.Duration(20) * time.Second),
+			TimeEnd:       tStart.Add(20 * time.Second),
 		},
 	}
 	var cc engine.CallCost
@@ -154,14 +152,14 @@ func testTpBalanceCounter(t *testing.T) {
 	attrs := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1001"}
 	if err := tpRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
-	} else if acnt.UnitCounters[utils.MONETARY][1].Counters[0].Value != 20.0 {
+	} else if acnt.UnitCounters[utils.MetaMonetary][1].Counters[0].Value != 20.0 {
 		t.Errorf("Calling APIerSv2.GetBalance received: %s", utils.ToIJSON(acnt))
 	}
 }
 
 func testTpActionTriggers(t *testing.T) {
 	var atrs engine.ActionTriggers
-	if err := tpRPC.Call(utils.APIerSv1GetActionTriggers, v1.AttrGetActionTriggers{GroupIDs: []string{}}, &atrs); err != nil {
+	if err := tpRPC.Call(utils.APIerSv1GetActionTriggers, &v1.AttrGetActionTriggers{GroupIDs: []string{}}, &atrs); err != nil {
 		t.Error("Got error on APIerSv1.GetActionTriggers: ", err.Error())
 	} else if len(atrs) != 4 {
 		t.Errorf("Calling v1.GetActionTriggers got: %v", atrs)
@@ -170,7 +168,7 @@ func testTpActionTriggers(t *testing.T) {
 	if err := tpRPC.Call(utils.APIerSv1SetActionTrigger, v1.AttrSetActionTrigger{
 		GroupID:  "TestATR",
 		UniqueID: "Unique atr id",
-		ActionTrigger: map[string]interface{}{
+		ActionTrigger: map[string]any{
 			utils.BalanceID: utils.StringPointer("BID1"),
 		},
 	}, &reply); err != nil {
@@ -178,12 +176,12 @@ func testTpActionTriggers(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Calling v1.SetActionTrigger got: %v", reply)
 	}
-	if err := tpRPC.Call(utils.APIerSv1GetActionTriggers, v1.AttrGetActionTriggers{GroupIDs: []string{}}, &atrs); err != nil {
+	if err := tpRPC.Call(utils.APIerSv1GetActionTriggers, &v1.AttrGetActionTriggers{GroupIDs: []string{}}, &atrs); err != nil {
 		t.Error(err)
 	} else if len(atrs) != 5 {
 		t.Errorf("Calling v1.GetActionTriggers got: %v", atrs)
 	}
-	if err := tpRPC.Call(utils.APIerSv1GetActionTriggers, v1.AttrGetActionTriggers{GroupIDs: []string{"TestATR"}}, &atrs); err != nil {
+	if err := tpRPC.Call(utils.APIerSv1GetActionTriggers, &v1.AttrGetActionTriggers{GroupIDs: []string{"TestATR"}}, &atrs); err != nil {
 		t.Error("Got error on APIerSv1.GetActionTriggers: ", err.Error())
 	} else if len(atrs) != 1 {
 		t.Errorf("Calling v1.GetActionTriggers got: %v", atrs)
@@ -215,9 +213,9 @@ func testTpZeroCost(t *testing.T) {
 		// if this happens try to run this test manualy
 		return
 	}
-	balanceValueBefore := acnt.BalanceMap[utils.MONETARY][0].Value
+	balanceValueBefore := acnt.BalanceMap[utils.MetaMonetary][0].Value
 	tStart := time.Date(2016, 3, 31, 0, 0, 0, 0, time.UTC)
-	cd := &engine.CallDescriptorWithArgDispatcher{
+	cd := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			Category:      "call",
 			Tenant:        "cgrates.org",
@@ -226,7 +224,7 @@ func testTpZeroCost(t *testing.T) {
 			Destination:   "+49",
 			DurationIndex: 0,
 			TimeStart:     tStart,
-			TimeEnd:       tStart.Add(time.Duration(20) * time.Second),
+			TimeEnd:       tStart.Add(20 * time.Second),
 		},
 	}
 	var cc engine.CallCost
@@ -237,14 +235,14 @@ func testTpZeroCost(t *testing.T) {
 	}
 	if err := tpRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
-	} else if acnt.BalanceMap[utils.MONETARY][0].Value != balanceValueBefore {
+	} else if acnt.BalanceMap[utils.MetaMonetary][0].Value != balanceValueBefore {
 		t.Errorf("Calling APIerSv2.GetAccount received: %s", utils.ToIJSON(acnt))
 	}
 }
 
 func testTpZeroNegativeCost(t *testing.T) {
 	tStart := time.Date(2016, 3, 31, 0, 0, 0, 0, time.UTC)
-	cd := &engine.CallDescriptorWithArgDispatcher{
+	cd := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			Category:      "call",
 			Tenant:        "cgrates.org",
@@ -253,7 +251,7 @@ func testTpZeroNegativeCost(t *testing.T) {
 			Destination:   "+4915",
 			DurationIndex: 0,
 			TimeStart:     tStart,
-			TimeEnd:       tStart.Add(time.Duration(20) * time.Second),
+			TimeEnd:       tStart.Add(20 * time.Second),
 		},
 	}
 	var cc engine.CallCost
@@ -266,7 +264,7 @@ func testTpZeroNegativeCost(t *testing.T) {
 	attrs := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1013"}
 	if err := tpRPC.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
-	} else if acnt.BalanceMap[utils.VOICE][0].Value != 100.0 {
+	} else if acnt.BalanceMap[utils.MetaVoice][0].Value != 100.0 {
 		t.Errorf("Calling APIerSv2.GetAccount received: %s", utils.ToIJSON(acnt))
 	}
 }
@@ -303,26 +301,9 @@ func testTpExecuteActionCgrRpcAcc(t *testing.T) {
 	}
 }
 
-// Deprecated
-// func //(t *testing.T) {
-// 	var reply string
-// 	if err := tpRPC.Call(utils.APIerSv2ExecuteAction, utils.AttrExecuteAction{
-// 		ActionsId: "RPC_CDRSTATS",
-// 	}, &reply); err != nil {
-// 		t.Error("Got error on APIerSv2.ExecuteAction: ", err.Error())
-// 	} else if reply != utils.OK {
-// 		t.Errorf("Calling ExecuteAction got reply: %s", reply)
-// 	}
-// 	var queue engine.CDRStatsQueue
-// 	time.Sleep(20 * time.Millisecond)
-// 	if err := tpRPC.Call(utils.CDRStatsV1GetQueue, "qtest", &queue); err != nil {
-// 		t.Error("Got error on CDRStatsV1.GetQueue: ", err.Error())
-// 	}
-// }
-
 func testTpCreateExecuteActionMatch(t *testing.T) {
 	var reply string
-	if err := tpRPC.Call(utils.APIerSv2SetActions, utils.AttrSetActions{
+	if err := tpRPC.Call(utils.APIerSv2SetActions, &utils.AttrSetActions{
 		ActionsId: "PAYMENT_2056bd2fe137082970f97102b64e42fd",
 		Actions: []*utils.TPAction{
 			{
@@ -362,15 +343,15 @@ func testTpCreateExecuteActionMatch(t *testing.T) {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
 	}
 	if len(acnt.BalanceMap) != 1 ||
-		len(acnt.BalanceMap[utils.MONETARY]) != 1 ||
-		acnt.BalanceMap[utils.MONETARY].GetTotalValue() != 21 {
+		len(acnt.BalanceMap[utils.MetaMonetary]) != 1 ||
+		acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != 21 {
 		t.Error("error matching previous created balance: ", utils.ToIJSON(acnt.BalanceMap))
 	}
 }
 
 func testTpSetRemoveActions(t *testing.T) {
 	var reply string
-	if err := tpRPC.Call(utils.APIerSv2SetActions, utils.AttrSetActions{
+	if err := tpRPC.Call(utils.APIerSv2SetActions, &utils.AttrSetActions{
 		ActionsId: "TO_BE_DELETED",
 		Actions: []*utils.TPAction{
 			{
@@ -387,7 +368,7 @@ func testTpSetRemoveActions(t *testing.T) {
 		t.Errorf("Calling APIerSv2.SetActions got reply: %s", reply)
 	}
 	actionsMap := make(map[string]engine.Actions)
-	if err := tpRPC.Call(utils.APIerSv2GetActions, v2.AttrGetActions{
+	if err := tpRPC.Call(utils.APIerSv2GetActions, &v2.AttrGetActions{
 		ActionIDs: []string{"PAYMENT_2056bd2fe137082970f97102b64e42fd"},
 	}, &actionsMap); err != nil {
 		t.Error("Got error on APIerSv2.GetActions: ", err.Error())
@@ -401,7 +382,7 @@ func testTpSetRemoveActions(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Calling APIerSv2.RemoveActions got reply: %s", reply)
 	}
-	if err := tpRPC.Call(utils.APIerSv2GetActions, v2.AttrGetActions{
+	if err := tpRPC.Call(utils.APIerSv2GetActions, &v2.AttrGetActions{
 		ActionIDs: []string{"PAYMENT_2056bd2fe137082970f97102b64e42fd"},
 	}, &actionsMap); err == nil {
 		t.Error("no error on APIerSv2.GetActions: ", err)
@@ -410,7 +391,7 @@ func testTpSetRemoveActions(t *testing.T) {
 
 func testTpRemoveActionsRefenced(t *testing.T) {
 	actionsMap := make(map[string]engine.Actions)
-	if err := tpRPC.Call(utils.APIerSv2GetActions, v2.AttrGetActions{
+	if err := tpRPC.Call(utils.APIerSv2GetActions, &v2.AttrGetActions{
 		ActionIDs: []string{"TOPUP_VOICE"},
 	}, &actionsMap); err != nil {
 		t.Error("Got error on APIerSv2.GetActions: ", err.Error())

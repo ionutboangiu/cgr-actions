@@ -29,7 +29,7 @@ import (
 // Structs here are one to one mapping of the tables and fields
 // to be used by gorm orm
 
-type TpTiming struct {
+type TimingMdl struct {
 	Id        int64
 	Tpid      string
 	Tag       string `index:"0" re:"\w+\s*,\s*"`
@@ -41,7 +41,11 @@ type TpTiming struct {
 	CreatedAt time.Time
 }
 
-type TpDestination struct {
+func (TimingMdl) TableName() string {
+	return utils.TBLTPTimings
+}
+
+type DestinationMdl struct {
 	Id        int64
 	Tpid      string
 	Tag       string `index:"0" re:"\w+\s*,\s*"`
@@ -49,7 +53,11 @@ type TpDestination struct {
 	CreatedAt time.Time
 }
 
-type TpRate struct {
+func (DestinationMdl) TableName() string {
+	return utils.TBLTPDestinations
+}
+
+type RateMdl struct {
 	Id                 int64
 	Tpid               string
 	Tag                string  `index:"0" re:"\w+\s*"`
@@ -61,7 +69,11 @@ type TpRate struct {
 	CreatedAt          time.Time
 }
 
-type TpDestinationRate struct {
+func (RateMdl) TableName() string {
+	return utils.TBLTPRates
+}
+
+type DestinationRateMdl struct {
 	Id               int64
 	Tpid             string
 	Tag              string  `index:"0" re:"\w+\s*"`
@@ -74,7 +86,11 @@ type TpDestinationRate struct {
 	CreatedAt        time.Time
 }
 
-type TpRatingPlan struct {
+func (DestinationRateMdl) TableName() string {
+	return utils.TBLTPDestinationRates
+}
+
+type RatingPlanMdl struct {
 	Id           int64
 	Tpid         string
 	Tag          string  `index:"0" re:"\w+\s*,\s*"`
@@ -84,7 +100,11 @@ type TpRatingPlan struct {
 	CreatedAt    time.Time
 }
 
-type TpRatingProfile struct {
+func (RatingPlanMdl) TableName() string {
+	return utils.TBLTPRatingPlans
+}
+
+type RatingProfileMdl struct {
 	Id               int64
 	Tpid             string
 	Loadid           string
@@ -97,13 +117,17 @@ type TpRatingProfile struct {
 	CreatedAt        time.Time
 }
 
-type TpAction struct {
+func (RatingProfileMdl) TableName() string {
+	return utils.TBLTPRatingProfiles
+}
+
+type ActionMdl struct {
 	Id              int64
 	Tpid            string
 	Tag             string  `index:"0" re:"\w+\s*"`
 	Action          string  `index:"1" re:"\*\w+\s*"`
 	ExtraParameters string  `index:"2" re:"\S+\s*"`
-	Filter          string  `index:"3" re:"\S+\s*"`
+	Filters         string  `index:"3" re:"\S+\s*"`
 	BalanceTag      string  `index:"4" re:"\w+\s*"`
 	BalanceType     string  `index:"5" re:"\*\w+\s*"`
 	Categories      string  `index:"6" re:""`
@@ -120,7 +144,11 @@ type TpAction struct {
 	CreatedAt       time.Time
 }
 
-type TpActionPlan struct {
+func (ActionMdl) TableName() string {
+	return utils.TBLTPActions
+}
+
+type ActionPlanMdl struct {
 	Id         int64
 	Tpid       string
 	Tag        string  `index:"0" re:"\w+\s*,\s*"`
@@ -130,7 +158,11 @@ type TpActionPlan struct {
 	CreatedAt  time.Time
 }
 
-type TpActionTrigger struct {
+func (ActionPlanMdl) TableName() string {
+	return utils.TBLTPActionPlans
+}
+
+type ActionTriggerMdl struct {
 	Id                     int64
 	Tpid                   string
 	Tag                    string  `index:"0" re:"\w+"`
@@ -157,7 +189,11 @@ type TpActionTrigger struct {
 	CreatedAt              time.Time
 }
 
-type TpAccountAction struct {
+func (ActionTriggerMdl) TableName() string {
+	return utils.TBLTPActionTriggers
+}
+
+type AccountActionMdl struct {
 	Id                int64
 	Tpid              string
 	Loadid            string
@@ -170,8 +206,12 @@ type TpAccountAction struct {
 	CreatedAt         time.Time
 }
 
-func (aa *TpAccountAction) SetAccountActionId(id string) error {
-	ids := strings.Split(id, utils.CONCATENATED_KEY_SEP)
+func (AccountActionMdl) TableName() string {
+	return utils.TBLTPAccountActions
+}
+
+func (aa *AccountActionMdl) SetAccountActionId(id string) error {
+	ids := strings.Split(id, utils.ConcatenatedKeySep)
 	if len(ids) != 3 {
 		return fmt.Errorf("Wrong TP Account Action Id: %s", id)
 	}
@@ -181,11 +221,11 @@ func (aa *TpAccountAction) SetAccountActionId(id string) error {
 	return nil
 }
 
-func (aa *TpAccountAction) GetAccountActionId() string {
+func (aa *AccountActionMdl) GetAccountActionId() string {
 	return utils.ConcatenatedKey(aa.Tenant, aa.Account)
 }
 
-type TpSharedGroup struct {
+type SharedGroupMdl struct {
 	Id            int64
 	Tpid          string
 	Tag           string `index:"0" re:"\w+\s*"`
@@ -195,7 +235,11 @@ type TpSharedGroup struct {
 	CreatedAt     time.Time
 }
 
-type TpResource struct {
+func (SharedGroupMdl) TableName() string {
+	return utils.TBLTPSharedGroups
+}
+
+type ResourceMdl struct {
 	PK                 uint `gorm:"primary_key"`
 	Tpid               string
 	Tenant             string  `index:"0" re:""`
@@ -212,7 +256,11 @@ type TpResource struct {
 	CreatedAt          time.Time
 }
 
-type TpStat struct {
+func (ResourceMdl) TableName() string {
+	return utils.TBLTPResources
+}
+
+type StatMdl struct {
 	PK                 uint `gorm:"primary_key"`
 	Tpid               string
 	Tenant             string  `index:"0" re:""`
@@ -231,7 +279,11 @@ type TpStat struct {
 	CreatedAt          time.Time
 }
 
-type TpThreshold struct {
+func (StatMdl) TableName() string {
+	return utils.TBLTPStats
+}
+
+type ThresholdMdl struct {
 	PK                 uint `gorm:"primary_key"`
 	Tpid               string
 	Tenant             string  `index:"0" re:""`
@@ -248,7 +300,11 @@ type TpThreshold struct {
 	CreatedAt          time.Time
 }
 
-type TpFilter struct {
+func (ThresholdMdl) TableName() string {
+	return utils.TBLTPThresholds
+}
+
+type FilterMdl struct {
 	PK                 uint `gorm:"primary_key"`
 	Tpid               string
 	Tenant             string `index:"0" re:""`
@@ -258,6 +314,10 @@ type TpFilter struct {
 	Values             string `index:"4" re:""`
 	ActivationInterval string `index:"5" re:""`
 	CreatedAt          time.Time
+}
+
+func (FilterMdl) TableName() string {
+	return utils.TBLTPFilters
 }
 
 type CDRsql struct {
@@ -275,7 +335,7 @@ type CDRsql struct {
 	Subject     string
 	Destination string
 	SetupTime   time.Time
-	AnswerTime  time.Time
+	AnswerTime  *time.Time
 	Usage       int64
 	ExtraFields string
 	CostSource  string
@@ -291,8 +351,8 @@ func (t CDRsql) TableName() string {
 	return utils.CDRsTBL
 }
 
-func (t CDRsql) AsMapStringInterface() (out map[string]interface{}) {
-	out = make(map[string]interface{})
+func (t CDRsql) AsMapStringInterface() (out map[string]any) {
+	out = make(map[string]any)
 	// out["id"] = t.ID // ignore ID
 	out["cgrid"] = t.Cgrid
 	out["run_id"] = t.RunID
@@ -348,29 +408,33 @@ func (t TBLVersion) TableName() string {
 	return utils.TBLVersions
 }
 
-type TpSupplier struct {
-	PK                    uint `gorm:"primary_key"`
-	Tpid                  string
-	Tenant                string  `index:"0" re:""`
-	ID                    string  `index:"1" re:""`
-	FilterIDs             string  `index:"2" re:""`
-	ActivationInterval    string  `index:"3" re:""`
-	Sorting               string  `index:"4" re:""`
-	SortingParameters     string  `index:"5" re:""`
-	SupplierID            string  `index:"6" re:""`
-	SupplierFilterIDs     string  `index:"7" re:""`
-	SupplierAccountIDs    string  `index:"8" re:""`
-	SupplierRatingplanIDs string  `index:"9" re:""`
-	SupplierResourceIDs   string  `index:"10" re:""`
-	SupplierStatIDs       string  `index:"11" re:""`
-	SupplierWeight        float64 `index:"12" re:"\d+\.?\d*"`
-	SupplierBlocker       bool    `index:"13" re:""`
-	SupplierParameters    string  `index:"14" re:""`
-	Weight                float64 `index:"15" re:"\d+\.?\d*"`
-	CreatedAt             time.Time
+type RouteMdl struct {
+	PK                 uint `gorm:"primary_key"`
+	Tpid               string
+	Tenant             string  `index:"0" re:""`
+	ID                 string  `index:"1" re:""`
+	FilterIDs          string  `index:"2" re:""`
+	ActivationInterval string  `index:"3" re:""`
+	Sorting            string  `index:"4" re:""`
+	SortingParameters  string  `index:"5" re:""`
+	RouteID            string  `index:"6" re:""`
+	RouteFilterIDs     string  `index:"7" re:""`
+	RouteAccountIDs    string  `index:"8" re:""`
+	RouteRatingplanIDs string  `index:"9" re:""`
+	RouteResourceIDs   string  `index:"10" re:""`
+	RouteStatIDs       string  `index:"11" re:""`
+	RouteWeight        float64 `index:"12" re:"\d+\.?\d*"`
+	RouteBlocker       bool    `index:"13" re:""`
+	RouteParameters    string  `index:"14" re:""`
+	Weight             float64 `index:"15" re:"\d+\.?\d*"`
+	CreatedAt          time.Time
 }
 
-type TPAttribute struct {
+func (RouteMdl) TableName() string {
+	return utils.TBLTPRoutes
+}
+
+type AttributeMdl struct {
 	PK                 uint `gorm:"primary_key"`
 	Tpid               string
 	Tenant             string  `index:"0" re:""`
@@ -387,7 +451,11 @@ type TPAttribute struct {
 	CreatedAt          time.Time
 }
 
-type TPCharger struct {
+func (AttributeMdl) TableName() string {
+	return utils.TBLTPAttributes
+}
+
+type ChargerMdl struct {
 	PK                 uint `gorm:"primary_key"`
 	Tpid               string
 	Tenant             string  `index:"0" re:""`
@@ -400,7 +468,11 @@ type TPCharger struct {
 	CreatedAt          time.Time
 }
 
-type TPDispatcherProfile struct {
+func (ChargerMdl) TableName() string {
+	return utils.TBLTPChargers
+}
+
+type DispatcherProfileMdl struct {
 	PK                 uint    `gorm:"primary_key"`
 	Tpid               string  //
 	Tenant             string  `index:"0" re:""`
@@ -419,13 +491,29 @@ type TPDispatcherProfile struct {
 	CreatedAt          time.Time
 }
 
-type TPDispatcherHost struct {
-	PK        uint   `gorm:"primary_key"`
-	Tpid      string //
-	Tenant    string `index:"0" re:""`
-	ID        string `index:"1" re:""`
-	Address   string `index:"2" re:""`
-	Transport string `index:"3" re:""`
-	TLS       bool   `index:"4" re:""`
-	CreatedAt time.Time
+func (DispatcherProfileMdl) TableName() string {
+	return utils.TBLTPDispatchers
+}
+
+type DispatcherHostMdl struct {
+	PK                   uint   `gorm:"primary_key"`
+	Tpid                 string //
+	Tenant               string `index:"0" re:""`
+	ID                   string `index:"1" re:""`
+	Address              string `index:"2" re:""`
+	Transport            string `index:"3" re:""`
+	ConnectAttempts      int    `index:"4" re:""`
+	Reconnects           int    `index:"5" re:""`
+	MaxReconnectInterval string `index:"6" re:""`
+	ConnectTimeout       string `index:"7" re:""`
+	ReplyTimeout         string `index:"8" re:""`
+	TLS                  bool   `index:"9" re:""`
+	ClientKey            string `index:"10" re:""`
+	ClientCertificate    string `index:"11" re:""`
+	CaCertificate        string `index:"12" re:""`
+	CreatedAt            time.Time
+}
+
+func (DispatcherHostMdl) TableName() string {
+	return utils.TBLTPDispatcherHosts
 }

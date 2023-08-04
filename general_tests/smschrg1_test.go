@@ -27,12 +27,13 @@ import (
 )
 
 func TestSMSSetStorageSmsChrg1(t *testing.T) {
-	dflt, _ := config.NewDefaultCGRConfig()
-	config.SetCgrConfig(dflt)
-	config.CgrConfig().CacheCfg()[utils.CacheRatingPlans].Precache = true // precache rating plan
-	data := engine.NewInternalDB(nil, nil, true, config.CgrConfig().DataDbCfg().Items)
+	cfg := config.NewDefaultCGRConfig()
+	config.SetCgrConfig(cfg)
+	config.CgrConfig().CacheCfg().Partitions[utils.CacheRatingPlans].Precache = true // precache rating plan
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dataDB = engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	engine.SetDataStorage(dataDB)
+	engine.Cache.Clear(nil)
 }
 
 func TestSMSLoadCsvTpSmsChrg1(t *testing.T) {
@@ -41,8 +42,13 @@ func TestSMSLoadCsvTpSmsChrg1(t *testing.T) {
 	destinationRates := `DR_SMS_1,*any,RT_SMS_5c,*up,4,0,`
 	ratingPlans := `RP_SMS1,DR_SMS_1,ALWAYS,10`
 	ratingProfiles := `cgrates.org,sms,*any,2012-01-01T00:00:00Z,RP_SMS1,`
-	csvr, err := engine.NewTpReader(dataDB.DataDB(), engine.NewStringCSVStorage(utils.CSV_SEP, "", timings, rates, destinationRates, ratingPlans, ratingProfiles,
-		"", "", "", "", "", "", "", "", "", "", "", "", "", ""), "", "", nil, nil)
+	csvr, err := engine.NewTpReader(dataDB.DataDB(), engine.NewStringCSVStorage(utils.CSVSep,
+		utils.EmptyString, timings, rates, destinationRates, ratingPlans, ratingProfiles,
+		utils.EmptyString, utils.EmptyString, utils.EmptyString, utils.EmptyString,
+		utils.EmptyString, utils.EmptyString, utils.EmptyString, utils.EmptyString,
+		utils.EmptyString, utils.EmptyString, utils.EmptyString, utils.EmptyString,
+		utils.EmptyString, utils.EmptyString), utils.EmptyString,
+		utils.EmptyString, nil, nil, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -62,20 +68,18 @@ func TestSMSLoadCsvTpSmsChrg1(t *testing.T) {
 		t.Fatal(err)
 	}
 	csvr.WriteToDatabase(false, false)
-	engine.Cache.Clear(nil)
-	dataDB.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	engine.LoadAllDataDBToCache(dataDB)
 
-	if cachedRPlans := len(engine.Cache.GetItemIDs(utils.CacheRatingPlans, "")); cachedRPlans != 1 {
+	if cachedRPlans := len(engine.Cache.GetItemIDs(utils.CacheRatingPlans, utils.EmptyString)); cachedRPlans != 1 {
 		t.Error("Wrong number of cached rating plans found", cachedRPlans)
 	}
-	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, "")); cachedRProfiles != 0 {
+	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, utils.EmptyString)); cachedRProfiles != 1 {
 		t.Error("Wrong number of cached rating profiles found", cachedRProfiles)
 	}
 }
 
 func TestSMSGetDataCostSmsChrg1(t *testing.T) {
-	usageDur := time.Duration(1)
+	usageDur := time.Nanosecond
 	timeStart := time.Date(2014, 3, 4, 0, 0, 0, 0, time.Local)
 	cd := &engine.CallDescriptor{
 		Category:      "sms",
@@ -86,7 +90,7 @@ func TestSMSGetDataCostSmsChrg1(t *testing.T) {
 		TimeStart:     timeStart,
 		TimeEnd:       timeStart.Add(usageDur),
 		DurationIndex: usageDur,
-		ToR:           utils.SMS,
+		ToR:           utils.MetaSMS,
 	}
 	if cc, err := cd.GetCost(); err != nil {
 		t.Error(err)

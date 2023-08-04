@@ -21,20 +21,20 @@ package utils
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
 	"strconv"
 	"time"
 )
 
-// for computing a dynamic value for Value field
+// ValueFormula for computing a dynamic value for Value field
 type ValueFormula struct {
 	Method string
-	Params map[string]interface{}
+	Params map[string]any
 	Static float64
 }
 
 func ParseBalanceFilterValue(tor string, val string) (*ValueFormula, error) {
-	if tor == VOICE { // VOICE balance is parsed as nanoseconds with support for time duration strings
+	if tor == MetaVoice { // Voice balance is parsed as nanoseconds with support for time duration strings
 		if d, err := ParseDurationWithNanosecs(val); err == nil {
 			return &ValueFormula{Static: float64(d.Nanoseconds())}, err
 		}
@@ -48,7 +48,7 @@ func ParseBalanceFilterValue(tor string, val string) (*ValueFormula, error) {
 	return nil, errors.New("Invalid value: " + val)
 }
 
-type valueFormula func(map[string]interface{}) float64
+type valueFormula func(map[string]any) float64
 
 const (
 	INCREMENTAL = "*incremental"
@@ -62,7 +62,7 @@ func (vf *ValueFormula) String() string {
 	return ToJSON(vf)
 }
 
-func incrementalFormula(params map[string]interface{}) float64 {
+func incrementalFormula(params map[string]any) float64 {
 	// check parameters
 	unitsInterface, unitsFound := params["Units"]
 	intervalInterface, intervalFound := params["Interval"]
@@ -73,7 +73,6 @@ func incrementalFormula(params map[string]interface{}) float64 {
 	}
 	units, ok := unitsInterface.(float64)
 	if !ok {
-		log.Print("units")
 		return 0.0
 	}
 	var interval string
@@ -123,4 +122,42 @@ func incrementalFormula(params map[string]interface{}) float64 {
 		}
 	}
 	return 0.0
+}
+
+func (vf *ValueFormula) FieldAsInterface(fldPath []string) (val any, err error) {
+	if vf == nil || len(fldPath) == 0 {
+		return nil, ErrNotFound
+	}
+	switch fldPath[0] {
+	default:
+		opath, indx := GetPathIndexString(fldPath[0])
+		if indx != nil && opath == Params {
+			return MapStorage(vf.Params).FieldAsInterface(append([]string{*indx}, fldPath[1:]...))
+		}
+		return nil, fmt.Errorf("unsupported field prefix: <%s>", fldPath[0])
+	case Method:
+		if len(fldPath) != 1 {
+			return nil, ErrNotFound
+		}
+		return vf.Method, nil
+	case Static:
+		if len(fldPath) != 1 {
+			return nil, ErrNotFound
+		}
+		return vf.Static, nil
+	case Params:
+		if len(fldPath) == 1 {
+			return vf.Params, nil
+		}
+		return MapStorage(vf.Params).FieldAsInterface(fldPath[1:])
+	}
+}
+
+func (vf *ValueFormula) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = vf.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return IfaceAsString(iface), nil
 }

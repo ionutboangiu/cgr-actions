@@ -1,3 +1,6 @@
+//go:build benchmark
+// +build benchmark
+
 /*
 Real-time Online/Offline Charging System (OCS) for Telecom & ISP environments
 Copyright (C) ITsysCOM GmbH
@@ -46,11 +49,10 @@ var (
 func startRPC() {
 	var err error
 	sBenchCfg, err = config.NewCGRConfigFromPath(
-		path.Join(config.CgrConfig().DataFolderPath, "conf", "samples", "tutmongo"))
+		path.Join(*dataDir, "conf", "samples", "tutmongo"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	config.SetCgrConfig(sBenchCfg)
 	if sBenchRPC, err = jsonrpc.Dial(utils.TCP, sBenchCfg.ListenCfg().RPCJSONListen); err != nil {
 		log.Fatalf("Error at dialing rcp client:%v\n", err)
 	}
@@ -64,22 +66,22 @@ func loadTP() {
 		log.Fatal(err)
 	}
 	attrs := &utils.AttrLoadTpFromFolder{
-		FolderPath: path.Join(config.CgrConfig().DataFolderPath, "tariffplans", "tutorial")}
+		FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}
 	var tpLoadInst utils.LoadInstance
 	if err := sBenchRPC.Call(utils.APIerSv2LoadTariffPlanFromFolder,
 		attrs, &tpLoadInst); err != nil {
 		log.Fatal(err)
 	}
-	time.Sleep(time.Duration(100) * time.Millisecond) // Give time for scheduler to execute topups
+	time.Sleep(100 * time.Millisecond) // Give time for scheduler to execute topups
 }
 
 func addBalance(sBenchRPC *rpc.Client, sraccount string) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     sraccount,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       5 * float64(time.Hour),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestDynamicDebitBalance",
 		},
 	}
@@ -112,20 +114,20 @@ func initSession(i int) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.ToR:         utils.VOICE,
+			Event: map[string]any{
+				utils.EventName:   "TEST_EVENT",
+				utils.ToR:         utils.MetaVoice,
 				utils.Category:    "call",
 				utils.Tenant:      "cgrates.org",
-				utils.RequestType: utils.META_PREPAID,
+				utils.RequestType: utils.MetaPrepaid,
 				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
 			},
 		},
 	}
 	initArgs.ID = utils.UUIDSha1Prefix()
 	initArgs.Event[utils.OriginID] = utils.UUIDSha1Prefix()
-	initArgs.Event[utils.Account] = fmt.Sprintf("1001%v", i)
-	initArgs.Event[utils.Subject] = "1001" //initArgs.Event[utils.Account]
+	initArgs.Event[utils.AccountField] = fmt.Sprintf("1001%v", i)
+	initArgs.Event[utils.Subject] = "1001" //initArgs.Event[utils.AccountField]
 	initArgs.Event[utils.Destination] = fmt.Sprintf("1002%v", i)
 
 	var initRpl *V1InitSessionReply
@@ -192,7 +194,7 @@ func BenchmarkEncodingJSON(b *testing.B) {
 	}
 	var err error
 	sBenchCfg, err = config.NewCGRConfigFromPath(
-		path.Join(config.CgrConfig().DataFolderPath, "conf", "samples", "tutmongo"))
+		path.Join(*dataDir, "conf", "samples", "tutmongo"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -214,7 +216,7 @@ func BenchmarkEncodingGOB(b *testing.B) {
 	}
 	var err error
 	sBenchCfg, err = config.NewCGRConfigFromPath(
-		path.Join(config.CgrConfig().DataFolderPath, "conf", "samples", "tutmongo"))
+		path.Join(*dataDir, "conf", "samples", "tutmongo"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -241,7 +243,7 @@ func benchmarkSendInitSessionx10(b *testing.B) {
 		sendInitx10(i * 10)
 		tStart := time.Now()
 		_ = getCount()
-		if tDur := time.Since(tStart); tDur > 100*time.Millisecond && tDur < time.Second {
+		if tDur := time.Now().Sub(tStart); tDur > 100*time.Millisecond && tDur < time.Second {
 			fmt.Printf("Expected answer in less than %v receved answer after %v for %v sessions\n", 100*time.Millisecond, tDur, i*10+10)
 		} else if tDur >= time.Second {
 			b.Fatalf("Fatal:Expected answer in less than %v receved answer after %v for %v sessions", time.Second, tDur, i*10+10)

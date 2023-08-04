@@ -29,8 +29,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/cgrates/apier/v1"
-	"github.com/cgrates/cgrates/apier/v2"
+	v1 "github.com/cgrates/cgrates/apier/v1"
+	v2 "github.com/cgrates/cgrates/apier/v2"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/sessions"
@@ -126,11 +126,11 @@ func testSCncrLoadTP(t *testing.T) {
 			*dataDir, "tariffplans", "tp1cnt")}, &loadInst); err != nil {
 		t.Error(err)
 	}
-	attrPrfl := &v2.AttributeWithCache{
+	attrPrfl := &v2.AttributeWithAPIOpts{
 		ExternalAttributeProfile: &engine.ExternalAttributeProfile{
 			Tenant:   "cgrates.org",
 			ID:       "AttrConcurrentSessions",
-			Contexts: []string{utils.ANY},
+			Contexts: []string{utils.MetaAny},
 			Attributes: []*engine.ExternalAttribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "TestType",
@@ -150,7 +150,7 @@ func testSCncrLoadTP(t *testing.T) {
 
 func testSCncrRunSessions(t *testing.T) {
 	acntIDsSet := utils.NewStringSet(nil)
-	bufferTopup := time.Duration(8760) * time.Hour
+	bufferTopup := 8760 * time.Hour
 	for i := 0; i < *sCncrSessions; i++ {
 		acntID := fmt.Sprintf("100%d", utils.RandomInteger(100, 200))
 		if !acntIDsSet.Has(acntID) {
@@ -158,9 +158,9 @@ func testSCncrRunSessions(t *testing.T) {
 			argsAddBalance := &v1.AttrAddBalance{
 				Tenant:      "cgrates.org",
 				Account:     acntID,
-				BalanceType: utils.VOICE,
+				BalanceType: utils.MetaVoice,
 				Value:       float64(bufferTopup.Nanoseconds()),
-				Balance: map[string]interface{}{
+				Balance: map[string]any{
 					utils.ID: "BUFFER",
 				},
 			}
@@ -185,9 +185,9 @@ func testSCncrRunSessions(t *testing.T) {
 			Account: acntID}
 		if err = sCncrRPC.Call(utils.APIerSv2GetAccount, acntAttrs, &acnt); err != nil {
 			return
-		} else if vcBlnc := acnt.BalanceMap[utils.VOICE].GetTotalValue(); float64(bufferTopup.Nanoseconds())-vcBlnc > 1000000.0 { // eliminate rounding errors
+		} else if vcBlnc := acnt.BalanceMap[utils.MetaVoice].GetTotalValue(); float64(bufferTopup.Nanoseconds())-vcBlnc > 1000000.0 { // eliminate rounding errors
 			t.Errorf("unexpected voice balance received: %+v", utils.ToIJSON(acnt))
-		} else if mnBlnc := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); mnBlnc != 0 {
+		} else if mnBlnc := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); mnBlnc != 0 {
 			t.Errorf("unexpected monetary balance received: %+v", utils.ToIJSON(acnt))
 		}
 	}
@@ -198,20 +198,20 @@ func testRunSession(t *testing.T) {
 	defer wg.Done()       // decrease group counter one out from test
 	cpsPool <- struct{}{} // push here up to cps
 	go func() {           // allow more requests after a second
-		time.Sleep(time.Duration(time.Second))
+		time.Sleep(time.Second)
 		<-cpsPool
 	}()
 	acntID := <-acntIDs
 	originID := utils.GenUUID() // each test with it's own OriginID
 	// topup as much as we know we need for one session
-	mainTopup := time.Duration(90) * time.Second
+	mainTopup := 90 * time.Second
 	var addBlcRply string
 	argsAddBalance := &v1.AttrAddBalance{
 		Tenant:      "cgrates.org",
 		Account:     acntID,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       float64(mainTopup.Nanoseconds()),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:     "MAIN",
 			utils.Weight: 10,
 		},
@@ -231,14 +231,14 @@ func testRunSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     fmt.Sprintf("TestSCncrAuth%s", originID),
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.OriginID:    originID,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     acntID,
-				utils.Destination: fmt.Sprintf("%s%s", acntID, acntID),
-				utils.SetupTime:   time.Now(),
-				utils.Usage:       authDur,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.OriginID:     originID,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: acntID,
+				utils.Destination:  fmt.Sprintf("%s%s", acntID, acntID),
+				utils.SetupTime:    time.Now(),
+				utils.Usage:        authDur,
 			},
 		},
 	}
@@ -250,20 +250,20 @@ func testRunSession(t *testing.T) {
 		utils.RandomInteger(0, 100)) * time.Millisecond)
 
 	// Init the session
-	initUsage := 1 * time.Minute
+	initUsage := time.Minute
 	initArgs := &sessions.V1InitSessionArgs{
 		InitSession:   true,
 		GetAttributes: true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     fmt.Sprintf("TestSCncrInit%s", originID),
-			Event: map[string]interface{}{
-				utils.OriginID:    originID,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     acntID,
-				utils.Destination: fmt.Sprintf("%s%s", acntID, acntID),
-				utils.AnswerTime:  time.Now(),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.OriginID:     originID,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: acntID,
+				utils.Destination:  fmt.Sprintf("%s%s", acntID, acntID),
+				utils.AnswerTime:   time.Now(),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -280,14 +280,14 @@ func testRunSession(t *testing.T) {
 	// Update the session with relocate
 	initOriginID := originID
 	originID = utils.GenUUID()
-	updtUsage := 1 * time.Minute
+	updtUsage := time.Minute
 	updtArgs := &sessions.V1UpdateSessionArgs{
 		GetAttributes: true,
 		UpdateSession: true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     fmt.Sprintf("TestSCncrUpdate%s", originID),
-			Event: map[string]interface{}{
+			Event: map[string]any{
 				utils.OriginID:        originID,
 				utils.InitialOriginID: initOriginID,
 				utils.Usage:           updtUsage,
@@ -310,9 +310,9 @@ func testRunSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     fmt.Sprintf("TestSCncrTerminate%s", originID),
-			Event: map[string]interface{}{
+			Event: map[string]any{
 				utils.OriginID: originID,
-				utils.Usage:    time.Duration(90 * time.Second),
+				utils.Usage:    90 * time.Second,
 			},
 		},
 	}
@@ -327,11 +327,11 @@ func testRunSession(t *testing.T) {
 		utils.RandomInteger(0, 100)) * time.Millisecond)
 
 	// processCDR
-	argsCDR := &utils.CGREventWithArgDispatcher{
+	argsCDR := &utils.CGREventWithOpts{
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     fmt.Sprintf("TestSCncrCDR%s", originID),
-			Event: map[string]interface{}{
+			Event: map[string]any{
 				utils.OriginID: originID,
 			},
 		},
@@ -343,10 +343,10 @@ func testRunSession(t *testing.T) {
 	} else if rplyCDR != utils.OK {
 		t.Errorf("received: <%s> to ProcessCDR", rplyCDR)
 	}
-	time.Sleep(time.Duration(20) * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	var cdrs []*engine.ExternalCDR
 	argCDRs := utils.RPCCDRsFilter{OriginIDs: []string{originID}}
-	if err := sCncrRPC.Call(utils.APIerSv2GetCDRs, argCDRs, &cdrs); err != nil {
+	if err := sCncrRPC.Call(utils.APIerSv2GetCDRs, &argCDRs, &cdrs); err != nil {
 		t.Error(err)
 	} else if len(cdrs) != 1 {
 		t.Errorf("unexpected number of CDRs returned: %d", len(cdrs))

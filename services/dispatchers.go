@@ -19,22 +19,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package services
 
 import (
-	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
+	v2 "github.com/cgrates/cgrates/apier/v2"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewDispatcherService returns the Dispatcher Service
 func NewDispatcherService(cfg *config.CGRConfig, dm *DataDBService,
 	cacheS *engine.CacheS, filterSChan chan *engine.FilterS,
-	server *utils.Server, internalChan chan birpc.ClientConnector, connMgr *engine.ConnManager) servmanager.Service {
+	server *cores.Server, internalChan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &DispatcherService{
 		connChan:    internalChan,
 		cfg:         cfg,
@@ -43,6 +46,8 @@ func NewDispatcherService(cfg *config.CGRConfig, dm *DataDBService,
 		filterSChan: filterSChan,
 		server:      server,
 		connMgr:     connMgr,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -53,12 +58,14 @@ type DispatcherService struct {
 	dm          *DataDBService
 	cacheS      *engine.CacheS
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 	connMgr     *engine.ConnManager
 
 	dspS     *dispatchers.DispatcherService
 	rpc      *v1.DispatcherSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -66,7 +73,7 @@ func (dspS *DispatcherService) Start() (err error) {
 	if dspS.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
 	}
-	utils.Logger.Info("Starting CGRateS Dispatcher service.")
+	utils.Logger.Info("Starting CGRateS DispatcherS service.")
 	fltrS := <-dspS.filterSChan
 	dspS.filterSChan <- fltrS
 	<-dspS.cacheS.GetPrecacheChannel(utils.CacheDispatcherProfiles)
@@ -79,10 +86,7 @@ func (dspS *DispatcherService) Start() (err error) {
 	dspS.Lock()
 	defer dspS.Unlock()
 
-	if dspS.dspS, err = dispatchers.NewDispatcherService(datadb, dspS.cfg, fltrS, dspS.connMgr); err != nil {
-		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.DispatcherS, err.Error()))
-		return
-	}
+	dspS.dspS = dispatchers.NewDispatcherService(datadb, dspS.cfg, fltrS, dspS.connMgr)
 
 	// for the moment we dispable Apier through dispatcher
 	// until we figured out a better sollution in case of gob server
@@ -99,8 +103,8 @@ func (dspS *DispatcherService) Start() (err error) {
 	dspS.server.RpcRegisterName(utils.ResourceSv1,
 		v1.NewDispatcherResourceSv1(dspS.dspS))
 
-	dspS.server.RpcRegisterName(utils.SupplierSv1,
-		v1.NewDispatcherSupplierSv1(dspS.dspS))
+	dspS.server.RpcRegisterName(utils.RouteSv1,
+		v1.NewDispatcherRouteSv1(dspS.dspS))
 
 	dspS.server.RpcRegisterName(utils.AttributeSv1,
 		v1.NewDispatcherAttributeSv1(dspS.dspS))
@@ -110,6 +114,12 @@ func (dspS *DispatcherService) Start() (err error) {
 
 	dspS.server.RpcRegisterName(utils.ChargerSv1,
 		v1.NewDispatcherChargerSv1(dspS.dspS))
+
+	dspS.server.RpcRegisterName(utils.CoreSv1,
+		v1.NewDispatcherCoreSv1(dspS.dspS))
+
+	dspS.server.RpcRegisterName(utils.EeSv1,
+		v1.NewDispatcherEeSv1(dspS.dspS))
 
 	dspS.server.RpcRegisterName(utils.Responder,
 		v1.NewDispatcherResponder(dspS.dspS))
@@ -129,13 +139,16 @@ func (dspS *DispatcherService) Start() (err error) {
 	dspS.server.RpcRegisterName(utils.ConfigSv1,
 		v1.NewDispatcherConfigSv1(dspS.dspS))
 
-	dspS.server.RpcRegisterName(utils.CoreSv1,
-		v1.NewDispatcherCoreSv1(dspS.dspS))
-
 	dspS.server.RpcRegisterName(utils.RALsV1,
 		v1.NewDispatcherRALsV1(dspS.dspS))
 
-	dspS.connChan <- dspS.dspS
+	dspS.server.RpcRegisterName(utils.ReplicatorSv1,
+		v1.NewDispatcherReplicatorSv1(dspS.dspS))
+
+	dspS.server.RpcRegisterName(utils.CDRsV2,
+		v2.NewDispatcherSCDRsV2(dspS.dspS))
+
+	dspS.connChan <- dspS.anz.GetInternalCodec(dspS.dspS, utils.DispatcherS)
 
 	return
 }
@@ -149,9 +162,7 @@ func (dspS *DispatcherService) Reload() (err error) {
 func (dspS *DispatcherService) Shutdown() (err error) {
 	dspS.Lock()
 	defer dspS.Unlock()
-	if err = dspS.dspS.Shutdown(); err != nil {
-		return
-	}
+	dspS.dspS.Shutdown()
 	dspS.dspS = nil
 	dspS.rpc = nil
 	<-dspS.connChan

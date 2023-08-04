@@ -21,7 +21,6 @@ package engine
 import (
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
@@ -34,42 +33,14 @@ const (
 	// these might be better in the confs under optimizations section
 	RECURSION_MAX_DEPTH = 3
 	MIN_PREFIX_MATCH    = 1
-	FALLBACK_SUBJECT    = utils.ANY
-	DB                  = "map"
+	FALLBACK_SUBJECT    = utils.MetaAny
 )
 
-func init() {
-	var data DataDB
-	switch DB {
-	case "map":
-		if cgrCfg := config.CgrConfig(); cgrCfg == nil {
-			cgrCfg, _ = config.NewDefaultCGRConfig()
-			config.SetCgrConfig(cgrCfg)
-		}
-		data = NewInternalDB(nil, nil, true, config.CgrConfig().DataDbCfg().Items)
-	}
-	dm = NewDataManager(data, config.CgrConfig().CacheCfg(), connMgr)
-}
-
 var (
-	dm                           *DataManager
-	cdrStorage                   CdrStorage
-	debitPeriod                  = 10 * time.Second
 	globalRoundingDecimals       = 6
-	connMgr                      *ConnManager
 	rpSubjectPrefixMatching      bool
 	rpSubjectPrefixMatchingMutex sync.RWMutex // used to reload rpSubjectPrefixMatching
 )
-
-// SetDataStorage is the exported method to set the storage getter.
-func SetDataStorage(dm2 *DataManager) {
-	dm = dm2
-}
-
-// SetConnManager is the exported method to set the connectionManager used when operate on an account.
-func SetConnManager(conMgr *ConnManager) {
-	connMgr = conMgr
-}
 
 // SetRoundingDecimals sets the global rounding method and decimal precision for GetCost method
 func SetRoundingDecimals(rd int) {
@@ -91,11 +62,6 @@ func getRpSubjectPrefixMatching() (flag bool) {
 	return
 }
 
-// SetCdrStorage sets the database for CDR storing, used by *cdrlog in first place
-func SetCdrStorage(cStorage CdrStorage) {
-	cdrStorage = cStorage
-}
-
 // NewCallDescriptorFromCGREvent converts a CGREvent into CallDescriptor
 func NewCallDescriptorFromCGREvent(cgrEv *utils.CGREvent,
 	timezone string) (cd *CallDescriptor, err error) {
@@ -105,7 +71,7 @@ func NewCallDescriptorFromCGREvent(cgrEv *utils.CGREvent,
 			return nil, err
 		}
 	}
-	if cd.Account, err = cgrEv.FieldAsString(utils.Account); err != nil {
+	if cd.Account, err = cgrEv.FieldAsString(utils.AccountField); err != nil {
 		return
 	}
 	if cd.Subject, err = cgrEv.FieldAsString(utils.Subject); err != nil {
@@ -175,11 +141,12 @@ type CallDescriptor struct {
 }
 
 // AsCGREvent converts the CallDescriptor into CGREvent
-func (cd *CallDescriptor) AsCGREvent() *utils.CGREvent {
+func (cd *CallDescriptor) AsCGREvent(opts map[string]any) *utils.CGREvent {
 	cgrEv := &utils.CGREvent{
-		Tenant: cd.Tenant,
-		ID:     utils.UUIDSha1Prefix(), // make it unique
-		Event:  make(map[string]interface{}),
+		Tenant:  cd.Tenant,
+		ID:      utils.UUIDSha1Prefix(), // make it unique
+		Event:   make(map[string]any),
+		APIOpts: opts,
 	}
 	for k, v := range cd.ExtraFields {
 		cgrEv.Event[k] = v
@@ -187,7 +154,7 @@ func (cd *CallDescriptor) AsCGREvent() *utils.CGREvent {
 	cgrEv.Event[utils.ToR] = cd.ToR
 	cgrEv.Event[utils.Tenant] = cd.Tenant
 	cgrEv.Event[utils.Category] = cd.Category
-	cgrEv.Event[utils.Account] = cd.Account
+	cgrEv.Event[utils.AccountField] = cd.Account
 	cgrEv.Event[utils.Subject] = cd.Subject
 	cgrEv.Event[utils.Destination] = cd.Destination
 	cgrEv.Event[utils.AnswerTime] = cd.TimeStart
@@ -213,7 +180,7 @@ func (cd *CallDescriptor) UpdateFromCGREvent(cgrEv *utils.CGREvent, fields []str
 			if cd.Category, err = cgrEv.FieldAsString(fldName); err != nil {
 				return
 			}
-		case utils.Account:
+		case utils.AccountField:
 			if cd.Account, err = cgrEv.FieldAsString(fldName); err != nil {
 				return
 			}
@@ -410,7 +377,7 @@ func (cd *CallDescriptor) addRatingInfos(ris RatingInfos) bool {
 // GetKey constructs the key for the storage lookup.
 // The prefixLen is limiting the length of the destination prefix.
 func (cd *CallDescriptor) GetKey(subject string) string {
-	return utils.ConcatenatedKey(utils.META_OUT, cd.Tenant, cd.Category, subject)
+	return utils.ConcatenatedKey(utils.MetaOut, cd.Tenant, cd.Category, subject)
 }
 
 // GetAccountKey returns the key used to retrive the user balance involved in this call
@@ -432,7 +399,7 @@ func (cd *CallDescriptor) splitInTimeSpans() (timespans []*TimeSpan) {
 		return
 	}
 	firstSpan.setRatingInfo(cd.RatingInfos[0])
-	if cd.ToR == utils.VOICE {
+	if cd.ToR == utils.MetaVoice {
 		// split on rating plans
 		afterStart, afterEnd := false, false //optimization for multiple activation periods
 		for _, rp := range cd.RatingInfos {
@@ -488,7 +455,7 @@ func (cd *CallDescriptor) splitInTimeSpans() (timespans []*TimeSpan) {
 		//log.Print(timespans[i].RateInterval)
 		for _, interval := range rateIntervals {
 			//log.Printf("\tINTERVAL: %+v", interval.Timing)
-			newTs := timespans[i].SplitByRateInterval(interval, cd.ToR != utils.VOICE)
+			newTs := timespans[i].SplitByRateInterval(interval, cd.ToR != utils.MetaVoice)
 			//utils.PrintFull(timespans[i])
 			//utils.PrintFull(newTs)
 			if newTs != nil {
@@ -579,7 +546,7 @@ func (cd *CallDescriptor) GetCost() (*CallCost, error) {
 
 		if strategy != "" && maxCost > 0 {
 			//log.Print("HERE: ", strategy, maxCost)
-			if strategy == utils.MAX_COST_FREE && cd.MaxCostSoFar >= maxCost {
+			if strategy == utils.MetaMaxCostFree && cd.MaxCostSoFar >= maxCost {
 				cost = maxCost
 				cd.MaxCostSoFar = maxCost
 			}
@@ -613,7 +580,7 @@ func (cd *CallDescriptor) getCost() (*CallCost, error) {
 		cd.DurationIndex = cd.TimeEnd.Sub(cd.TimeStart)
 	}
 	if cd.ToR == "" {
-		cd.ToR = utils.VOICE
+		cd.ToR = utils.MetaVoice
 	}
 	err := cd.LoadRatingPlans()
 	if err != nil {
@@ -648,7 +615,7 @@ Returns the approximate max allowed session for user balance. It will try the ma
 If the user has no credit then it will return 0.
 If the user has postpayed plan it returns -1.
 */
-func (origCD *CallDescriptor) getMaxSessionDuration(origAcc *Account) (time.Duration, error) {
+func (origCD *CallDescriptor) getMaxSessionDuration(origAcc *Account, fltrS *FilterS) (time.Duration, error) {
 	// clone the account for discarding chenges on debit dry run
 	account := origAcc.Clone()
 	if account.AllowNegative {
@@ -659,7 +626,7 @@ func (origCD *CallDescriptor) getMaxSessionDuration(origAcc *Account) (time.Dura
 		origCD.DurationIndex = origCD.TimeEnd.Sub(origCD.TimeStart)
 	}
 	if origCD.ToR == "" {
-		origCD.ToR = utils.VOICE
+		origCD.ToR = utils.MetaVoice
 	}
 	cd := origCD.Clone()
 	initialDuration := cd.TimeEnd.Sub(cd.TimeStart)
@@ -668,13 +635,13 @@ func (origCD *CallDescriptor) getMaxSessionDuration(origAcc *Account) (time.Dura
 	//use this to check what increment was payed with debt
 	initialDefaultBalanceValue := defaultBalance.GetValue()
 
-	cc, err := cd.debit(account, true, false)
+	cc, err := cd.debit(account, true, false, fltrS)
 	if err != nil {
 		return 0, err
 	}
 
 	// not enough credit for connect fee
-	if cc.negativeConnectFee == true {
+	if cc.negativeConnectFee {
 		return 0, nil
 	}
 
@@ -712,35 +679,34 @@ func (origCD *CallDescriptor) getMaxSessionDuration(origAcc *Account) (time.Dura
 	return utils.MinDuration(initialDuration, totalDuration), nil
 }
 
-func (cd *CallDescriptor) GetMaxSessionDuration() (duration time.Duration, err error) {
+func (cd *CallDescriptor) GetMaxSessionDuration(fltrS *FilterS) (duration time.Duration, err error) {
 	cd.account = nil // make sure it's not cached
-	_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
+	err = guardian.Guardian.Guard(func() (_ error) {
 		account, err := cd.getAccount()
 		if err != nil {
-			return 0, err
+			return err
 		}
 		acntIDs, err := account.GetUniqueSharedGroupMembers(cd)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var lkIDs []string
 		for acntID := range acntIDs {
 			if acntID != cd.GetAccountKey() {
-				lkIDs = append(lkIDs, utils.ACCOUNT_PREFIX+acntID)
+				lkIDs = append(lkIDs, utils.AccountPrefix+acntID)
 			}
 		}
-		_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
-			duration, err = cd.getMaxSessionDuration(account)
-			return
+		return guardian.Guardian.Guard(func() error {
+			duration, err = cd.getMaxSessionDuration(account, fltrS)
+			return err
 		}, config.CgrConfig().GeneralCfg().LockingTimeout, lkIDs...)
-		return
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+cd.GetAccountKey())
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+cd.GetAccountKey())
 	return
 }
 
 // Interface method used to add/substract an amount of cents or bonus seconds (as returned by GetCost method)
 // from user's money balance.
-func (cd *CallDescriptor) debit(account *Account, dryRun bool, goNegative bool) (cc *CallCost, err error) {
+func (cd *CallDescriptor) debit(account *Account, dryRun bool, goNegative bool, fltrS *FilterS) (cc *CallCost, err error) {
 	if cd.GetDuration() == 0 {
 		cc = cd.CreateCallCost()
 		// add RatingInfo
@@ -756,10 +722,10 @@ func (cd *CallDescriptor) debit(account *Account, dryRun bool, goNegative bool) 
 		return cc, nil
 	}
 	if cd.ToR == "" {
-		cd.ToR = utils.VOICE
+		cd.ToR = utils.MetaVoice
 	}
 	//log.Printf("Debit CD: %+v", cd)
-	cc, err = account.debitCreditBalance(cd, !dryRun, dryRun, goNegative)
+	cc, err = account.debitCreditBalance(cd, !dryRun, dryRun, goNegative, fltrS)
 	//log.Printf("HERE: %+v %v", cc, err)
 	if err != nil {
 		utils.Logger.Err(fmt.Sprintf("<Rater> Error getting cost for account key <%s>: %s", cd.GetAccountKey(), err.Error()))
@@ -777,41 +743,40 @@ func (cd *CallDescriptor) debit(account *Account, dryRun bool, goNegative bool) 
 		if len(roundIncrements) != 0 {
 			rcd := cc.CreateCallDescriptor()
 			rcd.Increments = roundIncrements
-			rcd.refundRounding(cd.account)
+			rcd.refundRounding(cd.account, fltrS)
 		}
 	}
 	//log.Printf("OUT CC: ", cc)
 	return
 }
 
-func (cd *CallDescriptor) Debit() (cc *CallCost, err error) {
+func (cd *CallDescriptor) Debit(fltrS *FilterS) (cc *CallCost, err error) {
 	cd.account = nil // make sure it's not cached
-	_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
+	err = guardian.Guardian.Guard(func() (_ error) {
 		// lock all group members
 		account, err := cd.getAccount()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		initialAcnt := account.AsAccountSummary()
 		acntIDs, sgerr := account.GetUniqueSharedGroupMembers(cd)
 		if sgerr != nil {
-			return nil, sgerr
+			return sgerr
 		}
 		var lkIDs []string
 		for acntID := range acntIDs {
 			if acntID != cd.GetAccountKey() {
-				lkIDs = append(lkIDs, utils.ACCOUNT_PREFIX+acntID)
+				lkIDs = append(lkIDs, utils.AccountPrefix+acntID)
 			}
 		}
-		_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
-			cc, err = cd.debit(account, cd.DryRun, !cd.DenyNegativeAccount)
+		return guardian.Guardian.Guard(func() (err error) {
+			cc, err = cd.debit(account, cd.DryRun, !cd.DenyNegativeAccount, fltrS)
 			if err == nil {
 				cc.AccountSummary = cd.AccountSummary(initialAcnt)
 			}
-			return
+			return err
 		}, config.CgrConfig().GeneralCfg().LockingTimeout, lkIDs...)
-		return
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+cd.GetAccountKey())
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+cd.GetAccountKey())
 	return
 }
 
@@ -819,32 +784,32 @@ func (cd *CallDescriptor) Debit() (cc *CallCost, err error) {
 // from user's money balance.
 // This methods combines the Debit and GetMaxSessionDuration and will debit the max available time as returned
 // by the GetMaxSessionDuration method. The amount filed has to be filled in call descriptor.
-func (cd *CallDescriptor) MaxDebit() (cc *CallCost, err error) {
+func (cd *CallDescriptor) MaxDebit(fltrS *FilterS) (cc *CallCost, err error) {
 	cd.account = nil // make sure it's not cached
-	_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
+	err = guardian.Guardian.Guard(func() (err error) {
 		account, err := cd.getAccount()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		initialAcnt := account.AsAccountSummary()
 		acntIDs, err := account.GetUniqueSharedGroupMembers(cd)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var lkIDs []string
 		for acntID := range acntIDs {
 			if acntID != cd.GetAccountKey() {
-				lkIDs = append(lkIDs, utils.ACCOUNT_PREFIX+acntID)
+				lkIDs = append(lkIDs, utils.AccountPrefix+acntID)
 			}
 		}
-		_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
-			remainingDuration, err := cd.getMaxSessionDuration(account)
+		return guardian.Guardian.Guard(func() (err error) {
+			remainingDuration, err := cd.getMaxSessionDuration(account, fltrS)
 			if err != nil && cd.GetDuration() > 0 {
-				return nil, err
+				return err
 			}
 			// check ForceDuartion
 			if cd.ForceDuration && !account.AllowNegative && remainingDuration < cd.GetDuration() {
-				return nil, utils.ErrInsufficientCredit
+				return utils.ErrInsufficientCredit
 			}
 			if err != nil || remainingDuration == 0 {
 				cc = cd.CreateCallCost()
@@ -869,20 +834,19 @@ func (cd *CallDescriptor) MaxDebit() (cc *CallCost, err error) {
 				cd.TimeEnd = cd.TimeStart.Add(remainingDuration)
 				cd.DurationIndex -= initialDuration - remainingDuration
 			}
-			cc, err = cd.debit(account, cd.DryRun, !cd.DenyNegativeAccount)
+			cc, err = cd.debit(account, cd.DryRun, !cd.DenyNegativeAccount, fltrS)
 			if err == nil {
 				cc.AccountSummary = cd.AccountSummary(initialAcnt)
 			}
-			return
+			return err
 		}, config.CgrConfig().GeneralCfg().LockingTimeout, lkIDs...)
-		return
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+cd.GetAccountKey())
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+cd.GetAccountKey())
 	return cc, err
 }
 
 // refundIncrements has no locks
 // returns the updated account referenced by the CallDescriptor
-func (cd *CallDescriptor) refundIncrements() (acnt *Account, err error) {
+func (cd *CallDescriptor) refundIncrements(fltrS *FilterS) (acnt *Account, err error) {
 	accountsCache := make(map[string]*Account)
 	for _, increment := range cd.Increments {
 		// work around for the refund from CDRServer:
@@ -915,16 +879,16 @@ func (cd *CallDescriptor) refundIncrements() (acnt *Account, err error) {
 				continue
 			}
 			balance.AddValue(float64(increment.Duration.Nanoseconds()))
-			account.countUnits(-float64(increment.Duration.Nanoseconds()), unitType, cc, balance)
+			account.countUnits(-float64(increment.Duration.Nanoseconds()), unitType, cc, balance, fltrS)
 		}
 		// check money too
 		if increment.BalanceInfo.Monetary != nil && increment.BalanceInfo.Monetary.UUID != "" {
-			if balance = account.BalanceMap[utils.MONETARY].GetBalance(increment.BalanceInfo.Monetary.UUID); balance == nil {
+			if balance = account.BalanceMap[utils.MetaMonetary].GetBalance(increment.BalanceInfo.Monetary.UUID); balance == nil {
 				utils.Logger.Warning(fmt.Sprintf("Could not get the balnce: <%s> to be refunded for account: <%s>", increment.BalanceInfo.Monetary.UUID, increment.BalanceInfo.AccountID))
 				continue
 			}
 			balance.AddValue(increment.Cost)
-			account.countUnits(-increment.Cost, utils.MONETARY, cc, balance)
+			account.countUnits(-increment.Cost, utils.MetaMonetary, cc, balance, fltrS)
 		}
 	}
 	acnt = accountsCache[utils.ConcatenatedKey(cd.Tenant, cd.Account)]
@@ -932,7 +896,7 @@ func (cd *CallDescriptor) refundIncrements() (acnt *Account, err error) {
 
 }
 
-func (cd *CallDescriptor) RefundIncrements() (acnt *Account, err error) {
+func (cd *CallDescriptor) RefundIncrements(fltrS *FilterS) (acnt *Account, err error) {
 	// get account list for locking
 	// all must be locked in order to use cache
 	cd.Increments.Decompress()
@@ -942,17 +906,17 @@ func (cd *CallDescriptor) RefundIncrements() (acnt *Account, err error) {
 			continue
 		}
 		if increment.BalanceInfo.Monetary != nil || increment.BalanceInfo.Unit != nil {
-			accMap[utils.ACCOUNT_PREFIX+increment.BalanceInfo.AccountID] = true
+			accMap[utils.AccountPrefix+increment.BalanceInfo.AccountID] = true
 		}
 	}
-	_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
-		acnt, err = cd.refundIncrements()
+	guardian.Guardian.Guard(func() (_ error) {
+		acnt, err = cd.refundIncrements(fltrS)
 		return
 	}, config.CgrConfig().GeneralCfg().LockingTimeout, accMap.Slice()...)
 	return
 }
 
-func (cd *CallDescriptor) refundRounding(old *Account) (accountsCache map[string]*Account, err error) {
+func (cd *CallDescriptor) refundRounding(old *Account, fltrS *FilterS) (accountsCache map[string]*Account, err error) {
 	// get account list for locking
 	// all must be locked in order to use cache
 	accountsCache = make(map[string]*Account)
@@ -977,24 +941,24 @@ func (cd *CallDescriptor) refundRounding(old *Account) (accountsCache map[string
 		cc := cd.CreateCallCost()
 		if increment.BalanceInfo.Monetary != nil {
 			var balance *Balance
-			if balance = account.BalanceMap[utils.MONETARY].GetBalance(increment.BalanceInfo.Monetary.UUID); balance == nil {
+			if balance = account.BalanceMap[utils.MetaMonetary].GetBalance(increment.BalanceInfo.Monetary.UUID); balance == nil {
 				return
 			}
 			balance.AddValue(-increment.Cost)
-			account.countUnits(increment.Cost, utils.MONETARY, cc, balance)
+			account.countUnits(increment.Cost, utils.MetaMonetary, cc, balance, fltrS)
 		}
 	}
 	return
 }
 
-func (cd *CallDescriptor) RefundRounding() (acc *Account, err error) {
+func (cd *CallDescriptor) RefundRounding(fltrS *FilterS) (acc *Account, err error) {
 	accMap := make(utils.StringMap)
 	for _, inc := range cd.Increments {
-		accMap[utils.ACCOUNT_PREFIX+inc.BalanceInfo.AccountID] = true
+		accMap[utils.AccountPrefix+inc.BalanceInfo.AccountID] = true
 	}
-	guardian.Guardian.Guard(func() (_ interface{}, _ error) {
+	guardian.Guardian.Guard(func() (_ error) {
 		var accCache map[string]*Account
-		if accCache, err = cd.refundRounding(nil); err != nil {
+		if accCache, err = cd.refundRounding(nil, fltrS); err != nil {
 			return
 		}
 		acc = accCache[utils.ConcatenatedKey(cd.Tenant, cd.Account)]
@@ -1047,16 +1011,16 @@ func (cd *CallDescriptor) AccountSummary(initialAcnt *AccountSummary) *AccountSu
 		return nil
 	}
 	acntSummary := cd.account.AsAccountSummary()
-	acntSummary.UpdateBalances(initialAcnt)
+	acntSummary.SetInitialValue(initialAcnt)
 	return acntSummary
 }
 
 // FieldAsInterface is part of utils.DataProvider
-func (cd *CallDescriptor) FieldAsInterface(fldPath []string) (fldVal interface{}, err error) {
+func (cd *CallDescriptor) FieldAsInterface(fldPath []string) (fldVal any, err error) {
 	if len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
-	return utils.ReflectFieldInterface(cd, fldPath[0], utils.EXTRA_FIELDS)
+	return utils.ReflectFieldInterface(cd, fldPath[0], utils.ExtraFields)
 }
 
 // FieldAsString is part of utils.DataProvider
@@ -1064,7 +1028,7 @@ func (cd *CallDescriptor) FieldAsString(fldPath []string) (fldVal string, err er
 	if len(fldPath) == 0 {
 		return "", utils.ErrNotFound
 	}
-	return utils.ReflectFieldAsString(cd, fldPath[0], utils.EXTRA_FIELDS)
+	return utils.ReflectFieldAsString(cd, fldPath[0], utils.ExtraFields)
 }
 
 // String is part of utils.DataProvider
@@ -1072,12 +1036,7 @@ func (cd *CallDescriptor) String() string {
 	return utils.ToJSON(cd)
 }
 
-// RemoteHost is part of utils.DataProvider
-func (cd *CallDescriptor) RemoteHost() net.Addr {
-	return utils.LocalAddr()
-}
-
-type CallDescriptorWithArgDispatcher struct {
+type CallDescriptorWithAPIOpts struct {
 	*CallDescriptor
-	*utils.ArgDispatcher
+	APIOpts map[string]any
 }

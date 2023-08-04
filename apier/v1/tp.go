@@ -33,8 +33,8 @@ type AttrGetTPIds struct {
 }
 
 // Queries tarrif plan identities gathered from all tables.
-func (self *APIerSv1) GetTPIds(attrs AttrGetTPIds, reply *[]string) error {
-	if ids, err := self.StorDb.GetTpIds(""); err != nil {
+func (apierSv1 *APIerSv1) GetTPIds(attrs *AttrGetTPIds, reply *[]string) error {
+	if ids, err := apierSv1.StorDb.GetTpIds(utils.EmptyString); err != nil {
 		return utils.NewErrServerError(err)
 	} else if ids == nil {
 		return utils.ErrNotFound
@@ -49,7 +49,7 @@ type AttrImportTPZipFile struct {
 	File []byte
 }
 
-func (self *APIerSv1) ImportTPZipFile(attrs AttrImportTPZipFile, reply *string) error {
+func (apierSv1 *APIerSv1) ImportTPZipFile(attrs *AttrImportTPZipFile, reply *string) error {
 	tmpDir, err := os.MkdirTemp("/tmp", "cgr_")
 	if err != nil {
 		*reply = "ERROR: creating temp directory!"
@@ -77,9 +77,9 @@ func (self *APIerSv1) ImportTPZipFile(attrs AttrImportTPZipFile, reply *string) 
 			}
 			csvImporter := engine.TPCSVImporter{
 				TPid:     attrs.TPid,
-				StorDb:   self.StorDb,
+				StorDb:   apierSv1.StorDb,
 				DirPath:  path,
-				Sep:      utils.CSV_SEP,
+				Sep:      utils.CSVSep,
 				Verbose:  false,
 				ImportId: "",
 			}
@@ -102,11 +102,11 @@ type AttrRemTp struct {
 	TPid string
 }
 
-func (self *APIerSv1) RemTP(attrs AttrRemTp, reply *string) error {
+func (apierSv1 *APIerSv1) RemTP(attrs *AttrRemTp, reply *string) error {
 	if len(attrs.TPid) == 0 {
-		return utils.NewErrMandatoryIeMissing("TPid")
+		return utils.NewErrMandatoryIeMissing(utils.TPid)
 	}
-	if err := self.StorDb.RemTpData("", attrs.TPid, nil); err != nil {
+	if err := apierSv1.StorDb.RemTpData("", attrs.TPid, nil); err != nil {
 		return utils.NewErrServerError(err)
 	} else {
 		*reply = utils.OK
@@ -114,11 +114,11 @@ func (self *APIerSv1) RemTP(attrs AttrRemTp, reply *string) error {
 	return nil
 }
 
-func (self *APIerSv1) ExportTPToFolder(attrs utils.AttrDirExportTP, exported *utils.ExportedTPStats) error {
+func (apierSv1 *APIerSv1) ExportTPToFolder(attrs *utils.AttrDirExportTP, exported *utils.ExportedTPStats) error {
 	if attrs.TPid == nil || *attrs.TPid == "" {
-		return utils.NewErrMandatoryIeMissing("TPid")
+		return utils.NewErrMandatoryIeMissing(utils.TPid)
 	}
-	dir := self.Config.GeneralCfg().TpExportPath
+	dir := apierSv1.Config.GeneralCfg().TpExportPath
 	if attrs.ExportPath != nil {
 		dir = *attrs.ExportPath
 	}
@@ -134,7 +134,7 @@ func (self *APIerSv1) ExportTPToFolder(attrs utils.AttrDirExportTP, exported *ut
 	if attrs.Compress != nil {
 		compress = *attrs.Compress
 	}
-	tpExporter, err := engine.NewTPExporter(self.StorDb, *attrs.TPid, dir, fileFormat, sep, compress)
+	tpExporter, err := engine.NewTPExporter(apierSv1.StorDb, *attrs.TPid, dir, fileFormat, sep, compress)
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -147,11 +147,11 @@ func (self *APIerSv1) ExportTPToFolder(attrs utils.AttrDirExportTP, exported *ut
 	return nil
 }
 
-func (self *APIerSv1) ExportTPToZipString(attrs utils.AttrDirExportTP, reply *string) error {
-	if attrs.TPid == nil || *attrs.TPid == "" {
-		return utils.NewErrMandatoryIeMissing("TPid")
+func (apierSv1 *APIerSv1) ExportTPToZipString(attrs *utils.AttrDirExportTP, reply *string) error {
+	if attrs.TPid == nil || *attrs.TPid == utils.EmptyString {
+		return utils.NewErrMandatoryIeMissing(utils.TPid)
 	}
-	dir := ""
+	dir := utils.EmptyString
 	fileFormat := utils.CSV
 	if attrs.FileFormat != nil {
 		fileFormat = *attrs.FileFormat
@@ -160,7 +160,7 @@ func (self *APIerSv1) ExportTPToZipString(attrs utils.AttrDirExportTP, reply *st
 	if attrs.FieldSeparator != nil {
 		sep = *attrs.FieldSeparator
 	}
-	tpExporter, err := engine.NewTPExporter(self.StorDb, *attrs.TPid, dir, fileFormat, sep, true)
+	tpExporter, err := engine.NewTPExporter(apierSv1.StorDb, *attrs.TPid, dir, fileFormat, sep, true)
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}

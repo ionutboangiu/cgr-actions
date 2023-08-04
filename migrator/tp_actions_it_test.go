@@ -71,20 +71,18 @@ func testTpActITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpActCfgIn.StorDbCfg().Type,
 		tpActCfgIn.StorDbCfg().Host, tpActCfgIn.StorDbCfg().Port,
 		tpActCfgIn.StorDbCfg().Name, tpActCfgIn.StorDbCfg().User,
-		tpActCfgIn.StorDbCfg().Password, tpActCfgIn.GeneralCfg().DBDataEncoding, tpActCfgIn.StorDbCfg().SSLMode,
-		tpActCfgIn.StorDbCfg().MaxOpenConns, tpActCfgIn.StorDbCfg().MaxIdleConns,
-		tpActCfgIn.StorDbCfg().ConnMaxLifetime, tpActCfgIn.StorDbCfg().StringIndexedFields,
-		tpActCfgIn.StorDbCfg().PrefixIndexedFields, tpActCfgIn.StorDbCfg().Items)
+		tpActCfgIn.StorDbCfg().Password, tpActCfgIn.GeneralCfg().DBDataEncoding,
+		tpActCfgIn.StorDbCfg().StringIndexedFields, tpActCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpActCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpActCfgOut.StorDbCfg().Type,
 		tpActCfgOut.StorDbCfg().Host, tpActCfgOut.StorDbCfg().Port,
 		tpActCfgOut.StorDbCfg().Name, tpActCfgOut.StorDbCfg().User,
-		tpActCfgOut.StorDbCfg().Password, tpActCfgOut.GeneralCfg().DBDataEncoding, tpActCfgIn.StorDbCfg().SSLMode,
-		tpActCfgIn.StorDbCfg().MaxOpenConns, tpActCfgIn.StorDbCfg().MaxIdleConns,
-		tpActCfgIn.StorDbCfg().ConnMaxLifetime, tpActCfgIn.StorDbCfg().StringIndexedFields,
-		tpActCfgIn.StorDbCfg().PrefixIndexedFields, tpActCfgOut.StorDbCfg().Items)
+		tpActCfgOut.StorDbCfg().Password, tpActCfgOut.GeneralCfg().DBDataEncoding,
+		tpActCfgIn.StorDbCfg().StringIndexedFields, tpActCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpActCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -119,7 +117,7 @@ func testTpActITPopulate(t *testing.T) {
 					BalanceType:     "*monetary",
 					Units:           "120",
 					ExpiryTime:      "*unlimited",
-					Filter:          "",
+					Filters:         "",
 					TimingTags:      "2014-01-14T00:00:00Z",
 					DestinationIds:  "*any",
 					RatingSubject:   "SPECIAL_1002",
@@ -138,7 +136,7 @@ func testTpActITPopulate(t *testing.T) {
 					BalanceType:     "*data",
 					Units:           "10",
 					ExpiryTime:      "*unlimited",
-					Filter:          "",
+					Filters:         "",
 					TimingTags:      "2014-01-14T00:00:00Z",
 					DestinationIds:  "DST_1002",
 					RatingSubject:   "SPECIAL_1002",
@@ -157,7 +155,7 @@ func testTpActITPopulate(t *testing.T) {
 		t.Error("Error when setting TpActions ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpActMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpActMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpActions ", err.Error())
 	}

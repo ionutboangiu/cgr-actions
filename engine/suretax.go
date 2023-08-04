@@ -20,7 +20,6 @@ package engine
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +40,7 @@ func NewSureTaxRequest(cdr *CDR, stCfg *config.SureTaxCfg) (*SureTaxRequest, err
 		return nil, errors.New("invalid SureTax config")
 	}
 	aTimeLoc := cdr.AnswerTime.In(stCfg.Timezone)
-	revenue := utils.Round(cdr.Cost, 4, utils.ROUNDING_MIDDLE)
+	revenue := utils.Round(cdr.Cost, 4, utils.MetaRoundingMiddle)
 	unts, err := strconv.ParseInt(cdr.FieldsAsString(stCfg.Units), 10, 64)
 	if err != nil {
 		return nil, err
@@ -182,12 +181,9 @@ func SureTaxProcessCdr(cdr *CDR) error {
 		return errors.New("Invalid SureTax configuration")
 	}
 	if sureTaxClient == nil { // First time used, init the client here
-		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: config.CgrConfig().GeneralCfg().HttpSkipTlsVerify,
-			},
+		sureTaxClient = &http.Client{
+			Transport: httpPstrTransport,
 		}
-		sureTaxClient = &http.Client{Transport: tr}
 	}
 	req, err := NewSureTaxRequest(cdr, stCfg)
 	if err != nil {
@@ -197,7 +193,7 @@ func SureTaxProcessCdr(cdr *CDR) error {
 	if err != nil {
 		return err
 	}
-	resp, err := sureTaxClient.Post(stCfg.Url, "application/json", bytes.NewBuffer(jsnContent))
+	resp, err := sureTaxClient.Post(stCfg.URL, "application/json", bytes.NewBuffer(jsnContent))
 	if err != nil {
 		return err
 	}
@@ -229,13 +225,13 @@ func SureTaxProcessCdr(cdr *CDR) error {
 	if !stCfg.IncludeLocalCost {
 		cdr.Cost = utils.Round(totalTax,
 			config.CgrConfig().GeneralCfg().RoundingDecimals,
-			utils.ROUNDING_MIDDLE)
+			utils.MetaRoundingMiddle)
 	} else {
 		cdr.Cost = utils.Round(cdr.Cost+totalTax,
 			config.CgrConfig().GeneralCfg().RoundingDecimals,
-			utils.ROUNDING_MIDDLE)
+			utils.MetaRoundingMiddle)
 	}
 	// Add response into extra fields to be available for later review
-	cdr.ExtraFields[utils.META_SURETAX] = respFull.D
+	cdr.ExtraFields[utils.MetaSureTax] = respFull.D
 	return nil
 }

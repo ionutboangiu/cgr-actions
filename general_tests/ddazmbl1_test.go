@@ -33,6 +33,7 @@ func TestDZ1SetStorage(t *testing.T) {
 	data := engine.NewInternalDB(nil, nil, true, config.CgrConfig().DataDbCfg().Items)
 	dataDB = engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	engine.SetDataStorage(dataDB)
+	engine.Cache.Clear(nil)
 }
 
 func TestDZ1LoadCsvTp(t *testing.T) {
@@ -63,11 +64,11 @@ TOPUP10_AT,TOPUP10_AC1,ASAP,10`
 	attrProfiles := ``
 	chargerProfiles := ``
 	csvr, err := engine.NewTpReader(dataDB.DataDB(),
-		engine.NewStringCSVStorage(utils.CSV_SEP, destinations, timings, rates,
+		engine.NewStringCSVStorage(utils.CSVSep, destinations, timings, rates,
 			destinationRates, ratingPlans, ratingProfiles,
 			sharedGroups, actions, actionPlans, actionTriggers, accountActions,
 			resLimits, stats, thresholds, filters, suppliers,
-			attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil)
+			attrProfiles, chargerProfiles, ``, ""), "", "", nil, nil, false)
 	if err != nil {
 		t.Error(err)
 	}
@@ -110,21 +111,19 @@ TOPUP10_AT,TOPUP10_AC1,ASAP,10`
 	} else if acnt == nil {
 		t.Error("No account saved")
 	}
-	engine.Cache.Clear(nil)
 
-	dataDB.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	engine.LoadAllDataDBToCache(dataDB)
 
-	if cachedDests := len(engine.Cache.GetItemIDs(utils.CacheDestinations, "")); cachedDests != 0 {
+	if cachedDests := len(engine.Cache.GetItemIDs(utils.CacheDestinations, "")); cachedDests != 1 {
 		t.Error("Wrong number of cached destinations found", cachedDests)
 	}
 	if cachedRPlans := len(engine.Cache.GetItemIDs(utils.CacheRatingPlans, "")); cachedRPlans != 2 {
 		t.Error("Wrong number of cached rating plans found", cachedRPlans)
 	}
-	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, "")); cachedRProfiles != 0 {
+	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, "")); cachedRProfiles != 2 {
 		t.Error("Wrong number of cached rating profiles found", cachedRProfiles)
 	}
-	if cachedActions := len(engine.Cache.GetItemIDs(utils.CacheActions, "")); cachedActions != 0 {
+	if cachedActions := len(engine.Cache.GetItemIDs(utils.CacheActions, "")); cachedActions != 2 {
 		t.Error("Wrong number of cached actions found", cachedActions)
 	}
 }
@@ -137,12 +136,12 @@ func TestDZ1ExecuteActions(t *testing.T) {
 		t.Error(err)
 	} else if len(acnt.BalanceMap) != 2 {
 		t.Error("Account does not have enough balances: ", acnt.BalanceMap)
-	} else if acnt.BalanceMap[utils.VOICE][0].Value != 40000000000 {
+	} else if acnt.BalanceMap[utils.MetaVoice][0].Value != 40000000000 {
 		t.Error("Account does not have enough minutes in balance",
-			acnt.BalanceMap[utils.VOICE][0].Value)
-	} else if acnt.BalanceMap[utils.MONETARY][0].Value != 10 {
+			acnt.BalanceMap[utils.MetaVoice][0].Value)
+	} else if acnt.BalanceMap[utils.MetaMonetary][0].Value != 10 {
 		t.Error("Account does not have enough monetary balance",
-			acnt.BalanceMap[utils.MONETARY][0].Value)
+			acnt.BalanceMap[utils.MetaMonetary][0].Value)
 	}
 }
 
@@ -156,7 +155,7 @@ func TestDZ1Debit(t *testing.T) {
 		TimeStart:   time.Date(2014, 3, 4, 6, 0, 0, 0, time.UTC),
 		TimeEnd:     time.Date(2014, 3, 4, 6, 0, 10, 0, time.UTC),
 	}
-	if cc, err := cd.Debit(); err != nil {
+	if cc, err := cd.Debit(nil); err != nil {
 		t.Error(err)
 	} else if cc.Cost != 0.01 {
 		t.Error("Wrong cost returned: ", cc.Cost)
@@ -165,12 +164,12 @@ func TestDZ1Debit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acnt.BalanceMap[utils.VOICE][0].Value != 20000000000 {
+	if acnt.BalanceMap[utils.MetaVoice][0].Value != 20000000000 {
 		t.Error("Account does not have expected *voice units in balance",
-			acnt.BalanceMap[utils.VOICE][0].Value)
+			acnt.BalanceMap[utils.MetaVoice][0].Value)
 	}
-	if acnt.BalanceMap[utils.MONETARY][0].Value != 9.99 {
+	if acnt.BalanceMap[utils.MetaMonetary][0].Value != 9.99 {
 		t.Error("Account does not have expected *monetary units in balance",
-			acnt.BalanceMap[utils.MONETARY][0].Value)
+			acnt.BalanceMap[utils.MetaMonetary][0].Value)
 	}
 }

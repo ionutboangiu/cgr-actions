@@ -30,11 +30,15 @@ import (
 )
 
 // Returns a list of ActionTriggers on an account
-func (api *APIerSv1) GetAccountActionTriggers(attrs utils.TenantAccount, reply *engine.ActionTriggers) error {
-	if missing := utils.MissingStructFields(&attrs, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) GetAccountActionTriggers(attrs *utils.TenantAccount, reply *engine.ActionTriggers) error {
+	if missing := utils.MissingStructFields(attrs, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if account, err := api.DataManager.GetAccount(utils.ConcatenatedKey(attrs.Tenant, attrs.Account)); err != nil {
+	tnt := attrs.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if account, err := apierSv1.DataManager.GetAccount(utils.ConcatenatedKey(tnt, attrs.Account)); err != nil {
 		return utils.NewErrServerError(err)
 	} else {
 		ats := account.ActionTriggers
@@ -55,28 +59,32 @@ type AttrAddAccountActionTriggers struct {
 	Executed               bool
 }
 
-func (api *APIerSv1) AddAccountActionTriggers(attr AttrAddAccountActionTriggers, reply *string) (err error) {
-	if missing := utils.MissingStructFields(&attr, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) AddAccountActionTriggers(attr *AttrAddAccountActionTriggers, reply *string) (err error) {
+	if missing := utils.MissingStructFields(attr, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
+	}
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
 	var actTime time.Time
 	if actTime, err = utils.ParseTimeDetectLayout(attr.ActivationDate,
-		api.Config.GeneralCfg().DefaultTimezone); err != nil {
+		apierSv1.Config.GeneralCfg().DefaultTimezone); err != nil {
 		return
 	}
-	accID := utils.ConcatenatedKey(attr.Tenant, attr.Account)
+	accID := utils.ConcatenatedKey(tnt, attr.Account)
 	var account *engine.Account
-	_, err = guardian.Guardian.Guard(func() (interface{}, error) {
-		if account, err = api.DataManager.GetAccount(accID); err != nil {
-			return 0, err
+	err = guardian.Guardian.Guard(func() error {
+		if account, err = apierSv1.DataManager.GetAccount(accID); err != nil {
+			return err
 		}
 		if attr.ActionTriggerOverwrite {
 			account.ActionTriggers = make(engine.ActionTriggers, 0)
 		}
 		for _, actionTriggerID := range attr.ActionTriggerIDs {
-			atrs, err := api.DataManager.GetActionTriggers(actionTriggerID, false, utils.NonTransactional)
+			atrs, err := apierSv1.DataManager.GetActionTriggers(actionTriggerID, false, utils.NonTransactional)
 			if err != nil {
-				return 0, err
+				return err
 			}
 			for _, at := range atrs {
 				var found bool
@@ -94,8 +102,8 @@ func (api *APIerSv1) AddAccountActionTriggers(attr AttrAddAccountActionTriggers,
 			}
 		}
 		account.InitCounters()
-		return 0, api.DataManager.SetAccount(account)
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+accID)
+		return apierSv1.DataManager.SetAccount(account)
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+accID)
 	if err != nil {
 		return
 	}
@@ -110,17 +118,21 @@ type AttrRemoveAccountActionTriggers struct {
 	UniqueID string
 }
 
-func (api *APIerSv1) RemoveAccountActionTriggers(attr AttrRemoveAccountActionTriggers, reply *string) error {
-	if missing := utils.MissingStructFields(&attr, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) RemoveAccountActionTriggers(attr *AttrRemoveAccountActionTriggers, reply *string) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	accID := utils.ConcatenatedKey(attr.Tenant, attr.Account)
-	_, err := guardian.Guardian.Guard(func() (interface{}, error) {
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	accID := utils.ConcatenatedKey(tnt, attr.Account)
+	err := guardian.Guardian.Guard(func() error {
 		var account *engine.Account
-		if acc, err := api.DataManager.GetAccount(accID); err == nil {
+		if acc, err := apierSv1.DataManager.GetAccount(accID); err == nil {
 			account = acc
 		} else {
-			return 0, err
+			return err
 		}
 		var newActionTriggers engine.ActionTriggers
 		for _, at := range account.ActionTriggers {
@@ -133,7 +145,7 @@ func (api *APIerSv1) RemoveAccountActionTriggers(attr AttrRemoveAccountActionTri
 		}
 		account.ActionTriggers = newActionTriggers
 		account.InitCounters()
-		return 0, api.DataManager.SetAccount(account)
+		return apierSv1.DataManager.SetAccount(account)
 	}, config.CgrConfig().GeneralCfg().LockingTimeout, accID)
 	if err != nil {
 		*reply = err.Error()
@@ -151,18 +163,21 @@ type AttrResetAccountActionTriggers struct {
 	Executed bool
 }
 
-func (api *APIerSv1) ResetAccountActionTriggers(attr AttrResetAccountActionTriggers, reply *string) error {
-
-	if missing := utils.MissingStructFields(&attr, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) ResetAccountActionTriggers(attr *AttrResetAccountActionTriggers, reply *string) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	accID := utils.ConcatenatedKey(attr.Tenant, attr.Account)
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	accID := utils.ConcatenatedKey(tnt, attr.Account)
 	var account *engine.Account
-	_, err := guardian.Guardian.Guard(func() (interface{}, error) {
-		if acc, err := api.DataManager.GetAccount(accID); err == nil {
+	err := guardian.Guardian.Guard(func() error {
+		if acc, err := apierSv1.DataManager.GetAccount(accID); err == nil {
 			account = acc
 		} else {
-			return 0, err
+			return err
 		}
 		for _, at := range account.ActionTriggers {
 			if (attr.UniqueID == "" || at.UniqueID == attr.UniqueID) &&
@@ -173,10 +188,10 @@ func (api *APIerSv1) ResetAccountActionTriggers(attr AttrResetAccountActionTrigg
 
 		}
 		if attr.Executed == false {
-			account.ExecuteActionTriggers(nil)
+			account.ExecuteActionTriggers(nil, apierSv1.FilterS)
 		}
-		return 0, api.DataManager.SetAccount(account)
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+accID)
+		return apierSv1.DataManager.SetAccount(account)
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+accID)
 	if err != nil {
 		*reply = err.Error()
 		return err
@@ -193,7 +208,7 @@ type AttrSetAccountActionTriggers struct {
 type AttrSetActionTrigger struct {
 	GroupID       string
 	UniqueID      string
-	ActionTrigger map[string]interface{}
+	ActionTrigger map[string]any
 }
 
 // UpdateActionTrigger updates the ActionTrigger if is matching
@@ -324,7 +339,7 @@ func (attr *AttrSetActionTrigger) UpdateActionTrigger(at *engine.ActionTrigger, 
 	}
 	if minQ, has := attr.ActionTrigger[utils.MinQueuedItems]; has {
 		var mQ int64
-		if mQ, err = utils.IfaceAsInt64(minQ); err != nil {
+		if mQ, err = utils.IfaceAsTInt64(minQ); err != nil {
 			return
 		}
 		at.MinQueuedItems = int(mQ)
@@ -336,23 +351,27 @@ func (attr *AttrSetActionTrigger) UpdateActionTrigger(at *engine.ActionTrigger, 
 }
 
 // SetAccountActionTriggers updates or creates if not present the ActionTrigger for an Account
-func (api *APIerSv1) SetAccountActionTriggers(attr AttrSetAccountActionTriggers, reply *string) error {
-	if missing := utils.MissingStructFields(&attr, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) SetAccountActionTriggers(attr *AttrSetAccountActionTriggers, reply *string) error {
+	if missing := utils.MissingStructFields(attr, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	accID := utils.ConcatenatedKey(attr.Tenant, attr.Account)
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	accID := utils.ConcatenatedKey(tnt, attr.Account)
 	var account *engine.Account
-	_, err := guardian.Guardian.Guard(func() (interface{}, error) {
-		if acc, err := api.DataManager.GetAccount(accID); err == nil {
+	err := guardian.Guardian.Guard(func() error {
+		if acc, err := apierSv1.DataManager.GetAccount(accID); err == nil {
 			account = acc
 		} else {
-			return 0, err
+			return err
 		}
 		var foundOne bool
 		for _, at := range account.ActionTriggers {
 			if updated, err := attr.UpdateActionTrigger(at,
-				api.Config.GeneralCfg().DefaultTimezone); err != nil {
-				return 0, err
+				apierSv1.Config.GeneralCfg().DefaultTimezone); err != nil {
+				return err
 			} else if updated && !foundOne {
 				foundOne = true
 			}
@@ -360,15 +379,15 @@ func (api *APIerSv1) SetAccountActionTriggers(attr AttrSetAccountActionTriggers,
 		if !foundOne { // Did not find one to update, create a new AT
 			at := new(engine.ActionTrigger)
 			if updated, err := attr.UpdateActionTrigger(at,
-				api.Config.GeneralCfg().DefaultTimezone); err != nil {
-				return 0, err
+				apierSv1.Config.GeneralCfg().DefaultTimezone); err != nil {
+				return err
 			} else if updated { // Adding a new AT
 				account.ActionTriggers = append(account.ActionTriggers, at)
 			}
 		}
-		account.ExecuteActionTriggers(nil)
-		return 0, api.DataManager.SetAccount(account)
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+accID)
+		account.ExecuteActionTriggers(nil, apierSv1.FilterS)
+		return apierSv1.DataManager.SetAccount(account)
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+accID)
 	if err != nil {
 		*reply = err.Error()
 		return err
@@ -382,51 +401,56 @@ type AttrRemoveActionTrigger struct {
 	UniqueID string
 }
 
-func (api *APIerSv1) RemoveActionTrigger(attr AttrRemoveActionTrigger, reply *string) error {
-	if missing := utils.MissingStructFields(&attr, []string{"GroupID"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) RemoveActionTrigger(attr *AttrRemoveActionTrigger, reply *string) (err error) {
+	if missing := utils.MissingStructFields(attr, []string{"GroupID"}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
 	if attr.UniqueID == "" {
-		err := api.DataManager.RemoveActionTriggers(attr.GroupID, utils.NonTransactional)
+		err = apierSv1.DataManager.RemoveActionTriggers(attr.GroupID, utils.NonTransactional)
 		if err != nil {
-			*reply = err.Error()
-		} else {
-			*reply = utils.OK
+			return
 		}
-		return err
-	} else {
-		atrs, err := api.DataManager.GetActionTriggers(attr.GroupID, false, utils.NonTransactional)
-		if err != nil {
-			*reply = err.Error()
-			return err
-		}
-		var remainingAtrs engine.ActionTriggers
-		for _, atr := range atrs {
-			if atr.UniqueID == attr.UniqueID {
-				continue
-			}
+		*reply = utils.OK
+		return
+	}
+	var atrs engine.ActionTriggers
+	if atrs, err = apierSv1.DataManager.GetActionTriggers(attr.GroupID, false, utils.NonTransactional); err != nil {
+		return
+	}
+	remainingAtrs := make(engine.ActionTriggers, 0, len(atrs))
+	for _, atr := range atrs {
+		if atr.UniqueID != attr.UniqueID {
 			remainingAtrs = append(remainingAtrs, atr)
 		}
-		// set the cleared list back
-		err = api.DataManager.SetActionTriggers(attr.GroupID, remainingAtrs, utils.NonTransactional)
-		if err != nil {
-			*reply = err.Error()
-		} else {
-			*reply = utils.OK
-		}
-		return err
 	}
+	// set the cleared list back
+	if err = apierSv1.DataManager.SetActionTriggers(attr.GroupID, remainingAtrs); err != nil {
+		return
+	}
+	// CacheReload
+	if err = apierSv1.ConnMgr.Call(apierSv1.Config.ApierCfg().CachesConns, nil,
+		utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+			ActionTriggerIDs: []string{attr.GroupID},
+		}, reply); err != nil {
+		return
+	}
+	// generate a loadID for CacheActionTriggers and store it in database
+	if err = apierSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheActionTriggers: time.Now().UnixNano()}); err != nil {
+		return utils.APIErrorHandler(err)
+	}
+	*reply = utils.OK
+	return
 }
 
 // SetActionTrigger updates a ActionTrigger
-func (api *APIerSv1) SetActionTrigger(attr AttrSetActionTrigger, reply *string) (err error) {
-	if missing := utils.MissingStructFields(&attr, []string{"GroupID"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) SetActionTrigger(attr *AttrSetActionTrigger, reply *string) (err error) {
+	if missing := utils.MissingStructFields(attr, []string{"GroupID"}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
 
-	atrs, _ := api.DataManager.GetActionTriggers(attr.GroupID, false, utils.NonTransactional)
+	atrs, _ := apierSv1.DataManager.GetActionTriggers(attr.GroupID, false, utils.NonTransactional)
 	var newAtr *engine.ActionTrigger
-	if attr.UniqueID != "" {
+	if attr.UniqueID != utils.EmptyString {
 		//search for exiting one
 		for _, atr := range atrs {
 			if atr.UniqueID == attr.UniqueID {
@@ -446,14 +470,24 @@ func (api *APIerSv1) SetActionTrigger(attr AttrSetActionTrigger, reply *string) 
 	newAtr.ID = attr.GroupID
 	newAtr.UniqueID = attr.UniqueID
 	if _, err = attr.UpdateActionTrigger(newAtr,
-		api.Config.GeneralCfg().DefaultTimezone); err != nil {
+		apierSv1.Config.GeneralCfg().DefaultTimezone); err != nil {
 		return
 	}
 
-	if err = api.DataManager.SetActionTriggers(attr.GroupID, atrs, utils.NonTransactional); err != nil {
+	if err = apierSv1.DataManager.SetActionTriggers(attr.GroupID, atrs); err != nil {
 		return
 	}
-	//no cache for action triggers
+	// CacheReload
+	if err = apierSv1.ConnMgr.Call(apierSv1.Config.ApierCfg().CachesConns, nil,
+		utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+			ActionTriggerIDs: []string{attr.GroupID},
+		}, reply); err != nil {
+		return
+	}
+	// generate a loadID for CacheActionTriggers and store it in database
+	if err = apierSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheActionTriggers: time.Now().UnixNano()}); err != nil {
+		return utils.APIErrorHandler(err)
+	}
 	*reply = utils.OK
 	return
 }
@@ -462,11 +496,11 @@ type AttrGetActionTriggers struct {
 	GroupIDs []string
 }
 
-func (api *APIerSv1) GetActionTriggers(attr AttrGetActionTriggers, atrs *engine.ActionTriggers) error {
+func (apierSv1 *APIerSv1) GetActionTriggers(attr *AttrGetActionTriggers, atrs *engine.ActionTriggers) error {
 	var allAttrs engine.ActionTriggers
 	if len(attr.GroupIDs) > 0 {
 		for _, key := range attr.GroupIDs {
-			getAttrs, err := api.DataManager.GetActionTriggers(key, false, utils.NonTransactional)
+			getAttrs, err := apierSv1.DataManager.GetActionTriggers(key, false, utils.NonTransactional)
 			if err != nil {
 				return err
 			}
@@ -474,7 +508,7 @@ func (api *APIerSv1) GetActionTriggers(attr AttrGetActionTriggers, atrs *engine.
 		}
 
 	} else {
-		keys, err := api.DataManager.DataDB().GetKeysForPrefix(utils.ACTION_TRIGGER_PREFIX)
+		keys, err := apierSv1.DataManager.DataDB().GetKeysForPrefix(utils.ActionTriggerPrefix)
 		if err != nil {
 			return err
 		}
@@ -482,7 +516,7 @@ func (api *APIerSv1) GetActionTriggers(attr AttrGetActionTriggers, atrs *engine.
 			return utils.ErrNotFound
 		}
 		for _, key := range keys {
-			getAttrs, err := api.DataManager.GetActionTriggers(key[len(utils.ACTION_TRIGGER_PREFIX):], false, utils.NonTransactional)
+			getAttrs, err := apierSv1.DataManager.GetActionTriggers(key[len(utils.ActionTriggerPrefix):], false, utils.NonTransactional)
 			if err != nil {
 				return err
 			}
@@ -511,9 +545,13 @@ type AttrAddActionTrigger struct {
 }
 
 // Deprecated in rc8, replaced by AddAccountActionTriggers
-func (api *APIerSv1) AddTriggeredAction(attr AttrAddActionTrigger, reply *string) error {
-	if missing := utils.MissingStructFields(&attr, []string{"Tenant", "Account"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) AddTriggeredAction(attr AttrAddActionTrigger, reply *string) error {
+	if missing := utils.MissingStructFields(&attr, []string{utils.AccountField}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
+	}
+	tnt := attr.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
 	at := &engine.ActionTrigger{
 		ID:             attr.ActionTriggersId,
@@ -530,7 +568,7 @@ func (api *APIerSv1) AddTriggeredAction(attr AttrAddActionTrigger, reply *string
 		at.Balance.Type = utils.StringPointer(attr.BalanceType)
 	}
 	if attr.BalanceDestinationIds != "" {
-		dstIDsMp := utils.StringMapFromSlice(strings.Split(attr.BalanceDestinationIds, utils.INFIELD_SEP))
+		dstIDsMp := utils.StringMapFromSlice(strings.Split(attr.BalanceDestinationIds, utils.InfieldSep))
 		at.Balance.DestinationIDs = &dstIDsMp
 	}
 	if attr.BalanceRatingSubject != "" {
@@ -540,7 +578,7 @@ func (api *APIerSv1) AddTriggeredAction(attr AttrAddActionTrigger, reply *string
 		at.Balance.Weight = utils.Float64Pointer(attr.BalanceWeight)
 	}
 	if balExpiryTime, err := utils.ParseTimeDetectLayout(attr.BalanceExpiryTime,
-		api.Config.GeneralCfg().DefaultTimezone); err != nil {
+		apierSv1.Config.GeneralCfg().DefaultTimezone); err != nil {
 		return utils.NewErrServerError(err)
 	} else {
 		at.Balance.ExpirationDate = &balExpiryTime
@@ -548,16 +586,16 @@ func (api *APIerSv1) AddTriggeredAction(attr AttrAddActionTrigger, reply *string
 	if attr.BalanceSharedGroup != "" {
 		at.Balance.SharedGroups = &utils.StringMap{attr.BalanceSharedGroup: true}
 	}
-	acntID := utils.ConcatenatedKey(attr.Tenant, attr.Account)
-	_, err := guardian.Guardian.Guard(func() (interface{}, error) {
-		acnt, err := api.DataManager.GetAccount(acntID)
+	acntID := utils.ConcatenatedKey(tnt, attr.Account)
+	err := guardian.Guardian.Guard(func() error {
+		acnt, err := apierSv1.DataManager.GetAccount(acntID)
 		if err != nil {
-			return 0, err
+			return err
 		}
 		acnt.ActionTriggers = append(acnt.ActionTriggers, at)
 
-		return 0, api.DataManager.SetAccount(acnt)
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+acntID)
+		return apierSv1.DataManager.SetAccount(acnt)
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+acntID)
 	if err != nil {
 		return err
 	}

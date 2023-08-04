@@ -77,7 +77,17 @@ information, please see the [`CONTRIBUTING.md`](CONTRIBUTING.md) file.
 | @mintos5 | Michal Škuta |
 | @playingbogart | Eugene Bozhet |
 | @htrendev | Hristo Trendev |
-
+| @porosnicuadrian | Porosnicu Adrian |
+| @andronache98 | Andronache Andrei |
+| @ionutboangiu | Boangiu Silviu Ionut |
+| @nickolasdaniel | Filip Nickolas Daniel |
+| @JeremyC-AU | Jeremy Chequer |
+| @nickvsnetworking | Nick Jones |
+| @Eda91 | Edlira Eltari |
+| @gezimbll | Gezim Blliku|
+| @ruhnet | Ruel Tmeizeh |
+| @arberkatellari | Arber Katellari |
+| @Juneezee | Eng Zer Jun |
 <!-- to sign, include a single line above this comment containing the following text:
 | @username | First Last |
 -->

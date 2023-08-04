@@ -38,7 +38,6 @@ var (
 	tpChrgsCfgPath   string
 	tpChrgsCfg       *config.CGRConfig
 	tpChrgsRPC       *rpc.Client
-	tpChrgsDataDir   = "/usr/share/cgrates"
 	tpChrgs          *utils.TPChargerProfile
 	tpChrgsDelay     int
 	tpChrgsConfigDIR string //run tests for specific configuration
@@ -81,13 +80,11 @@ func TestTPChrgsIT(t *testing.T) {
 
 func testTPChrgsInitCfg(t *testing.T) {
 	var err error
-	tpChrgsCfgPath = path.Join(tpChrgsDataDir, "conf", "samples", tpChrgsConfigDIR)
+	tpChrgsCfgPath = path.Join(*dataDir, "conf", "samples", tpChrgsConfigDIR)
 	tpChrgsCfg, err = config.NewCGRConfigFromPath(tpChrgsCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpChrgsCfg.DataFolderPath = tpChrgsDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpChrgsCfg)
 	tpChrgsDelay = 1000
 
 }

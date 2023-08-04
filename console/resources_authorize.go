@@ -28,7 +28,7 @@ func init() {
 	c := &CmdResourceAuthorize{
 		name:      "resources_authorize",
 		rpcMethod: utils.ResourceSv1AuthorizeResources,
-		rpcParams: &utils.ArgRSv1ResourceUsage{},
+		rpcParams: &utils.CGREvent{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -38,7 +38,7 @@ func init() {
 type CmdResourceAuthorize struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.ArgRSv1ResourceUsage
+	rpcParams *utils.CGREvent
 	*CommandExecuter
 }
 
@@ -50,22 +50,21 @@ func (self *CmdResourceAuthorize) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdResourceAuthorize) RpcParams(reset bool) interface{} {
+func (self *CmdResourceAuthorize) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.ArgRSv1ResourceUsage{ArgDispatcher: new(utils.ArgDispatcher)}
+		self.rpcParams = new(utils.CGREvent)
 	}
 	return self.rpcParams
 }
 
 func (self *CmdResourceAuthorize) PostprocessRpcParams() error {
-	if self.rpcParams != nil && self.rpcParams.CGREvent != nil &&
-		self.rpcParams.CGREvent.Time == nil {
-		self.rpcParams.CGREvent.Time = utils.TimePointer(time.Now())
+	if self.rpcParams != nil && self.rpcParams.Time == nil {
+		self.rpcParams.Time = utils.TimePointer(time.Now())
 	}
 	return nil
 }
 
-func (self *CmdResourceAuthorize) RpcResult() interface{} {
-	var atr *string
+func (self *CmdResourceAuthorize) RpcResult() any {
+	var atr string
 	return &atr
 }

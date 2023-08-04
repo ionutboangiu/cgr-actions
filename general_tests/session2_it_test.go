@@ -48,6 +48,10 @@ var (
 		testSes2ItLoadFromFolder,
 		testSes2ItInitSession,
 		testSes2ItAsActiveSessions,
+		testSes2StirAuthenticate,
+		testSes2StirInit,
+		testSes2STIRAuthenticate,
+		testSes2STIRIdentity,
 		testSes2ItStopCgrEngine,
 	}
 )
@@ -109,7 +113,7 @@ func testSes2ItLoadFromFolder(t *testing.T) {
 	if err := ses2RPC.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testSes2ItInitSession(t *testing.T) {
@@ -117,9 +121,9 @@ func testSes2ItInitSession(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "1001",
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       float64(time.Hour),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestDynamicDebitBalance",
 		},
 	}
@@ -135,17 +139,17 @@ func testSes2ItInitSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     utils.UUIDSha1Prefix(),
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.OriginID:    utils.UUIDSha1Prefix(),
-				utils.ToR:         utils.VOICE,
-				utils.Category:    "call",
-				utils.Tenant:      "cgrates.org",
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002",
-				utils.RequestType: utils.META_PREPAID,
-				utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.OriginID:     utils.UUIDSha1Prefix(),
+				utils.ToR:          utils.MetaVoice,
+				utils.Category:     "call",
+				utils.Tenant:       "cgrates.org",
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
 			},
 		},
 	}
@@ -164,19 +168,131 @@ func testSes2ItAsActiveSessions(t *testing.T) {
 	}, &count); err != nil {
 		t.Fatal(err)
 	} else if count != 2 { // 2 chargers
-		t.Errorf("Expeced 2 session received %v session(s)", count)
+		t.Errorf("Expected 2 session received %v session(s)", count)
 	}
 	if err := ses2RPC.Call(utils.SessionSv1GetActiveSessionsCount, utils.SessionFilter{
 		Filters: []string{"*string:~*req.Account:1002"},
 	}, &count); err != nil {
 		t.Fatal(err)
 	} else if count != 0 {
-		t.Errorf("Expeced 0 session received %v session(s)", count)
+		t.Errorf("Expected 0 session received %v session(s)", count)
 	}
 }
 
 func testSes2ItStopCgrEngine(t *testing.T) {
 	if err := engine.KillEngine(100); err != nil {
 		t.Error(err)
+	}
+}
+
+func testSes2StirAuthenticate(t *testing.T) {
+	args := &sessions.V1ProcessEventArgs{
+		Flags: []string{utils.MetaSTIRAuthenticate},
+
+		CGREvent: &utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testSes2StirAuthorize",
+			Event: map[string]any{
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testSes2StirAuthorize",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.Usage:        10 * time.Minute,
+			},
+			APIOpts: map[string]any{
+				utils.OptsStirIdentity: "eyJhbGciOiJFUzI1NiIsInBwdCI6InNoYWtlbiIsInR5cCI6InBhc3Nwb3J0IiwieDV1IjoiL3Vzci9zaGFyZS9jZ3JhdGVzL3N0aXIvc3Rpcl9wdWJrZXkucGVtIn0.eyJhdHRlc3QiOiJBIiwiZGVzdCI6eyJ0biI6WyIxMDAyIl19LCJpYXQiOjE1ODcwMzg4MDIsIm9yaWciOnsidG4iOiIxMDAxIn0sIm9yaWdpZCI6IjEyMzQ1NiJ9.cMEMlFnfyTu8uxfeU4RoZTamA7ifFT9Ibwrvi1_LKwL2xAU6fZ_CSIxKbtyOpNhM_sV03x7CfA_v0T4sHkifzg;info=</usr/share/cgrates/stir/stir_pubkey.pem>;ppt=shaken",
+			},
+		},
+	}
+	var rply sessions.V1ProcessEventReply
+	if err := ses2RPC.Call(utils.SessionSv1ProcessEvent,
+		args, &rply); err != nil { // no error verificated with success
+		t.Error(err)
+	}
+	// altered originator
+	args.APIOpts[utils.OptsStirOriginatorTn] = "1005"
+	if err := ses2RPC.Call(utils.SessionSv1ProcessEvent,
+		args, &rply); err == nil || err.Error() != "*stir_authenticate: wrong originatorTn" {
+		t.Errorf("Expected error :%q ,receved: %v", "*stir_authenticate: wrong originatorTn", err)
+	}
+
+	// altered identity
+	args.APIOpts[utils.OptsStirIdentity] = "eyJhbGciOiJFUzI1NiIsInBwdCI6InNoYWtlbiIsInR5cCI6InBhc3Nwb3J0IiwieDV1IjoiL3Vzci9zaGFyZS9jZ3JhdGVzL3N0aXIvc3Rpcl9wdWJrZXkucGVtIn0.eyJhdHRlc3QiOiJBIiwiZGVzdCI6eyJ0biI6WyIxMDAyIl19LCJpYXQiOjE1ODcwMzg4MDIsIm9yaWciOnsidG4iOiIxMDA1In0sIm9yaWdpZCI6IjEyMzQ1NiJ9.cMEMlFnfyTu8uxfeU4RoZTamA7ifFT9Ibwrvi1_LKwL2xAU6fZ_CSIxKbtyOpNhM_sV03x7CfA_v0T4sHkifzg;info=</usr/share/cgrates/stir/stir_pubkey.pem>;ppt=shaken"
+	if err := ses2RPC.Call(utils.SessionSv1ProcessEvent,
+		args, &rply); err == nil || err.Error() != "*stir_authenticate: crypto/ecdsa: verification error" {
+		t.Errorf("Expected error :%q ,receved: %v", "*stir_authenticate: crypto/ecdsa: verification error", err)
+	}
+}
+
+func testSes2StirInit(t *testing.T) {
+	args := &sessions.V1ProcessEventArgs{
+		Flags: []string{utils.MetaSTIRInitiate},
+
+		CGREvent: &utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testSes2StirInit",
+			Event: map[string]any{
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testSes2StirInit",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.Usage:        10 * time.Minute,
+			},
+			APIOpts: map[string]any{
+				utils.OptsStirPublicKeyPath:  "/usr/share/cgrates/stir/stir_pubkey.pem",
+				utils.OptsStirPrivateKeyPath: "/usr/share/cgrates/stir/stir_privatekey.pem",
+			},
+		},
+	}
+	var rply sessions.V1ProcessEventReply
+	if err := ses2RPC.Call(utils.SessionSv1ProcessEvent,
+		args, &rply); err != nil { // no error verificated with success
+		t.Error(err)
+	}
+	if err := sessions.AuthStirShaken(rply.STIRIdentity[utils.MetaRaw], "1001", "", "1002", "", utils.NewStringSet([]string{"A"}), 10*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testSes2STIRAuthenticate(t *testing.T) {
+	var rply string
+	if err := ses2RPC.Call(utils.SessionSv1STIRAuthenticate,
+		&sessions.V1STIRAuthenticateArgs{
+			Attest:             []string{"A"},
+			PayloadMaxDuration: "-1",
+			DestinationTn:      "1002",
+			Identity:           "eyJhbGciOiJFUzI1NiIsInBwdCI6InNoYWtlbiIsInR5cCI6InBhc3Nwb3J0IiwieDV1IjoiL3Vzci9zaGFyZS9jZ3JhdGVzL3N0aXIvc3Rpcl9wdWJrZXkucGVtIn0.eyJhdHRlc3QiOiJBIiwiZGVzdCI6eyJ0biI6WyIxMDAyIl19LCJpYXQiOjE1ODcwMzg4MDIsIm9yaWciOnsidG4iOiIxMDAxIn0sIm9yaWdpZCI6IjEyMzQ1NiJ9.cMEMlFnfyTu8uxfeU4RoZTamA7ifFT9Ibwrvi1_LKwL2xAU6fZ_CSIxKbtyOpNhM_sV03x7CfA_v0T4sHkifzg;info=</usr/share/cgrates/stir/stir_pubkey.pem>;ppt=shaken",
+			OriginatorTn:       "1001",
+		}, &rply); err != nil {
+		t.Fatal(err)
+	} else if rply != utils.OK {
+		t.Errorf("Expected: %s ,received: %s", utils.OK, rply)
+	}
+}
+
+func testSes2STIRIdentity(t *testing.T) {
+	payload := &utils.PASSporTPayload{
+		Dest:   utils.PASSporTDestinationsIdentity{Tn: []string{"1002"}},
+		IAT:    1587019822,
+		Orig:   utils.PASSporTOriginsIdentity{Tn: "1001"},
+		OrigID: "123456",
+	}
+	args := &sessions.V1STIRIdentityArgs{
+		Payload:        payload,
+		PublicKeyPath:  "/usr/share/cgrates/stir/stir_pubkey.pem",
+		PrivateKeyPath: "/usr/share/cgrates/stir/stir_privatekey.pem",
+		OverwriteIAT:   true,
+	}
+	var rply string
+	if err := ses2RPC.Call(utils.SessionSv1STIRIdentity,
+		args, &rply); err != nil {
+		t.Error(err)
+	}
+	if err := sessions.AuthStirShaken(rply, "1001", "", "1002", "", utils.NewStringSet([]string{"A"}), 10*time.Minute); err != nil {
+		t.Fatal(err)
 	}
 }

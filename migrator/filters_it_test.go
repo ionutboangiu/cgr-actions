@@ -50,40 +50,42 @@ var sTestsFltrIT = []func(t *testing.T){
 }
 
 func TestFiltersMigrateITRedis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testFltrStart("TestFiltersMigrateITRedis", inPath, inPath, utils.Migrate, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testFltrStart("TestFiltersMigrateITRedis", utils.Migrate, t)
 }
 
 func TestFiltersMigrateITMongo(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	testFltrStart("TestFiltersMigrateITMongo", inPath, inPath, utils.Migrate, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	testFltrStart("TestFiltersMigrateITMongo", utils.Migrate, t)
 }
 
 func TestFiltersITMove(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testFltrStart("TestFiltersITMove", inPath, outPath, utils.Move, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testFltrStart("TestFiltersITMove", utils.Move, t)
 }
 
 func TestFiltersITMigrateMongo2Redis(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	testFltrStart("TestFiltersITMigrateMongo2Redis", inPath, outPath, utils.Migrate, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	testFltrStart("TestFiltersITMigrateMongo2Redis", utils.Migrate, t)
 }
 
 func TestFiltersITMoveEncoding(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmongo")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmongojson")
-	testFltrStart("TestFiltersITMoveEncoding", inPath, outPath, utils.Move, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmongojson")
+	testFltrStart("TestFiltersITMoveEncoding", utils.Move, t)
 }
 
 func TestFiltersITMoveEncoding2(t *testing.T) {
-	inPath := path.Join(*dataDir, "conf", "samples", "tutmysql")
-	outPath := path.Join(*dataDir, "conf", "samples", "tutmysqljson")
-	testFltrStart("TestFiltersITMoveEncoding2", inPath, outPath, utils.Move, t)
+	inPath = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	outPath = path.Join(*dataDir, "conf", "samples", "tutmysqljson")
+	testFltrStart("TestFiltersITMoveEncoding2", utils.Move, t)
 }
 
-func testFltrStart(testName, inPath, outPath, action string, t *testing.T) {
+func testFltrStart(testName, action string, t *testing.T) {
 	var err error
 	fltrAction = action
 	if fltrCfgIn, err = config.NewCGRConfigFromPath(inPath); err != nil {
@@ -99,24 +101,29 @@ func testFltrStart(testName, inPath, outPath, action string, t *testing.T) {
 }
 
 func testFltrITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(fltrCfgIn.DataDbCfg().DataDbType,
-		fltrCfgIn.DataDbCfg().DataDbHost, fltrCfgIn.DataDbCfg().DataDbPort,
-		fltrCfgIn.DataDbCfg().DataDbName, fltrCfgIn.DataDbCfg().DataDbUser,
-		fltrCfgIn.DataDbCfg().DataDbPass, fltrCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", fltrCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(fltrCfgIn.DataDbCfg().Type,
+		fltrCfgIn.DataDbCfg().Host, fltrCfgIn.DataDbCfg().Port,
+		fltrCfgIn.DataDbCfg().Name, fltrCfgIn.DataDbCfg().User,
+		fltrCfgIn.DataDbCfg().Password, fltrCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), fltrCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(fltrCfgOut.DataDbCfg().DataDbType,
-		fltrCfgOut.DataDbCfg().DataDbHost, fltrCfgOut.DataDbCfg().DataDbPort,
-		fltrCfgOut.DataDbCfg().DataDbName, fltrCfgOut.DataDbCfg().DataDbUser,
-		fltrCfgOut.DataDbCfg().DataDbPass, fltrCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", fltrCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(fltrCfgOut.DataDbCfg().Type,
+		fltrCfgOut.DataDbCfg().Host, fltrCfgOut.DataDbCfg().Port,
+		fltrCfgOut.DataDbCfg().Name, fltrCfgOut.DataDbCfg().User,
+		fltrCfgOut.DataDbCfg().Password, fltrCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), fltrCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fltrMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil, false, false, false, false)
+	if reflect.DeepEqual(inPath, outPath) {
+		fltrMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		fltrMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -134,40 +141,36 @@ func testFltrITFlush(t *testing.T) {
 }
 
 func testFltrITMigrateAndMove(t *testing.T) {
-	Filters := &v1Filter{
+	fltr := &v1Filter{
 		Tenant: "cgrates.org",
 		ID:     "FLTR_2",
-		Rules: []*v1FilterRule{
-			{
-				Type:      utils.MetaPrefix,
-				FieldName: "Account",
-				Values:    []string{"1001"},
-			},
-		},
+		Rules: []*v1FilterRule{{
+			Type:      utils.MetaPrefix,
+			FieldName: "Account",
+			Values:    []string{"1001"},
+		}},
 	}
 	expFilters := &engine.Filter{
 		Tenant: "cgrates.org",
 		ID:     "FLTR_2",
-		Rules: []*engine.FilterRule{
-			{
-				Type:    utils.MetaPrefix,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
-				Values:  []string{"1001"},
-			},
-		},
+		Rules: []*engine.FilterRule{{
+			Type:    utils.MetaPrefix,
+			Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
+			Values:  []string{"1001"},
+		}},
 	}
 	expFilters.Compile()
 	attrProf := &engine.AttributeProfile{
 		Tenant:             "cgrates.org",
 		ID:                 "ATTR_1",
-		Contexts:           []string{utils.META_ANY},
+		Contexts:           []string{utils.MetaAny},
 		FilterIDs:          []string{"*string:Account:1001", "FLTR_2"},
 		ActivationInterval: nil,
 		Attributes: []*engine.Attribute{
 			{
 				FilterIDs: []string{"*string:Account:1001"},
 				Path:      utils.MetaReq + utils.NestingSep + "Account",
-				Value:     config.NewRSRParsersMustCompile("1002", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("1002", utils.InfieldSep),
 			},
 		},
 		Weight: 10,
@@ -175,14 +178,14 @@ func testFltrITMigrateAndMove(t *testing.T) {
 	expAttrProf := &engine.AttributeProfile{
 		Tenant:             "cgrates.org",
 		ID:                 "ATTR_1",
-		Contexts:           []string{utils.META_ANY},
+		Contexts:           []string{utils.MetaAny},
 		FilterIDs:          []string{"*string:~*req.Account:1001", "FLTR_2"},
 		ActivationInterval: nil,
 		Attributes: []*engine.Attribute{
 			{
 				FilterIDs: []string{"*string:~*req.Account:1001"},
 				Path:      utils.MetaReq + utils.NestingSep + "Account",
-				Value:     config.NewRSRParsersMustCompile("1002", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("1002", utils.InfieldSep),
 			},
 		},
 		Weight: 10,
@@ -191,11 +194,33 @@ func testFltrITMigrateAndMove(t *testing.T) {
 	attrProf.Compile()
 	switch fltrAction {
 	case utils.Migrate:
-		if err := fltrMigrator.dmIN.setV1Filter(Filters); err != nil {
+		if err := fltrMigrator.dmIN.setV1Filter(fltr); err != nil {
 			t.Error("Error when setting v1 Filters ", err.Error())
 		}
 		if err := fltrMigrator.dmIN.DataManager().SetAttributeProfile(attrProf, false); err != nil {
 			t.Error("Error when setting attribute profile for v1 Filters ", err.Error())
+		}
+		// manually set the indexes because the GetFilter functions compile the value from DB that is still the old version
+		wrongFltrIdx := map[string]utils.StringSet{
+			"*prefix::1001": {"ATTR_1": struct{}{}},
+			// "*string:Account:1001": {"ATTR_1": struct{}{}},
+		}
+
+		if err := fltrMigrator.dmIN.DataManager().SetIndexes(
+			utils.CacheAttributeFilterIndexes,
+			utils.ConcatenatedKey(attrProf.Tenant, utils.MetaAny),
+			wrongFltrIdx, false, ""); err != nil {
+			t.Error(err)
+		}
+
+		wrongFltrIdx = map[string]utils.StringSet{
+			utils.CacheAttributeFilterIndexes: {"ATTR_1": struct{}{}},
+		}
+		if err := fltrMigrator.dmIN.DataManager().SetIndexes(
+			utils.CacheReverseFilterIndexes,
+			"cgrates.org:FLTR_2",
+			wrongFltrIdx, false, ""); err != nil {
+			t.Error(err)
 		}
 		currentVersion := engine.Versions{utils.RQF: 1}
 		err := fltrMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
@@ -208,6 +233,7 @@ func testFltrITMigrateAndMove(t *testing.T) {
 		} else if vrs[utils.RQF] != 1 {
 			t.Errorf("Unexpected version returned: %d", vrs[utils.RQF])
 		}
+
 		//migrate Filters
 		err, _ = fltrMigrator.Migrate([]string{utils.MetaFilters})
 		if err != nil {
@@ -216,11 +242,11 @@ func testFltrITMigrateAndMove(t *testing.T) {
 		//check if version was updated
 		if vrs, err := fltrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 			t.Error(err)
-		} else if vrs[utils.RQF] != 4 {
+		} else if vrs[utils.RQF] != 5 {
 			t.Errorf("Unexpected version returned: %d", vrs[utils.RQF])
 		}
 		//check if Filters was migrate correctly
-		result, err := engine.GetFilter(fltrMigrator.dmOut.DataManager(), Filters.Tenant, Filters.ID, false, false, utils.NonTransactional)
+		result, err := fltrMigrator.dmOut.DataManager().GetFilter(fltr.Tenant, fltr.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Fatalf("Error when getting Attributes %v", err.Error())
 		}
@@ -237,21 +263,27 @@ func testFltrITMigrateAndMove(t *testing.T) {
 		if !reflect.DeepEqual(*expAttrProf, *resultattr) {
 			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(expAttrProf), utils.ToJSON(resultattr))
 		}
-		expFltrIdx := map[string]utils.StringMap{
-			"*prefix:~*req.Account:1001": {"ATTR_1": true},
-			"*string:~*req.Account:1001": {"ATTR_1": true}}
+		// the Indexes should be recomputed after migration to the same DB
+		if inPath != outPath {
+			expFltrIdx := map[string]utils.StringSet{
+				"*prefix:*req.Account:1001": {"ATTR_1": struct{}{}},
+				"*string:*req.Account:1001": {"ATTR_1": struct{}{}}}
 
-		if fltridx, err := fltrMigrator.dmOut.DataManager().GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix], utils.ConcatenatedKey(attrProf.Tenant, utils.META_ANY), utils.MetaString, nil); err != nil {
-			t.Error(err)
-		} else if !reflect.DeepEqual(expFltrIdx, fltridx) {
-			t.Errorf("Expected %v, recived: %v", utils.ToJSON(expFltrIdx), utils.ToJSON(fltridx))
+			if fltridx, err := fltrMigrator.dmOut.DataManager().GetIndexes(
+				utils.CacheAttributeFilterIndexes,
+				utils.ConcatenatedKey(attrProf.Tenant, utils.MetaAny),
+				"", false, false); err != nil {
+				t.Error(err)
+			} else if !reflect.DeepEqual(expFltrIdx, fltridx) {
+				t.Errorf("Expected %v, received: %v", utils.ToJSON(expFltrIdx), utils.ToJSON(fltridx))
+			}
 		}
 	case utils.Move:
-		if err := fltrMigrator.dmIN.DataManager().SetFilter(expFilters); err != nil {
+		if err := fltrMigrator.dmIN.DataManager().SetFilter(expFilters, true); err != nil {
 			t.Error(err)
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := fltrMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := fltrMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for Filters ", err.Error())
 		}
@@ -261,7 +293,7 @@ func testFltrITMigrateAndMove(t *testing.T) {
 			t.Error("Error when fltrMigratorrating Filters ", err.Error())
 		}
 		//check if account was migrate correctly
-		result, err := engine.GetFilter(fltrMigrator.dmOut.DataManager(), expFilters.Tenant, expFilters.ID, false, false, utils.NonTransactional)
+		result, err := fltrMigrator.dmOut.DataManager().GetFilter(expFilters.Tenant, expFilters.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Error(err)
 		}
@@ -270,7 +302,7 @@ func testFltrITMigrateAndMove(t *testing.T) {
 			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(expFilters), utils.ToJSON(result))
 		}
 		// check if old account was deleted
-		result, err = engine.GetFilter(fltrMigrator.dmIN.DataManager(), expFilters.Tenant, expFilters.ID, false, false, utils.NonTransactional)
+		result, err = fltrMigrator.dmIN.DataManager().GetFilter(expFilters.Tenant, expFilters.ID, false, false, utils.NonTransactional)
 		if err != utils.ErrNotFound {
 			t.Error(err)
 		}
@@ -298,7 +330,7 @@ func testFltrITMigratev2(t *testing.T) {
 			{
 				Type:      utils.MetaRSR,
 				FieldName: utils.EmptyString,
-				Values:    []string{"~Tenant(~^cgr.*\\.org$)"},
+				Values:    []string{`~Tenant(~^cgr.*\.org$)`},
 			},
 		},
 	}
@@ -308,7 +340,7 @@ func testFltrITMigratev2(t *testing.T) {
 		Rules: []*engine.FilterRule{
 			{
 				Type:    utils.MetaString,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 				Values:  []string{"1001"},
 			},
 			{
@@ -318,8 +350,8 @@ func testFltrITMigratev2(t *testing.T) {
 			},
 			{
 				Type:    utils.MetaRSR,
-				Element: utils.EmptyString,
-				Values:  []string{"~*req.Tenant(~^cgr.*\\.org$)"},
+				Element: "~*req.Tenant",
+				Values:  []string{"~^cgr.*\\.org$"},
 			},
 		},
 	}
@@ -327,14 +359,14 @@ func testFltrITMigratev2(t *testing.T) {
 	attrProf := &engine.AttributeProfile{
 		Tenant:             "cgrates.org",
 		ID:                 "ATTR_1",
-		Contexts:           []string{utils.META_ANY},
+		Contexts:           []string{utils.MetaAny},
 		FilterIDs:          []string{"*string:~Account:1001", "FLTR_2"},
 		ActivationInterval: nil,
 		Attributes: []*engine.Attribute{
 			{
 				FilterIDs: []string{"*string:~Account:1001"},
 				Path:      utils.MetaReq + utils.NestingSep + "Account",
-				Value:     config.NewRSRParsersMustCompile("1002", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("1002", utils.InfieldSep),
 			},
 		},
 		Weight: 10,
@@ -342,14 +374,14 @@ func testFltrITMigratev2(t *testing.T) {
 	expAttrProf := &engine.AttributeProfile{
 		Tenant:             "cgrates.org",
 		ID:                 "ATTR_1",
-		Contexts:           []string{utils.META_ANY},
+		Contexts:           []string{utils.MetaAny},
 		FilterIDs:          []string{"*string:~*req.Account:1001", "FLTR_2"},
 		ActivationInterval: nil,
 		Attributes: []*engine.Attribute{
 			{
 				FilterIDs: []string{"*string:~*req.Account:1001"},
 				Path:      utils.MetaReq + utils.NestingSep + "Account",
-				Value:     config.NewRSRParsersMustCompile("1002", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("1002", utils.InfieldSep),
 			},
 		},
 		Weight: 10,
@@ -363,6 +395,29 @@ func testFltrITMigratev2(t *testing.T) {
 	if err := fltrMigrator.dmIN.DataManager().SetAttributeProfile(attrProf, false); err != nil {
 		t.Error("Error when setting attribute profile for v1 Filters ", err.Error())
 	}
+
+	// manually set the indexes because the GetFilter functions compile the value from DB that is still the old version
+	wrongFltrIdx := map[string]utils.StringSet{
+		"*string::1001":         {"ATTR_1": struct{}{}},
+		"*string:~Account:1001": {"ATTR_1": struct{}{}}}
+
+	if err := fltrMigrator.dmIN.DataManager().SetIndexes(
+		utils.CacheAttributeFilterIndexes,
+		utils.ConcatenatedKey(attrProf.Tenant, utils.MetaAny),
+		wrongFltrIdx, false, ""); err != nil {
+		t.Error(err)
+	}
+
+	wrongFltrIdx = map[string]utils.StringSet{
+		utils.CacheAttributeFilterIndexes: {"ATTR_1": struct{}{}},
+	}
+	if err := fltrMigrator.dmIN.DataManager().SetIndexes(
+		utils.CacheReverseFilterIndexes,
+		"cgrates.org:FLTR_2",
+		wrongFltrIdx, false, ""); err != nil {
+		t.Error(err)
+	}
+
 	currentVersion := engine.Versions{utils.RQF: 2}
 	err := fltrMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 	if err != nil {
@@ -374,6 +429,7 @@ func testFltrITMigratev2(t *testing.T) {
 	} else if vrs[utils.RQF] != 2 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.RQF])
 	}
+
 	//migrate Filters
 	err, _ = fltrMigrator.Migrate([]string{utils.MetaFilters})
 	if err != nil {
@@ -382,11 +438,11 @@ func testFltrITMigratev2(t *testing.T) {
 	//check if version was updated
 	if vrs, err := fltrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 		t.Error(err)
-	} else if vrs[utils.RQF] != 4 {
+	} else if vrs[utils.RQF] != 5 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.RQF])
 	}
 	//check if Filters was migrate correctly
-	result, err := engine.GetFilter(fltrMigrator.dmOut.DataManager(), filters.Tenant, filters.ID, false, false, utils.NonTransactional)
+	result, err := fltrMigrator.dmOut.DataManager().GetFilter(filters.Tenant, filters.ID, false, false, utils.NonTransactional)
 	if err != nil {
 		t.Fatalf("Error when getting filters %v", err.Error())
 	}
@@ -403,15 +459,22 @@ func testFltrITMigratev2(t *testing.T) {
 	if !reflect.DeepEqual(*expAttrProf, *resultAttr) {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(expAttrProf), utils.ToJSON(resultAttr))
 	}
-	expFltrIdx := map[string]utils.StringMap{
-		"*string:~*req.Account:1001": {"ATTR_1": true},
-		"*string:~*req.Subject:1001": {"ATTR_1": true},
-	}
 
-	if fltridx, err := fltrMigrator.dmOut.DataManager().GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix], utils.ConcatenatedKey(attrProf.Tenant, utils.META_ANY), utils.MetaString, nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expFltrIdx, fltridx) {
-		t.Errorf("Expected %v, recived: %v", utils.ToJSON(expFltrIdx), utils.ToJSON(fltridx))
+	// the Indexes should be recomputed after migration to the same DB
+	if inPath != outPath {
+		expFltrIdx := map[string]utils.StringSet{
+			"*string:*req.Account:1001": {"ATTR_1": struct{}{}},
+			"*string:*req.Subject:1001": {"ATTR_1": struct{}{}},
+		}
+
+		if fltridx, err := fltrMigrator.dmOut.DataManager().GetIndexes(
+			utils.CacheAttributeFilterIndexes,
+			utils.ConcatenatedKey(attrProf.Tenant, utils.MetaAny),
+			"", false, true); err != nil {
+			t.Error(err)
+		} else if !reflect.DeepEqual(expFltrIdx, fltridx) {
+			t.Errorf("Expected %v, received: %v", utils.ToJSON(expFltrIdx), utils.ToJSON(fltridx))
+		}
 	}
 }
 
@@ -446,7 +509,7 @@ func testFltrITMigratev3(t *testing.T) {
 		Rules: []*engine.FilterRule{
 			{
 				Type:    utils.MetaString,
-				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.Account,
+				Element: utils.DynamicDataPrefix + utils.MetaReq + utils.NestingSep + utils.AccountField,
 				Values:  []string{"1001"},
 			},
 			{
@@ -456,8 +519,8 @@ func testFltrITMigratev3(t *testing.T) {
 			},
 			{
 				Type:    utils.MetaRSR,
-				Element: utils.EmptyString,
-				Values:  []string{"~*req.Tenant(~^cgr.*\\.org$)"},
+				Element: "~*req.Tenant",
+				Values:  []string{"~^cgr.*\\.org$"},
 			},
 		},
 	}
@@ -485,16 +548,18 @@ func testFltrITMigratev3(t *testing.T) {
 	//check if version was updated
 	if vrs, err := fltrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 		t.Error(err)
-	} else if vrs[utils.RQF] != 4 {
+	} else if vrs[utils.RQF] != 5 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.RQF])
 	}
 	//check if Filters was migrate correctly
-	result, err := engine.GetFilter(fltrMigrator.dmOut.DataManager(), filters.Tenant, filters.ID, false, false, utils.NonTransactional)
+	result, err := fltrMigrator.dmOut.DataManager().GetFilter(filters.Tenant, filters.ID, false, false, utils.NonTransactional)
 	if err != nil {
 		t.Fatalf("Error when getting filters %v", err.Error())
 	}
 	result.Compile()
 	if !reflect.DeepEqual(*expFilters, *result) {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(expFilters), utils.ToJSON(result))
+	} else if fltrMigrator.stats[utils.RQF] != 5 {
+		t.Errorf("Expected 5, received: %v", fltrMigrator.stats[utils.RQF])
 	}
 }

@@ -100,7 +100,7 @@ func (cIl *ChargingInterval) Cost() float64 {
 		for _, incr := range cIl.Increments {
 			cost += incr.Cost * float64(incr.CompressFactor)
 		}
-		cost = utils.Round(cost, globalRoundingDecimals, utils.ROUNDING_MIDDLE)
+		cost = utils.Round(cost, globalRoundingDecimals, utils.MetaRoundingMiddle)
 		cIl.cost = &cost
 	}
 	return *cIl.cost
@@ -109,7 +109,7 @@ func (cIl *ChargingInterval) Cost() float64 {
 // TotalCost returns the cost of charges
 func (cIl *ChargingInterval) TotalCost() float64 {
 	return utils.Round((cIl.Cost() * float64(cIl.CompressFactor)),
-		globalRoundingDecimals, utils.ROUNDING_MIDDLE)
+		globalRoundingDecimals, utils.MetaRoundingMiddle)
 }
 
 // Clone returns a new instance of ChargingInterval with independent data
@@ -165,7 +165,7 @@ func (cIt *ChargingIncrement) TotalCost() float64 {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (cIt *ChargingIncrement) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (cIt *ChargingIncrement) FieldAsInterface(fldPath []string) (val any, err error) {
 	if len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -193,7 +193,7 @@ type BalanceCharge struct {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (bc *BalanceCharge) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (bc *BalanceCharge) FieldAsInterface(fldPath []string) (val any, err error) {
 	if bc == nil || len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -217,11 +217,11 @@ func (bc *BalanceCharge) FieldAsInterface(fldPath []string) (val interface{}, er
 func (bc *BalanceCharge) Equals(oBC *BalanceCharge) bool {
 	bcExtraChargeID := bc.ExtraChargeID
 	if bcExtraChargeID == "" {
-		bcExtraChargeID = utils.META_NONE
+		bcExtraChargeID = utils.MetaNone
 	}
 	oBCExtraChargerID := oBC.ExtraChargeID
 	if oBCExtraChargerID == "" { // so we can compare them properly
-		oBCExtraChargerID = utils.META_NONE
+		oBCExtraChargerID = utils.MetaNone
 	}
 	return bc.AccountID == oBC.AccountID &&
 		bc.BalanceUUID == oBC.BalanceUUID &&
@@ -238,7 +238,7 @@ func (bc *BalanceCharge) Clone() *BalanceCharge {
 }
 
 // RatingMatchedFilters a rating filter
-type RatingMatchedFilters map[string]interface{}
+type RatingMatchedFilters map[string]any
 
 // Equals returns if the RatingMatchedFilters are equal
 func (rf RatingMatchedFilters) Equals(oRF RatingMatchedFilters) bool {
@@ -251,11 +251,11 @@ func (rf RatingMatchedFilters) Equals(oRF RatingMatchedFilters) bool {
 }
 
 // Clone creates a copy of RatingMatchedFilters
-func (rf RatingMatchedFilters) Clone() (cln map[string]interface{}) {
+func (rf RatingMatchedFilters) Clone() (cln map[string]any) {
 	if rf == nil {
 		return nil
 	}
-	cln = make(map[string]interface{})
+	cln = make(map[string]any)
 	for key, value := range rf {
 		cln[key] = value
 	}
@@ -263,7 +263,7 @@ func (rf RatingMatchedFilters) Clone() (cln map[string]interface{}) {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (rf RatingMatchedFilters) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (rf RatingMatchedFilters) FieldAsInterface(fldPath []string) (val any, err error) {
 	if rf == nil || len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -300,7 +300,7 @@ func (ct *ChargedTiming) Clone() (cln *ChargedTiming) {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (ct ChargedTiming) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (ct ChargedTiming) FieldAsInterface(fldPath []string) (val any, err error) {
 	if len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -352,7 +352,7 @@ func (ru *RatingUnit) Clone() (cln *RatingUnit) {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (ru RatingUnit) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (ru RatingUnit) FieldAsInterface(fldPath []string) (val any, err error) {
 	if len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -407,7 +407,7 @@ func (rfs RatingFilters) Clone() (cln RatingFilters) {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (rfs RatingFilters) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (rfs RatingFilters) FieldAsInterface(fldPath []string) (val any, err error) {
 	if rfs == nil || len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
@@ -450,7 +450,7 @@ func (crus Rating) Clone() (cln Rating) {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (crus Rating) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (crus Rating) FieldAsInterface(fldPath []string) (val any, err error) {
 	if crus == nil || len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
@@ -468,7 +468,7 @@ func (crus Rating) FieldAsInterface(fldPath []string) (val interface{}, err erro
 type ChargedRates map[string]RateGroups
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (crs ChargedRates) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (crs ChargedRates) FieldAsInterface(fldPath []string) (val any, err error) {
 	if crs == nil || len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
@@ -522,7 +522,7 @@ func (crs ChargedRates) Clone() (cln ChargedRates) {
 type ChargedTimings map[string]*ChargedTiming
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (cts ChargedTimings) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (cts ChargedTimings) FieldAsInterface(fldPath []string) (val any, err error) {
 	if cts == nil || len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
@@ -590,7 +590,7 @@ func (cbs Accounting) Clone() (cln Accounting) {
 }
 
 // FieldAsInterface func to help EventCost FieldAsInterface
-func (cbs Accounting) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (cbs Accounting) FieldAsInterface(fldPath []string) (val any, err error) {
 	if cbs == nil || len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
@@ -605,7 +605,7 @@ func (cbs Accounting) FieldAsInterface(fldPath []string) (val interface{}, err e
 }
 
 // IfaceAsEventCost converts an interface to EventCost
-func IfaceAsEventCost(itm interface{}) (ec *EventCost, err error) {
+func IfaceAsEventCost(itm any) (ec *EventCost, err error) {
 	switch otm := itm.(type) {
 	case nil:
 	case *EventCost:
@@ -616,10 +616,71 @@ func IfaceAsEventCost(itm interface{}) (ec *EventCost, err error) {
 			return nil, fmt.Errorf("JSON cannot unmarshal to *EventCost, err: %s", errUnmarshal.Error())
 		}
 		ec = &rawEC
-	case map[string]interface{}:
+	case map[string]any:
 		ec, err = IfaceAsEventCost(utils.ToJSON(otm))
 	default:
 		err = utils.ErrNotConvertibleTF(reflect.TypeOf(otm).String(), "*EventCost")
 	}
 	return
+}
+
+// NewFreeEventCost returns an EventCost of given duration that it's free
+func NewFreeEventCost(cgrID, runID, account string, tStart time.Time, usage time.Duration) *EventCost {
+	return &EventCost{
+		CGRID:     cgrID,
+		RunID:     runID,
+		StartTime: tStart,
+		Cost:      utils.Float64Pointer(0),
+		Charges: []*ChargingInterval{{
+			RatingID: utils.MetaPause,
+			Increments: []*ChargingIncrement{
+				{
+					Usage:          usage,
+					AccountingID:   utils.MetaPause,
+					CompressFactor: 1,
+				},
+			},
+			CompressFactor: 1,
+		}},
+
+		Rating: Rating{
+			utils.MetaPause: {
+				RoundingMethod:   "*up",
+				RoundingDecimals: 5,
+				RatesID:          utils.MetaPause,
+				RatingFiltersID:  utils.MetaPause,
+				TimingID:         utils.MetaPause,
+			},
+		},
+		Accounting: Accounting{
+			utils.MetaPause: {
+				AccountID: account,
+				// BalanceUUID: "",
+				RatingID: utils.MetaPause,
+			},
+		},
+		RatingFilters: RatingFilters{
+			utils.MetaPause: {
+				utils.Subject:               "",
+				utils.DestinationPrefixName: "",
+				utils.DestinationID:         "",
+				utils.RatingPlanID:          utils.MetaPause,
+			},
+		},
+		Rates: ChargedRates{
+			utils.MetaPause: {
+				{
+					RateIncrement: 1,
+					RateUnit:      1,
+				},
+			},
+		},
+		Timings: ChargedTimings{
+			utils.MetaPause: {
+
+				StartTime: "00:00:00",
+			},
+		},
+		cache: utils.NewSecureMapStorage(),
+	}
 }

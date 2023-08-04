@@ -21,7 +21,6 @@ package services
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
@@ -29,10 +28,11 @@ import (
 )
 
 // NewStorDBService returns the StorDB Service
-func NewStorDBService(cfg *config.CGRConfig) *StorDBService {
+func NewStorDBService(cfg *config.CGRConfig,
+	srvDep map[string]*sync.WaitGroup) *StorDBService {
 	return &StorDBService{
-		cfg: cfg,
-		// db:     engine.NewInternalDB([]string{}, []string{}), // to be removed
+		cfg:    cfg,
+		srvDep: srvDep,
 	}
 }
 
@@ -45,7 +45,7 @@ type StorDBService struct {
 	db        engine.StorDB
 	syncChans []chan engine.StorDB
 
-	reconnected bool
+	srvDep map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -59,10 +59,8 @@ func (db *StorDBService) Start() (err error) {
 	d, err := engine.NewStorDBConn(db.cfg.StorDbCfg().Type, db.cfg.StorDbCfg().Host,
 		db.cfg.StorDbCfg().Port, db.cfg.StorDbCfg().Name, db.cfg.StorDbCfg().User,
 		db.cfg.StorDbCfg().Password, db.cfg.GeneralCfg().DBDataEncoding,
-		db.cfg.StorDbCfg().SSLMode, db.cfg.StorDbCfg().MaxOpenConns,
-		db.cfg.StorDbCfg().MaxIdleConns, db.cfg.StorDbCfg().ConnMaxLifetime,
 		db.cfg.StorDbCfg().StringIndexedFields, db.cfg.StorDbCfg().PrefixIndexedFields,
-		db.cfg.StorDbCfg().Items)
+		db.cfg.StorDbCfg().Opts, db.cfg.StorDbCfg().Items)
 	if err != nil { // Cannot configure getter database, show stopper
 		utils.Logger.Crit(fmt.Sprintf("Could not configure storDB: %s exiting!", err))
 		return
@@ -81,15 +79,13 @@ func (db *StorDBService) Start() (err error) {
 func (db *StorDBService) Reload() (err error) {
 	db.Lock()
 	defer db.Unlock()
-	if db.reconnected = db.needsConnectionReload(); db.reconnected {
+	if db.needsConnectionReload() {
 		var d engine.StorDB
 		if d, err = engine.NewStorDBConn(db.cfg.StorDbCfg().Type, db.cfg.StorDbCfg().Host,
 			db.cfg.StorDbCfg().Port, db.cfg.StorDbCfg().Name, db.cfg.StorDbCfg().User,
 			db.cfg.StorDbCfg().Password, db.cfg.GeneralCfg().DBDataEncoding,
-			db.cfg.StorDbCfg().SSLMode, db.cfg.StorDbCfg().MaxOpenConns,
-			db.cfg.StorDbCfg().MaxIdleConns, db.cfg.StorDbCfg().ConnMaxLifetime,
 			db.cfg.StorDbCfg().StringIndexedFields, db.cfg.StorDbCfg().PrefixIndexedFields,
-			db.cfg.StorDbCfg().Items); err != nil {
+			db.cfg.StorDbCfg().Opts, db.cfg.StorDbCfg().Items); err != nil {
 			return
 		}
 		db.db.Close()
@@ -104,7 +100,7 @@ func (db *StorDBService) Reload() (err error) {
 			return fmt.Errorf("can't conver StorDB of type %s to MongoStorage",
 				db.cfg.StorDbCfg().Type)
 		}
-		mgo.SetTTL(db.cfg.StorDbCfg().QueryTimeout)
+		mgo.SetTTL(db.cfg.StorDbCfg().Opts.MongoQueryTimeout)
 	} else if db.cfg.StorDbCfg().Type == utils.MetaPostgres ||
 		db.cfg.StorDbCfg().Type == utils.MetaMySQL {
 		msql, canCast := db.db.(*engine.SQLStorage)
@@ -112,9 +108,9 @@ func (db *StorDBService) Reload() (err error) {
 			return fmt.Errorf("can't conver StorDB of type %s to SQLStorage",
 				db.cfg.StorDbCfg().Type)
 		}
-		msql.Db.SetMaxOpenConns(db.cfg.StorDbCfg().MaxOpenConns)
-		msql.Db.SetMaxIdleConns(db.cfg.StorDbCfg().MaxIdleConns)
-		msql.Db.SetConnMaxLifetime(time.Duration(db.cfg.StorDbCfg().ConnMaxLifetime) * time.Second)
+		msql.Db.SetMaxOpenConns(db.cfg.StorDbCfg().Opts.SQLMaxOpenConns)
+		msql.Db.SetMaxIdleConns(db.cfg.StorDbCfg().Opts.SQLMaxIdleConns)
+		msql.Db.SetConnMaxLifetime(db.cfg.StorDbCfg().Opts.SQLConnMaxLifetime)
 	} else if db.cfg.StorDbCfg().Type == utils.MetaInternal {
 		idb, canCast := db.db.(*engine.InternalDB)
 		if !canCast {
@@ -132,7 +128,6 @@ func (db *StorDBService) Shutdown() (err error) {
 	db.Lock()
 	db.db.Close()
 	db.db = nil
-	db.reconnected = false
 	for _, c := range db.syncChans {
 		close(c)
 	}
@@ -168,9 +163,7 @@ func (db *StorDBService) RegisterSyncChan(c chan engine.StorDB) {
 	db.Lock()
 	db.syncChans = append(db.syncChans, c)
 	if db.isRunning() {
-		for _, c := range db.syncChans {
-			c <- db.db
-		}
+		c <- db.db
 	}
 	db.Unlock()
 }
@@ -194,9 +187,6 @@ func (db *StorDBService) needsConnectionReload() bool {
 		db.oldDBCfg.Password != db.cfg.StorDbCfg().Password {
 		return true
 	}
-	if db.cfg.StorDbCfg().Type == utils.MetaPostgres &&
-		db.oldDBCfg.SSLMode != db.cfg.StorDbCfg().SSLMode {
-		return true
-	}
-	return false
+	return db.cfg.StorDbCfg().Type == utils.MetaPostgres &&
+		db.oldDBCfg.Opts.PgSSLMode != db.cfg.StorDbCfg().Opts.PgSSLMode
 }

@@ -19,12 +19,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
-	"strings"
 	"time"
 
 	"github.com/cgrates/cgrates/utils"
 )
 
+type ResourcesOpts struct {
+	UsageID  string
+	UsageTTL *time.Duration
+	Units    float64
+}
+
+// ResourceSConfig is resorces section config
 type ResourceSConfig struct {
 	Enabled             bool
 	IndexedSelects      bool
@@ -32,12 +38,34 @@ type ResourceSConfig struct {
 	StoreInterval       time.Duration // Dump regularly from cache into dataDB
 	StringIndexedFields *[]string
 	PrefixIndexedFields *[]string
+	SuffixIndexedFields *[]string
 	NestedFields        bool
+	Opts                *ResourcesOpts
 }
 
-func (rlcfg *ResourceSConfig) loadFromJsonCfg(jsnCfg *ResourceSJsonCfg) (err error) {
+func (resOpts *ResourcesOpts) loadFromJSONCfg(jsnCfg *ResourcesOptsJson) (err error) {
 	if jsnCfg == nil {
-		return nil
+		return
+	}
+	if jsnCfg.UsageID != nil {
+		resOpts.UsageID = *jsnCfg.UsageID
+	}
+	if jsnCfg.UsageTTL != nil {
+		var ttl time.Duration
+		if ttl, err = utils.ParseDurationWithNanosecs(*jsnCfg.UsageTTL); err != nil {
+			return err
+		}
+		resOpts.UsageTTL = utils.DurationPointer(ttl)
+	}
+	if jsnCfg.Units != nil {
+		resOpts.Units = *jsnCfg.Units
+	}
+	return
+}
+
+func (rlcfg *ResourceSConfig) loadFromJSONCfg(jsnCfg *ResourceSJsonCfg) (err error) {
+	if jsnCfg == nil {
+		return
 	}
 	if jsnCfg.Enabled != nil {
 		rlcfg.Enabled = *jsnCfg.Enabled
@@ -49,10 +77,9 @@ func (rlcfg *ResourceSConfig) loadFromJsonCfg(jsnCfg *ResourceSJsonCfg) (err err
 		rlcfg.ThresholdSConns = make([]string, len(*jsnCfg.Thresholds_conns))
 		for idx, conn := range *jsnCfg.Thresholds_conns {
 			// if we have the connection internal we change the name so we can have internal rpc for each subsystem
+			rlcfg.ThresholdSConns[idx] = conn
 			if conn == utils.MetaInternal {
 				rlcfg.ThresholdSConns[idx] = utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)
-			} else {
-				rlcfg.ThresholdSConns[idx] = conn
 			}
 		}
 	}
@@ -75,48 +102,123 @@ func (rlcfg *ResourceSConfig) loadFromJsonCfg(jsnCfg *ResourceSJsonCfg) (err err
 		}
 		rlcfg.PrefixIndexedFields = &pif
 	}
+	if jsnCfg.Suffix_indexed_fields != nil {
+		sif := make([]string, len(*jsnCfg.Suffix_indexed_fields))
+		for i, fID := range *jsnCfg.Suffix_indexed_fields {
+			sif[i] = fID
+		}
+		rlcfg.SuffixIndexedFields = &sif
+	}
 	if jsnCfg.Nested_fields != nil {
 		rlcfg.NestedFields = *jsnCfg.Nested_fields
 	}
-	return nil
+	if jsnCfg.Opts != nil {
+		err = rlcfg.Opts.loadFromJSONCfg(jsnCfg.Opts)
+	}
+	return
 }
 
-func (rlcfg *ResourceSConfig) AsMapInterface() map[string]interface{} {
-	thresholdSConns := make([]string, len(rlcfg.ThresholdSConns))
-	for i, item := range rlcfg.ThresholdSConns {
-		buf := utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)
-		if item == buf {
-			thresholdSConns[i] = strings.ReplaceAll(item, utils.CONCATENATED_KEY_SEP+utils.MetaThresholds, utils.EmptyString)
-		} else {
-			thresholdSConns[i] = item
-		}
+// AsMapInterface returns the config as a map[string]any
+func (rlcfg *ResourceSConfig) AsMapInterface() (initialMP map[string]any) {
+	opts := map[string]any{
+		utils.MetaUsageIDCfg: rlcfg.Opts.UsageID,
+		utils.MetaUnitsCfg:   rlcfg.Opts.Units,
 	}
-	stringIndexedFields := []string{}
+	if rlcfg.Opts.UsageTTL != nil {
+		opts[utils.MetaUsageTTLCfg] = *rlcfg.Opts.UsageTTL
+	}
+	initialMP = map[string]any{
+		utils.EnabledCfg:        rlcfg.Enabled,
+		utils.IndexedSelectsCfg: rlcfg.IndexedSelects,
+		utils.NestedFieldsCfg:   rlcfg.NestedFields,
+		utils.StoreIntervalCfg:  utils.EmptyString,
+		utils.OptsCfg:           opts,
+	}
+	if rlcfg.ThresholdSConns != nil {
+		thresholdSConns := make([]string, len(rlcfg.ThresholdSConns))
+		for i, item := range rlcfg.ThresholdSConns {
+			thresholdSConns[i] = item
+			if item == utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds) {
+				thresholdSConns[i] = utils.MetaInternal
+			}
+		}
+		initialMP[utils.ThresholdSConnsCfg] = thresholdSConns
+	}
 	if rlcfg.StringIndexedFields != nil {
-		stringIndexedFields = make([]string, len(*rlcfg.StringIndexedFields))
+		stringIndexedFields := make([]string, len(*rlcfg.StringIndexedFields))
 		for i, item := range *rlcfg.StringIndexedFields {
 			stringIndexedFields[i] = item
 		}
+		initialMP[utils.StringIndexedFieldsCfg] = stringIndexedFields
 	}
-	prefixIndexedFields := []string{}
 	if rlcfg.PrefixIndexedFields != nil {
-		prefixIndexedFields = make([]string, len(*rlcfg.PrefixIndexedFields))
+		prefixIndexedFields := make([]string, len(*rlcfg.PrefixIndexedFields))
 		for i, item := range *rlcfg.PrefixIndexedFields {
 			prefixIndexedFields[i] = item
 		}
+		initialMP[utils.PrefixIndexedFieldsCfg] = prefixIndexedFields
 	}
-	var storeInterval string = ""
+	if rlcfg.SuffixIndexedFields != nil {
+		suffixIndexedFields := make([]string, len(*rlcfg.SuffixIndexedFields))
+		for i, item := range *rlcfg.SuffixIndexedFields {
+			suffixIndexedFields[i] = item
+		}
+		initialMP[utils.SuffixIndexedFieldsCfg] = suffixIndexedFields
+	}
 	if rlcfg.StoreInterval != 0 {
-		storeInterval = rlcfg.StoreInterval.String()
+		initialMP[utils.StoreIntervalCfg] = rlcfg.StoreInterval.String()
 	}
-	return map[string]interface{}{
-		utils.EnabledCfg:             rlcfg.Enabled,
-		utils.IndexedSelectsCfg:      rlcfg.IndexedSelects,
-		utils.ThresholdSConnsCfg:     thresholdSConns,
-		utils.StoreIntervalCfg:       storeInterval,
-		utils.StringIndexedFieldsCfg: stringIndexedFields,
-		utils.PrefixIndexedFieldsCfg: prefixIndexedFields,
-		utils.NestedFieldsCfg:        rlcfg.NestedFields,
+	return
+}
+
+func (resOpts *ResourcesOpts) Clone() (cln *ResourcesOpts) {
+	cln = &ResourcesOpts{
+		UsageID: resOpts.UsageID,
+		Units:   resOpts.Units,
+	}
+	if resOpts.UsageTTL != nil {
+		cln.UsageTTL = new(time.Duration)
+		*cln.UsageTTL = *resOpts.UsageTTL
+	}
+	return
+}
+
+// Clone returns a deep copy of ResourceSConfig
+func (rlcfg ResourceSConfig) Clone() (cln *ResourceSConfig) {
+	cln = &ResourceSConfig{
+		Enabled:        rlcfg.Enabled,
+		IndexedSelects: rlcfg.IndexedSelects,
+		StoreInterval:  rlcfg.StoreInterval,
+		NestedFields:   rlcfg.NestedFields,
+		Opts:           rlcfg.Opts.Clone(),
+	}
+	if rlcfg.ThresholdSConns != nil {
+		cln.ThresholdSConns = make([]string, len(rlcfg.ThresholdSConns))
+		for i, con := range rlcfg.ThresholdSConns {
+			cln.ThresholdSConns[i] = con
+		}
 	}
 
+	if rlcfg.StringIndexedFields != nil {
+		idx := make([]string, len(*rlcfg.StringIndexedFields))
+		for i, dx := range *rlcfg.StringIndexedFields {
+			idx[i] = dx
+		}
+		cln.StringIndexedFields = &idx
+	}
+	if rlcfg.PrefixIndexedFields != nil {
+		idx := make([]string, len(*rlcfg.PrefixIndexedFields))
+		for i, dx := range *rlcfg.PrefixIndexedFields {
+			idx[i] = dx
+		}
+		cln.PrefixIndexedFields = &idx
+	}
+	if rlcfg.SuffixIndexedFields != nil {
+		idx := make([]string, len(*rlcfg.SuffixIndexedFields))
+		for i, dx := range *rlcfg.SuffixIndexedFields {
+			idx[i] = dx
+		}
+		cln.SuffixIndexedFields = &idx
+	}
+	return
 }

@@ -21,66 +21,75 @@ package v1
 import (
 	"time"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
-// NewThresholdSV1 initializes ThresholdSV1
+// NewThresholdSv1 initializes ThresholdSV1
 func NewThresholdSv1(tS *engine.ThresholdService) *ThresholdSv1 {
 	return &ThresholdSv1{tS: tS}
 }
 
-// Exports RPC from RLs
+// ThresholdSv1 exports RPC from RLs
 type ThresholdSv1 struct {
 	tS *engine.ThresholdService
 }
 
-// Call implements birpc.ClientConnector interface for internal RPC
-func (tSv1 *ThresholdSv1) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+// Call implements rpcclient.ClientConnector interface for internal RPC
+func (tSv1 *ThresholdSv1) Call(serviceMethod string, args any, reply any) error {
 	return utils.APIerRPCCall(tSv1, serviceMethod, args, reply)
 }
 
 // GetThresholdIDs returns list of threshold IDs registered for a tenant
-func (tSv1 *ThresholdSv1) GetThresholdIDs(tenant *utils.TenantWithArgDispatcher, tIDs *[]string) error {
+func (tSv1 *ThresholdSv1) GetThresholdIDs(tenant *utils.TenantWithAPIOpts, tIDs *[]string) error {
 	return tSv1.tS.V1GetThresholdIDs(tenant.Tenant, tIDs)
 }
 
 // GetThresholdsForEvent returns a list of thresholds matching an event
-func (tSv1 *ThresholdSv1) GetThresholdsForEvent(args *engine.ArgsProcessEvent, reply *engine.Thresholds) error {
+func (tSv1 *ThresholdSv1) GetThresholdsForEvent(args *utils.CGREvent, reply *engine.Thresholds) error {
 	return tSv1.tS.V1GetThresholdsForEvent(args, reply)
 }
 
 // GetThreshold queries a Threshold
-func (tSv1 *ThresholdSv1) GetThreshold(tntID *utils.TenantIDWithArgDispatcher, t *engine.Threshold) error {
+func (tSv1 *ThresholdSv1) GetThreshold(tntID *utils.TenantIDWithAPIOpts, t *engine.Threshold) error {
 	return tSv1.tS.V1GetThreshold(tntID.TenantID, t)
 }
 
 // ProcessEvent will process an Event
-func (tSv1 *ThresholdSv1) ProcessEvent(args *engine.ArgsProcessEvent, tIDs *[]string) error {
+func (tSv1 *ThresholdSv1) ProcessEvent(args *utils.CGREvent, tIDs *[]string) error {
 	return tSv1.tS.V1ProcessEvent(args, tIDs)
 }
 
+// ResetThreshold resets the threshold hits
+func (tSv1 *ThresholdSv1) ResetThreshold(tntID *utils.TenantIDWithAPIOpts, reply *string) error {
+	return tSv1.tS.V1ResetThreshold(tntID.TenantID, reply)
+}
+
 // GetThresholdProfile returns a Threshold Profile
-func (APIerSv1 *APIerSv1) GetThresholdProfile(arg *utils.TenantID, reply *engine.ThresholdProfile) (err error) {
-	if missing := utils.MissingStructFields(arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
+func (apierSv1 *APIerSv1) GetThresholdProfile(arg *utils.TenantID, reply *engine.ThresholdProfile) (err error) {
+	if missing := utils.MissingStructFields(arg, []string{utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if th, err := APIerSv1.DataManager.GetThresholdProfile(arg.Tenant, arg.ID, true, true, utils.NonTransactional); err != nil {
-		return utils.APIErrorHandler(err)
-	} else {
-		*reply = *th
+	tnt := arg.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
+	th, err := apierSv1.DataManager.GetThresholdProfile(tnt, arg.ID, true, true, utils.NonTransactional)
+	if err != nil {
+		return utils.APIErrorHandler(err)
+	}
+	*reply = *th
 	return
 }
 
 // GetThresholdProfileIDs returns list of thresholdProfile IDs registered for a tenant
-func (APIerSv1 *APIerSv1) GetThresholdProfileIDs(args utils.TenantArgWithPaginator, thPrfIDs *[]string) error {
-	if missing := utils.MissingStructFields(&args, []string{utils.Tenant}); len(missing) != 0 { //Params missing
-		return utils.NewErrMandatoryIeMissing(missing...)
+func (apierSv1 *APIerSv1) GetThresholdProfileIDs(args *utils.PaginatorWithTenant, thPrfIDs *[]string) error {
+	tnt := args.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
-	prfx := utils.ThresholdProfilePrefix + args.Tenant + ":"
-	keys, err := APIerSv1.DataManager.DataDB().GetKeysForPrefix(prfx)
+	prfx := utils.ThresholdProfilePrefix + tnt + utils.ConcatenatedKeySep
+	keys, err := apierSv1.DataManager.DataDB().GetKeysForPrefix(prfx)
 	if err != nil {
 		return err
 	}
@@ -95,87 +104,80 @@ func (APIerSv1 *APIerSv1) GetThresholdProfileIDs(args utils.TenantArgWithPaginat
 	return nil
 }
 
-// SetThresholdProfile alters/creates a ThresholdProfile
-func (APIerSv1 *APIerSv1) SetThresholdProfile(args *engine.ThresholdWithCache, reply *string) error {
-	if missing := utils.MissingStructFields(args.ThresholdProfile, []string{"Tenant", "ID"}); len(missing) != 0 {
-		return utils.NewErrMandatoryIeMissing(missing...)
+// GetThresholdProfileCount sets in reply var the total number of ThresholdProfileIDs registered for the received tenant
+// returns ErrNotFound in case of 0 ThresholdProfileIDs
+func (apierSv1 *APIerSv1) GetThresholdProfileCount(args *utils.TenantWithAPIOpts, reply *int) (err error) {
+	tnt := args.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
-	if err := APIerSv1.DataManager.SetThresholdProfile(args.ThresholdProfile, true); err != nil {
-		return utils.APIErrorHandler(err)
-	}
-	//generate a loadID for CacheThresholdProfiles and CacheThresholds and store it in database
-	//make 1 insert for both ThresholdProfile and Threshold instead of 2
-	loadID := time.Now().UnixNano()
-	if err := APIerSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheThresholdProfiles: loadID, utils.CacheThresholds: loadID}); err != nil {
-		return utils.APIErrorHandler(err)
-	}
-	//handle caching for ThresholdProfile
-	argCache := utils.ArgsGetCacheItem{
-		CacheID: utils.CacheThresholdProfiles,
-		ItemID:  args.TenantID(),
-	}
-	if err := APIerSv1.CallCache(args.Tenant, GetCacheOpt(args.Cache), argCache); err != nil {
-		return utils.APIErrorHandler(err)
-	}
-
-	if has, err := APIerSv1.DataManager.HasData(utils.ThresholdPrefix, args.ID, args.Tenant); err != nil {
+	var keys []string
+	prfx := utils.ThresholdProfilePrefix + tnt + utils.ConcatenatedKeySep
+	if keys, err = apierSv1.DataManager.DataDB().GetKeysForPrefix(prfx); err != nil {
 		return err
-	} else if !has {
-		if err := APIerSv1.DataManager.SetThreshold(&engine.Threshold{Tenant: args.Tenant, ID: args.ID}); err != nil {
-			return err
-		}
-		//handle caching for Threshold
-		argCache = utils.ArgsGetCacheItem{
-			CacheID: utils.CacheThresholds,
-			ItemID:  args.TenantID(),
-		}
-		if err := APIerSv1.CallCache(args.Tenant, GetCacheOpt(args.Cache), argCache); err != nil {
-			return utils.APIErrorHandler(err)
-		}
 	}
-
-	*reply = utils.OK
+	if len(keys) == 0 {
+		return utils.ErrNotFound
+	}
+	*reply = len(keys)
 	return nil
 }
 
-// Remove a specific Threshold Profile
-func (APIerSv1 *APIerSv1) RemoveThresholdProfile(args *utils.TenantIDWithCache, reply *string) error {
-	if missing := utils.MissingStructFields(args, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
+// SetThresholdProfile alters/creates a ThresholdProfile
+func (apierSv1 *APIerSv1) SetThresholdProfile(args *engine.ThresholdProfileWithAPIOpts, reply *string) error {
+	if missing := utils.MissingStructFields(args.ThresholdProfile, []string{utils.ID}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := APIerSv1.DataManager.RemoveThresholdProfile(args.Tenant, args.ID, utils.NonTransactional, true); err != nil {
-		return utils.APIErrorHandler(err)
+	if args.Tenant == utils.EmptyString {
+		args.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
-	//handle caching for ThresholdProfile
-	argCache := utils.ArgsGetCacheItem{
-		CacheID: utils.CacheThresholdProfiles,
-		ItemID:  args.TenantID(),
-	}
-	if err := APIerSv1.CallCache(args.Tenant, GetCacheOpt(args.Cache), argCache); err != nil {
-		return utils.APIErrorHandler(err)
-	}
-	if err := APIerSv1.DataManager.RemoveThreshold(args.Tenant, args.ID, utils.NonTransactional); err != nil {
+	if err := apierSv1.DataManager.SetThresholdProfile(args.ThresholdProfile, true); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//generate a loadID for CacheThresholdProfiles and CacheThresholds and store it in database
 	//make 1 insert for both ThresholdProfile and Threshold instead of 2
 	loadID := time.Now().UnixNano()
-	if err := APIerSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheThresholdProfiles: loadID, utils.CacheThresholds: loadID}); err != nil {
+	if err := apierSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheThresholdProfiles: loadID, utils.CacheThresholds: loadID}); err != nil {
 		return utils.APIErrorHandler(err)
 	}
-	//handle caching for Threshold
-	argCache = utils.ArgsGetCacheItem{
-		CacheID: utils.CacheThresholds,
-		ItemID:  args.TenantID(),
-	}
-	if err := APIerSv1.CallCache(args.Tenant, GetCacheOpt(args.Cache), argCache); err != nil {
+	//handle caching for ThresholdProfile and Threshold
+	if err := apierSv1.CallCache(utils.IfaceAsString(args.APIOpts[utils.CacheOpt]), args.Tenant, utils.CacheThresholdProfiles,
+		args.TenantID(), utils.EmptyString, &args.FilterIDs, nil, args.APIOpts); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
 	return nil
 }
 
-func (tSv1 *ThresholdSv1) Ping(ign *utils.CGREventWithArgDispatcher, reply *string) error {
+// RemoveThresholdProfile removes a specific Threshold Profile
+func (apierSv1 *APIerSv1) RemoveThresholdProfile(args *utils.TenantIDWithAPIOpts, reply *string) error {
+	if missing := utils.MissingStructFields(args, []string{utils.ID}); len(missing) != 0 { //Params missing
+		return utils.NewErrMandatoryIeMissing(missing...)
+	}
+	tnt := args.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if err := apierSv1.DataManager.RemoveThresholdProfile(tnt, args.ID, true); err != nil {
+		return utils.APIErrorHandler(err)
+	}
+	//handle caching for ThresholdProfile
+	if err := apierSv1.CallCache(utils.IfaceAsString(args.APIOpts[utils.CacheOpt]), tnt, utils.CacheThresholdProfiles,
+		utils.ConcatenatedKey(tnt, args.ID), utils.EmptyString, nil, nil, args.APIOpts); err != nil {
+		return utils.APIErrorHandler(err)
+	}
+	//generate a loadID for CacheThresholdProfiles and CacheThresholds and store it in database
+	//make 1 insert for both ThresholdProfile and Threshold instead of 2
+	loadID := time.Now().UnixNano()
+	if err := apierSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheThresholdProfiles: loadID, utils.CacheThresholds: loadID}); err != nil {
+		return utils.APIErrorHandler(err)
+	}
+	*reply = utils.OK
+	return nil
+}
+
+// Ping .
+func (tSv1 *ThresholdSv1) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
 }

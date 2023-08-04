@@ -19,50 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package utils
 
 import (
-	"reflect"
 	"strconv"
 	"strings"
 )
-
-// Converts map[string]string into map[string]interface{}
-func ConvertMapValStrIf(inMap map[string]string) map[string]interface{} {
-	outMap := make(map[string]interface{})
-	for field, val := range inMap {
-		outMap[field] = val
-	}
-	return outMap
-}
-
-// Mirrors key/val
-func MirrorMap(mapIn map[string]string) map[string]string {
-	mapOut := make(map[string]string, len(mapIn))
-	for key, val := range mapIn {
-		mapOut[val] = key
-	}
-	return mapOut
-}
-
-// Returns mising keys in a map
-func MissingMapKeys(inMap map[string]string, requiredKeys []string) []string {
-	missingKeys := []string{}
-	for _, reqKey := range requiredKeys {
-		if val, hasKey := inMap[reqKey]; !hasKey || val == EmptyString {
-			missingKeys = append(missingKeys, reqKey)
-		}
-	}
-	return missingKeys
-}
-
-// Return map keys
-func MapKeys(m map[string]string) []string {
-	n := make([]string, len(m))
-	i := 0
-	for k := range m {
-		n[i] = k
-		i++
-	}
-	return n
-}
 
 type StringMap map[string]bool
 
@@ -82,10 +41,10 @@ func NewStringMap(s ...string) StringMap {
 }
 
 func ParseStringMap(s string) StringMap {
-	if s == ZERO {
+	if s == MetaZero {
 		return make(StringMap)
 	}
-	return StringMapFromSlice(strings.Split(s, INFIELD_SEP))
+	return StringMapFromSlice(strings.Split(s, InfieldSep))
 }
 
 func (sm StringMap) Equal(om StringMap) bool {
@@ -126,7 +85,9 @@ func (sm StringMap) Slice() []string {
 }
 
 func (sm StringMap) IsEmpty() bool {
-	return len(sm) == 0 || sm[ANY]
+	return sm == nil ||
+		len(sm) == 0 ||
+		sm[MetaAny]
 }
 
 func StringMapFromSlice(s []string) StringMap {
@@ -157,7 +118,7 @@ func (sm StringMap) Clone() StringMap {
 }
 
 func (sm StringMap) String() string {
-	return strings.Join(sm.Slice(), INFIELD_SEP)
+	return strings.Join(sm.Slice(), InfieldSep)
 }
 
 func (sm StringMap) GetOne() string {
@@ -167,53 +128,8 @@ func (sm StringMap) GetOne() string {
 	return EmptyString
 }
 
-func (sm StringMap) Join(mps ...StringMap) {
-	for _, mp := range mps {
-		for k, v := range mp {
-			sm[k] = v
-		}
-	}
-}
-
 func (sm StringMap) HasKey(key string) (has bool) {
 	_, has = sm[key]
-	return
-}
-
-func (sm StringMap) GetSlice() (result []string) {
-	result = make([]string, len(sm))
-	i := 0
-	for k := range sm {
-		result[i] = k
-		i += 1
-	}
-	return
-}
-
-// Used to merge multiple maps (eg: output of struct having ExtraFields)
-func MergeMapsStringIface(mps ...map[string]interface{}) (outMp map[string]interface{}) {
-	outMp = make(map[string]interface{})
-	for i, mp := range mps {
-		if i == 0 {
-			outMp = mp
-			continue
-		}
-		for k, v := range mp {
-			outMp[k] = v
-		}
-	}
-	return
-}
-
-// FieldMultiplyFactor defines multiply factors for different field values
-// original defined for CDRE component
-type FieldMultiplyFactor map[string]float64
-
-func (fmp FieldMultiplyFactor) Clone() (cln FieldMultiplyFactor) {
-	cln = make(FieldMultiplyFactor, len(fmp))
-	for k, v := range fmp {
-		cln[k] = v
-	}
 	return
 }
 
@@ -230,40 +146,103 @@ func MapStringToInt64(in map[string]string) (out map[string]int64, err error) {
 }
 
 // FlagsWithParamsFromSlice construct a  FlagsWithParams from the given slice
-func FlagsWithParamsFromSlice(s []string) (FlagsWithParams, error) {
-	result := make(FlagsWithParams, len(s))
+func FlagsWithParamsFromSlice(s []string) (flags FlagsWithParams) {
+	flags = make(FlagsWithParams)
 	for _, v := range s {
-		subsystemWithIDs := strings.Split(v, InInFieldSep)
-		result[subsystemWithIDs[0]] = []string{}
-		if len(subsystemWithIDs) == 2 {
-			result[subsystemWithIDs[0]] = strings.Split(subsystemWithIDs[1], INFIELD_SEP)
-		} else if len(subsystemWithIDs) > 2 {
-			return nil, ErrUnsupportedFormat
+		flag := strings.SplitN(v, InInFieldSep, 3)
+		if !flags.Has(flag[0]) {
+			flags[flag[0]] = make(FlagParams)
 		}
+		flags[flag[0]].Add(flag[1:])
 	}
-	return result, nil
+	return
 }
 
-// FlagsWithParams should store a list of profiles for each subsystem
-type FlagsWithParams map[string][]string
+// FlagParams stores the parameters for a flag
+type FlagParams map[string][]string
 
-// HasKey returns if the key was mentioned in flags
-func (fWp FlagsWithParams) HasKey(key string) (has bool) {
-	_, has = fWp[key]
+// Has returns if the key was mentioned in flags
+func (fWp FlagParams) Has(opt string) (has bool) {
+	_, has = fWp[opt]
+	return
+}
+
+// ParamValue returns the value of the flag
+func (fWp FlagParams) ParamValue(opt string) (ps string) {
+	for _, ps = range fWp[opt] {
+		if ps != EmptyString {
+			return
+		}
+	}
+	return
+}
+
+// Add adds the options to the flag
+func (fWp FlagParams) Add(opts []string) {
+	switch len(opts) {
+	default: // just in case we call this function with more elements than needed
+		fallthrough
+	case 2:
+		fWp[opts[0]] = strings.Split(opts[1], ANDSep)
+	case 0:
+	case 1:
+		fWp[opts[0]] = []string{}
+	}
+}
+
+// ParamsSlice returns the list of profiles for the subsystem
+func (fWp FlagParams) ParamsSlice(opt string) (ps []string) {
+	return fWp[opt] // if it doesn't have the option it will return an empty slice
+}
+
+// SliceFlags converts from FlagsParams to []string
+func (fWp FlagParams) SliceFlags() (sls []string) {
+	for key, sub := range fWp {
+		if len(sub) == 0 { // no option for these subsystem
+			sls = append(sls, key)
+			continue
+		}
+		sls = append(sls, ConcatenatedKey(key, strings.Join(sub, InfieldSep)))
+	}
+	return
+}
+
+// Clone returns a deep copy of FlagParams
+func (fWp FlagParams) Clone() (cln FlagParams) {
+	if fWp == nil {
+		return
+	}
+	cln = make(FlagParams)
+	for flg, params := range fWp {
+		var cprm []string
+		if params != nil {
+			cprm = CloneStringSlice(params)
+		}
+		cln[flg] = cprm
+	}
+	return
+}
+
+// FlagsWithParams should store a list of flags for each subsystem
+type FlagsWithParams map[string]FlagParams
+
+// Has returns if the key was mentioned in flags
+func (fWp FlagsWithParams) Has(flag string) (has bool) {
+	_, has = fWp[flag]
 	return
 }
 
 // ParamsSlice returns the list of profiles for the subsystem
-func (fWp FlagsWithParams) ParamsSlice(subs string) (ps []string) {
+func (fWp FlagsWithParams) ParamsSlice(subs, opt string) (ps []string) {
 	if psIfc, has := fWp[subs]; has {
-		ps = psIfc
+		ps = psIfc.ParamsSlice(opt)
 	}
 	return
 }
 
 // ParamValue returns the value of the flag
 func (fWp FlagsWithParams) ParamValue(subs string) (ps string) {
-	for _, ps = range fWp[subs] {
+	for ps = range fWp[subs] {
 		return
 	}
 	return
@@ -271,11 +250,17 @@ func (fWp FlagsWithParams) ParamValue(subs string) (ps string) {
 
 // SliceFlags converts from FlagsWithParams back to []string
 func (fWp FlagsWithParams) SliceFlags() (sls []string) {
-	for key := range fWp {
-		if prmSlice := fWp.ParamsSlice(key); !reflect.DeepEqual(prmSlice, []string{}) {
-			sls = append(sls, ConcatenatedKey(key, strings.Join(prmSlice, INFIELD_SEP)))
-		} else {
+	for key, sub := range fWp {
+		if len(sub) == 0 { // no option for these subsystem
 			sls = append(sls, key)
+			continue
+		}
+		for opt, values := range sub {
+			if len(values) == 0 { // it's an option without values(e.g *derived_reply)
+				sls = append(sls, ConcatenatedKey(key, opt))
+				continue
+			}
+			sls = append(sls, ConcatenatedKey(key, opt, strings.Join(values, ANDSep)))
 		}
 	}
 	return
@@ -283,12 +268,44 @@ func (fWp FlagsWithParams) SliceFlags() (sls []string) {
 
 // GetBool returns the flag as boolean
 func (fWp FlagsWithParams) GetBool(key string) (b bool) {
-	var v []string
+	var v FlagParams
 	if v, b = fWp[key]; !b {
 		return // not present means false
 	}
-	if len(v) == 0 {
-		return true // empty slice
+	if v == nil || len(v) == 0 {
+		return true // empty map
 	}
-	return v[0] == "true" // check only the first element
+	return v.Has(TrueStr) || !v.Has(FalseStr)
+}
+
+// Clone returns a deep copy of FlagsWithParams
+func (fWp FlagsWithParams) Clone() (cln FlagsWithParams) {
+	if fWp == nil {
+		return
+	}
+	cln = make(FlagsWithParams)
+	for flg, p := range fWp {
+		cln[flg] = p.Clone()
+	}
+	return
+}
+
+func (sm StringMap) FieldAsInterface(fldPath []string) (val any, err error) {
+	if sm == nil || len(fldPath) != 1 {
+		return nil, ErrNotFound
+	}
+	bl, has := sm[fldPath[0]]
+	if !has {
+		return nil, ErrNotFound
+	}
+	return bl, nil
+}
+
+func (sm StringMap) FieldAsString(fldPath []string) (val string, err error) {
+	var iface any
+	iface, err = sm.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	return IfaceAsString(iface), nil
 }

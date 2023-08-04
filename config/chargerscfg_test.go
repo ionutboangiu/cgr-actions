@@ -25,94 +25,109 @@ import (
 )
 
 func TestChargerSCfgloadFromJsonCfg(t *testing.T) {
-	var chgscfg, expected ChargerSCfg
-	if err := chgscfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(chgscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, chgscfg)
+	jsonCfg := &ChargerSJsonCfg{
+		Enabled:               utils.BoolPointer(true),
+		Indexed_selects:       utils.BoolPointer(true),
+		Attributes_conns:      &[]string{utils.MetaInternal, "*conn1"},
+		String_indexed_fields: &[]string{"*req.Field1"},
+		Prefix_indexed_fields: &[]string{"*req.Field1", "*req.Field2"},
+		Suffix_indexed_fields: &[]string{"*req.Field1", "*req.Field2"},
+		Nested_fields:         utils.BoolPointer(true),
 	}
-	if err := chgscfg.loadFromJsonCfg(new(ChargerSJsonCfg)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(chgscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, chgscfg)
-	}
-	cfgJSONStr := `{
-"chargers": {								// Charger service
-	"enabled": true,						// starts charger service: <true|false>.
-	"attributes_conns": [],					// address where to reach the AttributeS <""|127.0.0.1:2013>
-	//"string_indexed_fields": [],			// query indexes based on these fields for faster processing
-	"prefix_indexed_fields": ["index1", "index2"],			// query indexes based on these fields for faster processing
-},	
-}`
-	expected = ChargerSCfg{
+	expected := &ChargerSCfg{
 		Enabled:             true,
-		AttributeSConns:     []string{},
-		PrefixIndexedFields: &[]string{"index1", "index2"},
+		IndexedSelects:      true,
+		AttributeSConns:     []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaAttributes), "*conn1"},
+		StringIndexedFields: &[]string{"*req.Field1"},
+		PrefixIndexedFields: &[]string{"*req.Field1", "*req.Field2"},
+		SuffixIndexedFields: &[]string{"*req.Field1", "*req.Field2"},
+		NestedFields:        true,
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	jsncfg := NewDefaultCGRConfig()
+	if err = jsncfg.chargerSCfg.loadFromJSONCfg(jsonCfg); err != nil {
 		t.Error(err)
-	} else if jsnChgCfg, err := jsnCfg.ChargerServJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = chgscfg.loadFromJsonCfg(jsnChgCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, chgscfg) {
-		t.Errorf("Expected: %+v , recived: %+v", expected, chgscfg)
+	} else if !reflect.DeepEqual(expected, jsncfg.chargerSCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(jsncfg.chargerSCfg))
 	}
 }
 
 func TestChargerSCfgAsMapInterface(t *testing.T) {
-	var chgscfg ChargerSCfg
 	cfgJSONStr := `{
 	"chargers": {								
 		"enabled": false,						
 		"attributes_conns": [],					
-		"indexed_selects":true,					
-		"prefix_indexed_fields": [],			
+		"indexed_selects":true,
+		"prefix_indexed_fields": [],
 		"nested_fields": false,					
 	},	
 }`
-	eMap := map[string]interface{}{
-		"enabled":               false,
-		"attributes_conns":      []string{},
-		"indexed_selects":       true,
-		"prefix_indexed_fields": []string{},
-		"nested_fields":         false,
-		"string_indexed_fields": []string{},
+	eMap := map[string]any{
+		utils.EnabledCfg:             false,
+		utils.AttributeSConnsCfg:     []string{},
+		utils.IndexedSelectsCfg:      true,
+		utils.PrefixIndexedFieldsCfg: []string{},
+		utils.NestedFieldsCfg:        false,
+		utils.SuffixIndexedFieldsCfg: []string{},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnChgCfg, err := jsnCfg.ChargerServJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = chgscfg.loadFromJsonCfg(jsnChgCfg); err != nil {
-		t.Error(err)
-	} else if rcv := chgscfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.chargerSCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v, recieved %+v", eMap, rcv)
 	}
+}
 
-	cfgJSONStr = `{
+func TestChargerSCfgAsMapInterface1(t *testing.T) {
+	cfgJSONStr := `{
 		"chargers": {								
 			"enabled": false,						
-			"attributes_conns": ["*internal"],					
-			"indexed_selects":true,					
-			"prefix_indexed_fields": [],			
+			"attributes_conns": ["*internal:*attributes", "*conn1"],					
+			"indexed_selects":true,			
+            "string_indexed_fields": ["*req.Field1","*req.Field2","*req.Field3"],
+			 "prefix_indexed_fields": ["*req.DestinationPrefix"],
+             "suffix_indexed_fields": ["*req.Field1","*req.Field2","*req.Field3"],		
 			"nested_fields": false,					
 		},	
 	}`
-	eMap = map[string]interface{}{
-		"enabled":               false,
-		"attributes_conns":      []string{"*internal"},
-		"indexed_selects":       true,
-		"prefix_indexed_fields": []string{},
-		"nested_fields":         false,
-		"string_indexed_fields": []string{},
+	eMap := map[string]any{
+		utils.EnabledCfg:             false,
+		utils.AttributeSConnsCfg:     []string{utils.MetaInternal, "*conn1"},
+		utils.IndexedSelectsCfg:      true,
+		utils.StringIndexedFieldsCfg: []string{"*req.Field1", "*req.Field2", "*req.Field3"},
+		utils.PrefixIndexedFieldsCfg: []string{"*req.DestinationPrefix"},
+		utils.NestedFieldsCfg:        false,
+		utils.SuffixIndexedFieldsCfg: []string{"*req.Field1", "*req.Field2", "*req.Field3"},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
 		t.Error(err)
-	} else if jsnChgCfg, err := jsnCfg.ChargerServJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = chgscfg.loadFromJsonCfg(jsnChgCfg); err != nil {
-		t.Error(err)
-	} else if rcv := chgscfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("\nExpected: %+v\nRecived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	} else if rcv := cgrCfg.chargerSCfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
+		t.Errorf("Expected %+v, recieved %+v", eMap, rcv)
+	}
+}
+
+func TestChargerSCfgClone(t *testing.T) {
+	ban := &ChargerSCfg{
+		Enabled:             true,
+		IndexedSelects:      true,
+		AttributeSConns:     []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaAttributes), "*conn1"},
+		StringIndexedFields: &[]string{"*req.Field1"},
+		PrefixIndexedFields: &[]string{"*req.Field1", "*req.Field2"},
+		SuffixIndexedFields: &[]string{"*req.Field1", "*req.Field2"},
+		NestedFields:        true,
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if rcv.AttributeSConns[1] = ""; ban.AttributeSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.StringIndexedFields)[0] = ""; (*ban.StringIndexedFields)[0] != "*req.Field1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.PrefixIndexedFields)[0] = ""; (*ban.PrefixIndexedFields)[0] != "*req.Field1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if (*rcv.SuffixIndexedFields)[0] = ""; (*ban.SuffixIndexedFields)[0] != "*req.Field1" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

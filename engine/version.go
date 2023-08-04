@@ -33,12 +33,17 @@ var (
 		utils.ActionPlans:    "cgr-migrator -exec=*action_plans",
 		utils.SharedGroups:   "cgr-migrator -exec=*shared_groups",
 		utils.Thresholds:     "cgr-migrator -exec=*thresholds",
-		utils.LoadIDsVrs:     "cgr-migrator -exec=*load_ids",
-		utils.RQF:            "cgr-migrator -exec=*filters",
+		// utils.LoadIDsVrs:     "cgr-migrator -exec=*load_ids",
+		utils.RQF:         "cgr-migrator -exec=*filters",
+		utils.Routes:      "cgr-migrator -exec=*routes",
+		utils.Dispatchers: "cgr-migrator -exec=*dispatchers",
+		utils.Chargers:    "cgr-migrator -exec=*chargers",
+		utils.StatS:       "cgr-migrator -exec=*stats",
 	}
 	storDBVers = map[string]string{
 		utils.CostDetails:   "cgr-migrator -exec=*cost_details",
 		utils.SessionSCosts: "cgr-migrator -exec=*sessions_costs",
+		utils.CDRs:          "cgr-migrator -exec=*cdrs",
 	}
 	allVers map[string]string // init will fill this with a merge of data+stor
 )
@@ -142,25 +147,25 @@ func (vers Versions) Compare(curent Versions, storType string, isDataDB bool) st
 // CurrentDataDBVersions returns the needed DataDB versions
 func CurrentDataDBVersions() Versions {
 	return Versions{
-		utils.StatS:               3,
+		utils.StatS:               4,
 		utils.Accounts:            3,
 		utils.Actions:             2,
 		utils.ActionTriggers:      2,
 		utils.ActionPlans:         3,
 		utils.SharedGroups:        2,
-		utils.Thresholds:          3,
-		utils.Suppliers:           1,
-		utils.Attributes:          5,
+		utils.Thresholds:          4,
+		utils.Routes:              2,
+		utils.Attributes:          6,
 		utils.Timing:              1,
-		utils.RQF:                 4,
+		utils.RQF:                 5,
 		utils.Resource:            1,
 		utils.Subscribers:         1,
 		utils.Destinations:        1,
 		utils.ReverseDestinations: 1,
 		utils.RatingPlan:          1,
 		utils.RatingProfile:       1,
-		utils.Chargers:            1,
-		utils.Dispatchers:         1,
+		utils.Chargers:            2,
+		utils.Dispatchers:         2,
 		utils.LoadIDsVrs:          1,
 	}
 }
@@ -179,7 +184,7 @@ func CurrentStorDBVersions() Versions {
 		utils.TpActionPlans:      1,
 		utils.TpActions:          1,
 		utils.TpThresholds:       1,
-		utils.TpSuppliers:        1,
+		utils.TpRoutes:           1,
 		utils.TpStats:            1,
 		utils.TpSharedGroups:     1,
 		utils.TpRatingProfiles:   1,

@@ -21,7 +21,6 @@ package console
 import (
 	"time"
 
-	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -29,7 +28,7 @@ func init() {
 	c := &CmdStatsQueueForEvent{
 		name:      "stats_for_event",
 		rpcMethod: utils.StatSv1GetStatQueuesForEvent,
-		rpcParams: &engine.StatsArgsProcessEvent{},
+		rpcParams: &utils.CGREvent{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -39,7 +38,7 @@ func init() {
 type CmdStatsQueueForEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *engine.StatsArgsProcessEvent
+	rpcParams *utils.CGREvent
 	*CommandExecuter
 }
 
@@ -51,9 +50,9 @@ func (self *CmdStatsQueueForEvent) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdStatsQueueForEvent) RpcParams(reset bool) interface{} {
+func (self *CmdStatsQueueForEvent) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.StatsArgsProcessEvent{ArgDispatcher: new(utils.ArgDispatcher)}
+		self.rpcParams = new(utils.CGREvent)
 	}
 	return self.rpcParams
 }
@@ -65,7 +64,7 @@ func (self *CmdStatsQueueForEvent) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdStatsQueueForEvent) RpcResult() interface{} {
-	var atr *[]string
+func (self *CmdStatsQueueForEvent) RpcResult() any {
+	var atr []string
 	return &atr
 }

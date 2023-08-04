@@ -58,7 +58,7 @@ func TestTutSMG(t *testing.T) {
 	case utils.MetaInternal:
 		t.SkipNow()
 	case utils.MetaMySQL:
-		tutSMGCfgDIR = "smgeneric_mysql"
+		tutSMGCfgDIR = "sessions_mysql"
 	case utils.MetaMongo:
 		t.SkipNow()
 	case utils.MetaPostgres:
@@ -80,8 +80,6 @@ func testTutSMGInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	tutSMGCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tutSMGCfg)
 }
 
 // Remove data in both rating and accounting db
@@ -126,7 +124,7 @@ func testTutSMGLoadTariffPlanFromFolder(t *testing.T) {
 // Check loaded stats
 func testTutSMGCacheStats(t *testing.T) {
 	var reply string
-	if err := tutSMGRpc.Call(utils.CacheSv1LoadCache, utils.AttrReloadCache{}, &reply); err != nil {
+	if err := tutSMGRpc.Call(utils.CacheSv1LoadCache, utils.NewAttrReloadCacheWithOpts(), &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Error(reply)
@@ -134,7 +132,7 @@ func testTutSMGCacheStats(t *testing.T) {
 	// expectedStats := &utils.CacheStats{Destinations: 5, ReverseDestinations: 7, RatingPlans: 4, RatingProfiles: 5,
 	// 	Actions: 9, ActionPlans: 4, AccountActionPlans: 5, SharedGroups: 1, ResourceProfiles: 3,
 	// 	Resources: 3, StatQueues: 1, StatQueueProfiles: 1, Thresholds: 7, ThresholdProfiles: 7, Filters: 15,
-	// 	SupplierProfiles: 3, AttributeProfiles: 1}
+	// 	SupplierProfiles: 3, AttributeProfiles: 2}
 	var rcvStats map[string]*ltcache.CacheStats
 	expectedStats := engine.GetDefaultEmptyCacheStats()
 	expectedStats[utils.CacheDestinations].Items = 5
@@ -143,7 +141,6 @@ func testTutSMGCacheStats(t *testing.T) {
 	expectedStats[utils.CacheRatingProfiles].Items = 5
 	expectedStats[utils.CacheActions].Items = 9
 	expectedStats[utils.CacheActionPlans].Items = 4
-	expectedStats[utils.CacheAccountActionPlans].Items = 5
 	expectedStats[utils.CacheSharedGroups].Items = 1
 	expectedStats[utils.CacheResourceProfiles].Items = 3
 	expectedStats[utils.CacheResources].Items = 3
@@ -152,14 +149,29 @@ func testTutSMGCacheStats(t *testing.T) {
 	expectedStats[utils.CacheThresholds].Items = 7
 	expectedStats[utils.CacheThresholdProfiles].Items = 7
 	expectedStats[utils.CacheFilters].Items = 15
-	expectedStats[utils.CacheSupplierProfiles].Items = 3
-	expectedStats[utils.CacheAttributeProfiles].Items = 1
+	expectedStats[utils.CacheRouteProfiles].Items = 3
+	expectedStats[utils.CacheAttributeProfiles].Items = 2
 	expectedStats[utils.MetaDefault].Items = 1
 	expectedStats[utils.CacheActionTriggers].Items = 1
-	expectedStats[utils.CacheLoadIDs].Items = 20
+	expectedStats[utils.CacheLoadIDs].Items = 30
 	expectedStats[utils.CacheChargerProfiles].Items = 1
 	expectedStats[utils.CacheRPCConnections].Items = 2
-	if err := tutSMGRpc.Call(utils.CacheSv1GetCacheStats, new(utils.AttrCacheIDsWithArgDispatcher), &rcvStats); err != nil {
+	expectedStats[utils.CacheTimings].Items = 14
+	expectedStats[utils.CacheThresholdFilterIndexes].Items = 10
+	expectedStats[utils.CacheThresholdFilterIndexes].Groups = 1
+	expectedStats[utils.CacheStatFilterIndexes].Items = 2
+	expectedStats[utils.CacheStatFilterIndexes].Groups = 1
+	expectedStats[utils.CacheRouteFilterIndexes].Items = 6
+	expectedStats[utils.CacheRouteFilterIndexes].Groups = 1
+	expectedStats[utils.CacheResourceFilterIndexes].Items = 6
+	expectedStats[utils.CacheResourceFilterIndexes].Groups = 1
+	expectedStats[utils.CacheChargerFilterIndexes].Items = 1
+	expectedStats[utils.CacheChargerFilterIndexes].Groups = 1
+	expectedStats[utils.CacheAttributeFilterIndexes].Items = 3
+	expectedStats[utils.CacheAttributeFilterIndexes].Groups = 2
+	expectedStats[utils.CacheReverseFilterIndexes].Items = 15
+	expectedStats[utils.CacheReverseFilterIndexes].Groups = 13
+	if err := tutSMGRpc.Call(utils.CacheSv1GetCacheStats, new(utils.AttrCacheIDsWithAPIOpts), &rcvStats); err != nil {
 		t.Error("Got error on CacheSv1.GetCacheStats: ", err.Error())
 	} else if !reflect.DeepEqual(expectedStats, rcvStats) {
 		t.Errorf("Calling APIerSv2.CacheSv1 expected: %+v,\n received: %+v", utils.ToJSON(expectedStats), utils.ToJSON(rcvStats))

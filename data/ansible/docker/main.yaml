@@ -3,7 +3,7 @@
   vars:
     # CGRateS vars
     cgrates_dir: "/home/{{ user }}/go/src/github.com/cgrates/cgrates"
-    cgrates_branch: "v0.10"
+    cgrates_branch: "master"
     cgrates_distribution: "nightly"
     docker_tag: "latest"
     registry_site: "dkr.cgrates.org"      # the web site
@@ -75,7 +75,7 @@
 # Install Go
     - name: Install Go
       import_role:
-        name: ../roles/install_go
+        name: ../roles/go
 
 ###########################################################################################################################
 ###########################################################################################################################

@@ -27,7 +27,7 @@ import (
 func TestTPDistinctIdsString(t *testing.T) {
 	eIn1 := []string{"1", "2", "3", "4"}
 	eIn2 := TPDistinctIds(eIn1)
-	expected := strings.Join(eIn1, FIELDS_SEP)
+	expected := strings.Join(eIn1, FieldsSep)
 	received := eIn2.String()
 
 	if !reflect.DeepEqual(expected, received) {
@@ -109,10 +109,21 @@ func TestNewRateSlot(t *testing.T) {
 		t.Errorf("Expected: %+v ,received: %+v ", eOut, rcv)
 	}
 	eOut.RateUnit = "a"
-	rcv, err = NewRateSlot(eOut.ConnectFee, eOut.Rate, eOut.RateUnit, eOut.RateIncrement, eOut.GroupIntervalStart)
+	_, err = NewRateSlot(eOut.ConnectFee, eOut.Rate, eOut.RateUnit, eOut.RateIncrement, eOut.GroupIntervalStart)
 	//must receive from time an error: "invalid duration a"
 	if err == nil || err.Error() != "time: invalid duration \"a\"" {
 		t.Error(err)
+	}
+}
+
+func TestClonePaginator(t *testing.T) {
+	expectedPaginator := Paginator{
+		Limit:  IntPointer(2),
+		Offset: IntPointer(0),
+	}
+	clonedPaginator := expectedPaginator.Clone()
+	if !reflect.DeepEqual(expectedPaginator, clonedPaginator) {
+		t.Errorf("Expected %+v, received %+v", ToJSON(expectedPaginator), ToJSON(clonedPaginator))
 	}
 }
 
@@ -179,13 +190,13 @@ func TestNewTiming(t *testing.T) {
 	if !reflect.DeepEqual(eOut, rcv) {
 		t.Errorf("Expected %+v, received %+v", eOut, rcv)
 	}
-	//without endtime, check if .Split methong works (only one timestamp)
+	//without endtime, check if .Split method works (only one timestamp)
 	rcv = NewTiming("1", "2020", "04", "18", "06", "00:00:00")
 	eOut.EndTime = ""
 	if !reflect.DeepEqual(eOut, rcv) {
 		t.Errorf("Expected %+v, received %+v", eOut, rcv)
 	}
-	//check if .Split methong works (ignoring the last timestamp)
+	//check if .Split method works (ignoring the last timestamp)
 	rcv = NewTiming("1", "2020", "04", "18", "06", "00:00:00;11:11:11;22:22:22")
 	eOut.EndTime = "11:11:11"
 	if !reflect.DeepEqual(eOut, rcv) {
@@ -304,7 +315,7 @@ func TestFallbackSubjKeys(t *testing.T) {
 	}
 	//check with test vars
 	eOut := []string{"*out:cgrates.org:*voice:1001", "*out:cgrates.org:*voice:1002", "*out:cgrates.org:*voice:1003"}
-	rcv = FallbackSubjKeys("cgrates.org", VOICE, "1001;1003;1002")
+	rcv = FallbackSubjKeys("cgrates.org", MetaVoice, "1001;1003;1002")
 	if !reflect.DeepEqual(eOut, rcv) {
 		t.Errorf("Expected %+v, received %+v", eOut, rcv)
 	}
@@ -357,85 +368,6 @@ func TestTPAccountActionsKeyId(t *testing.T) {
 
 }
 
-func TestAttrExpFileCdrsAsCDRsFilter(t *testing.T) {
-	attrExpFileCdrs := &AttrExpFileCdrs{
-		TimeStart: "2020-04-04T11:45:26.371Z",
-		TimeEnd:   "2020-04-04T11:46:26.371Z",
-		SkipRated: true,
-		CgrIds:    []string{"CGRID"},
-		TORs:      []string{VOICE},
-		Accounts:  []string{"1001"},
-		Subjects:  []string{"1001"},
-	}
-	eOut := &CDRsFilter{
-		CGRIDs:              attrExpFileCdrs.CgrIds,
-		RunIDs:              attrExpFileCdrs.MediationRunIds,
-		ToRs:                attrExpFileCdrs.TORs,
-		OriginHosts:         attrExpFileCdrs.CdrHosts,
-		Sources:             attrExpFileCdrs.CdrSources,
-		RequestTypes:        attrExpFileCdrs.ReqTypes,
-		Tenants:             attrExpFileCdrs.Tenants,
-		Categories:          attrExpFileCdrs.Categories,
-		Accounts:            attrExpFileCdrs.Accounts,
-		Subjects:            attrExpFileCdrs.Subjects,
-		DestinationPrefixes: attrExpFileCdrs.DestinationPrefixes,
-		OrderIDStart:        attrExpFileCdrs.OrderIdStart,
-		OrderIDEnd:          attrExpFileCdrs.OrderIdEnd,
-		Paginator:           attrExpFileCdrs.Paginator,
-		MaxCost:             Float64Pointer(-1.0),
-	}
-	//check with wrong time-zone
-	rcv, err := attrExpFileCdrs.AsCDRsFilter("wrongtimezone")
-	if err == nil {
-		t.Errorf("ParseTimeDetectLayout error")
-	}
-	//check with wrong TimeStart
-	attrExpFileCdrs.TimeStart = "wrongtimeStart"
-	rcv, err = attrExpFileCdrs.AsCDRsFilter("")
-	if err == nil {
-		t.Errorf("Wrong AnswerTimeStart not processed")
-	}
-	//check with wrong TimeEnd
-	attrExpFileCdrs.TimeStart = "2020-04-04T11:45:26.371Z"
-	attrExpFileCdrs.TimeEnd = "wrongtimeEnd"
-	rcv, err = attrExpFileCdrs.AsCDRsFilter("")
-	if err == nil {
-		t.Errorf("Wrong AnswerTimeEnd not processed")
-	}
-
-	//check with SkipRated = true & normal timeStar/timeEnd
-	attrExpFileCdrs.TimeStart = "2020-04-04T11:45:26.371Z"
-	attrExpFileCdrs.TimeEnd = "2020-04-04T11:46:26.371Z"
-
-	TimeStart, _ := ParseTimeDetectLayout("2020-04-04T11:45:26.371Z", "")
-	eOut.AnswerTimeStart = &TimeStart
-	timeEnd, _ := ParseTimeDetectLayout("2020-04-04T11:46:26.371Z", "")
-	eOut.AnswerTimeEnd = &timeEnd
-
-	rcv, err = attrExpFileCdrs.AsCDRsFilter("")
-	if err != nil {
-		t.Errorf("ParseTimeDetectLayout error")
-	}
-
-	if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expected: %s ,received: %s ", ToJSON(eOut), ToJSON(rcv))
-	}
-
-	//check with SkipRated = false
-	attrExpFileCdrs.SkipRated = false
-	attrExpFileCdrs.SkipErrors = true
-	eOut.MinCost = Float64Pointer(0.0)
-	rcv, err = attrExpFileCdrs.AsCDRsFilter("")
-
-	if err != nil {
-		t.Errorf("ParseTimeDetectLayout error")
-	}
-
-	if !reflect.DeepEqual(eOut, rcv) {
-		t.Errorf("Expected: %s ,received: %s ", ToJSON(eOut), ToJSON(rcv))
-	}
-}
-
 // now working here
 func TestAttrGetCdrsAsCDRsFilter(t *testing.T) {
 	attrGetCdrs := &AttrGetCdrs{
@@ -443,7 +375,7 @@ func TestAttrGetCdrsAsCDRsFilter(t *testing.T) {
 		TimeEnd:   "2019-04-04T11:46:26.371Z",
 		SkipRated: true,
 		CgrIds:    []string{"CGRID"},
-		TORs:      []string{VOICE},
+		TORs:      []string{MetaVoice},
 		Accounts:  []string{"1001"},
 		Subjects:  []string{"1001"},
 	}
@@ -475,20 +407,20 @@ func TestAttrGetCdrsAsCDRsFilter(t *testing.T) {
 		t.Errorf("Nil struct expected")
 	}
 	//check with wrong time-zone
-	rcv, err = attrGetCdrs.AsCDRsFilter("wrongtimezone")
+	_, err = attrGetCdrs.AsCDRsFilter("wrongtimezone")
 	if err == nil {
 		t.Errorf("ParseTimeDetectLayout error")
 	}
 	//check with wrong TimeStart
 	attrGetCdrs.TimeStart = "wrongtimeStart"
-	rcv, err = attrGetCdrs.AsCDRsFilter("")
+	_, err = attrGetCdrs.AsCDRsFilter("")
 	if err == nil {
 		t.Errorf("Wrong AnswerTimeStart not processed")
 	}
 	//check with wrong TimeEnd
 	attrGetCdrs.TimeStart = "2020-04-04T11:45:26.371Z"
 	attrGetCdrs.TimeEnd = "wrongtimeEnd"
-	rcv, err = attrGetCdrs.AsCDRsFilter("")
+	_, err = attrGetCdrs.AsCDRsFilter("")
 	if err == nil {
 		t.Errorf("Wrong AnswerTimeEnd not processed")
 	}
@@ -548,7 +480,7 @@ func TestNewTAFromAccountKey(t *testing.T) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(eOut), ToJSON(rcv))
 	}
 	//check with wrong TenantAccount
-	rcv, err = NewTAFromAccountKey("")
+	_, err = NewTAFromAccountKey("")
 	if err == nil {
 		t.Errorf("Unsupported format not processed")
 	}
@@ -603,7 +535,7 @@ func TestRPCCDRsFilterAsCDRsFilter(t *testing.T) {
 		MinUsage:               "MinUsage",
 		MaxUsage:               "MaxUsage",
 		OrderBy:                "OrderBy",
-		ExtraArgs: map[string]interface{}{
+		ExtraArgs: map[string]any{
 			OrderIDStart: 0,
 			OrderIDEnd:   0,
 			MinCost:      0.,
@@ -666,53 +598,53 @@ func TestRPCCDRsFilterAsCDRsFilter(t *testing.T) {
 	}
 
 	rpcCDRsFilter.ExtraArgs[MaxCost] = "notFloat64"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("MaxCost should not be processed")
 	}
 
 	rpcCDRsFilter.ExtraArgs[MinCost] = "notFloat64"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("MinCost should not be processed")
 	}
 	rpcCDRsFilter.ExtraArgs[OrderIDEnd] = "notInt64"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("OrderIDEnd should not be processed")
 	}
 	rpcCDRsFilter.ExtraArgs[OrderIDStart] = "notInt64"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("OrderIDStart should not be processed")
 	}
 
 	rpcCDRsFilter.UpdatedAtEnd = "wrongUpdatedAtEnd"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("UpdatedAtEnd should not be processed")
 	}
 	rpcCDRsFilter.UpdatedAtStart = "wrongUpdatedAtStart"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("UpdatedAtStart should not be processed")
 	}
 	rpcCDRsFilter.CreatedAtEnd = "wrongCreatedAtEnd"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("CreatedAtEnd should not be processed")
 	}
 	rpcCDRsFilter.CreatedAtStart = "wrongCreatedAtStart"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("CreatedAtStart should not be processed")
 	}
 	rpcCDRsFilter.AnswerTimeEnd = "wrongAnswerTimeEnd"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("AnswerTimeEnd should not be processed")
 	}
 	rpcCDRsFilter.AnswerTimeStart = "wrongAnswerTimeStart"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("AnswerTimeStart should not be processed")
 	}
 	rpcCDRsFilter.SetupTimeEnd = "wrongSetupTimeEnd"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("SetupTimeEnd should not be processed")
 	}
 	rpcCDRsFilter.SetupTimeStart = "wrongSetupTimeStart"
-	if rcv, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
+	if _, err = rpcCDRsFilter.AsCDRsFilter(""); err == nil {
 		t.Errorf("SetupTimeStart should not be processed")
 	}
 }
@@ -738,35 +670,35 @@ func TestTPActivationIntervalAsActivationInterval(t *testing.T) {
 	}
 	//check with wrong time
 	tPActivationInterval.ExpiryTime = "wrongExpiryTime"
-	rcv, err = tPActivationInterval.AsActivationInterval("")
+	_, err = tPActivationInterval.AsActivationInterval("")
 	if err == nil {
 		t.Errorf("Wrong ExpiryTime not processed")
 	}
 	tPActivationInterval.ActivationTime = "wrongActivationTime"
-	rcv, err = tPActivationInterval.AsActivationInterval("")
+	_, err = tPActivationInterval.AsActivationInterval("")
 	if err == nil {
-		t.Errorf("Wrong ActivationTime not processed")
+		t.Errorf("Wrong ActivationTimes not processed")
 	}
 }
 
 func TestActivationIntervalIsActiveAtTime(t *testing.T) {
 	activationInterval := new(ActivationInterval)
 
-	//case ActivationTime = Expiry = 0001-01-01 00:00:00 +0000 UTC
+	//case ActivationTimes = Expiry = 0001-01-01 00:00:00 +0000 UTC
 	activationInterval.ActivationTime = time.Time{}
 	activationInterval.ExpiryTime = time.Time{}
 	rcv := activationInterval.IsActiveAtTime(time.Time{})
 	if !rcv {
-		t.Errorf("ActivationTime = Expiry = time.Time{}, expecting 0 ")
+		t.Errorf("ActivationTimes = Expiry = time.Time{}, expecting 0 ")
 	}
 	activationInterval.ActivationTime = time.Date(2018, time.April, 18, 23, 0, 0, 0, time.UTC)
 	activationInterval.ExpiryTime = time.Date(2020, time.April, 18, 23, 0, 0, 0, time.UTC)
 
-	//atTime < ActivationTime
+	//atTime < ActivationTimes
 	atTime := time.Date(2017, time.April, 18, 23, 0, 0, 0, time.UTC)
 	rcv = activationInterval.IsActiveAtTime(atTime)
 	if rcv {
-		t.Errorf("atTime < ActivationTime, expecting 0 ")
+		t.Errorf("atTime < ActivationTimes, expecting 0 ")
 	}
 
 	//atTime > ExpiryTime
@@ -780,14 +712,14 @@ func TestActivationIntervalIsActiveAtTime(t *testing.T) {
 	atTime = time.Date(2019, time.April, 18, 23, 0, 0, 0, time.UTC) //tTime
 	rcv = activationInterval.IsActiveAtTime(atTime)
 	if !rcv {
-		t.Errorf("ActivationTime < atTime < ExpiryTime. Expecting 1 ")
+		t.Errorf("ActivationTimes < atTime < ExpiryTime. Expecting 1 ")
 	}
-	//ActivationTime > ExpiryTime
+	//ActivationTimes > ExpiryTime
 	activationInterval.ActivationTime = time.Date(2020, time.April, 18, 23, 0, 0, 0, time.UTC) //tTime
 	activationInterval.ExpiryTime = time.Date(2018, time.April, 18, 23, 0, 0, 0, time.UTC)     //tTime
 	rcv = activationInterval.IsActiveAtTime(atTime)
 	if rcv {
-		t.Errorf("ActivationTime > ExpiryTime. Expecting 0 ")
+		t.Errorf("ActivationTimes > ExpiryTime. Expecting 0 ")
 	}
 }
 
@@ -797,96 +729,96 @@ func TestAppendToSMCostFilter(t *testing.T) {
 	expected := &SMCostFilter{
 		CGRIDs: []string{"CGRID1", "CGRID2"},
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, DynamicDataPrefix+CGRID, []string{"CGRID1", "CGRID2"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, MetaScPrefix+CGRID, []string{"CGRID1", "CGRID2"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 	expected.NotCGRIDs = []string{"CGRID3", "CGRID4"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", DynamicDataPrefix+CGRID, []string{"CGRID3", "CGRID4"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", MetaScPrefix+CGRID, []string{"CGRID3", "CGRID4"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
 	expected.RunIDs = []string{"RunID1", "RunID2"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, DynamicDataPrefix+RunID, []string{"RunID1", "RunID2"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, MetaScPrefix+RunID, []string{"RunID1", "RunID2"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 	expected.NotRunIDs = []string{"RunID3", "RunID4"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", DynamicDataPrefix+RunID, []string{"RunID3", "RunID4"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", MetaScPrefix+RunID, []string{"RunID3", "RunID4"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
 	expected.OriginHosts = []string{"OriginHost1", "OriginHost2"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, DynamicDataPrefix+OriginHost, []string{"OriginHost1", "OriginHost2"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, MetaScPrefix+OriginHost, []string{"OriginHost1", "OriginHost2"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 	expected.NotOriginHosts = []string{"OriginHost3", "OriginHost4"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", DynamicDataPrefix+OriginHost, []string{"OriginHost3", "OriginHost4"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", MetaScPrefix+OriginHost, []string{"OriginHost3", "OriginHost4"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
 	expected.OriginIDs = []string{"OriginID1", "OriginID2"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, DynamicDataPrefix+OriginID, []string{"OriginID1", "OriginID2"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, MetaScPrefix+OriginID, []string{"OriginID1", "OriginID2"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 	expected.NotOriginIDs = []string{"OriginID3", "OriginID4"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", DynamicDataPrefix+OriginID, []string{"OriginID3", "OriginID4"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", MetaScPrefix+OriginID, []string{"OriginID3", "OriginID4"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
 	expected.CostSources = []string{"CostSource1", "CostSource2"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, DynamicDataPrefix+CostSource, []string{"CostSource1", "CostSource2"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, MetaString, MetaScPrefix+CostSource, []string{"CostSource1", "CostSource2"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 	expected.NotCostSources = []string{"CostSource3", "CostSource4"}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", DynamicDataPrefix+CostSource, []string{"CostSource3", "CostSource4"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*notstring", MetaScPrefix+CostSource, []string{"CostSource3", "CostSource4"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+CGRID, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~CGRID\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~CGRID\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+CGRID, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.CGRID\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.CGRID\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+RunID, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~RunID\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~RunID\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+RunID, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.RunID\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.RunID\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+OriginHost, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~OriginHost\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~OriginHost\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+OriginHost, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.OriginHost\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.OriginHost\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+OriginID, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~OriginID\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~OriginID\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+OriginID, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.OriginID\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.OriginID\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+CostSource, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~CostSource\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~CostSource\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+CostSource, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.CostSource\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.CostSource\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
@@ -905,33 +837,33 @@ func TestAppendToSMCostFilter(t *testing.T) {
 
 	}
 	expected.Usage.Min = DurationPointer(time.Second)
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", DynamicDataPrefix+Usage, []string{"1s", "2s"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", MetaScPrefix+Usage, []string{"1s", "2s"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 	expected.Usage.Max = DurationPointer(3 * time.Second)
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", DynamicDataPrefix+Usage, []string{"3s", "4s"}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", MetaScPrefix+Usage, []string{"3s", "4s"}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", DynamicDataPrefix+Usage, []string{"one second"}, ""); err == nil || err.Error() != "Error when converting field: \"*gte\"  value: \"~Usage\" in time.Duration " {
-		t.Errorf("Expected error: Error when converting field: \"*gte\"  value: \"~Usage\" in time.Duration ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", MetaScPrefix+Usage, []string{"one second"}, ""); err == nil || err.Error() != "Error when converting field: \"*gte\"  value: \"~*sc.Usage\" in time.Duration " {
+		t.Errorf("Expected error: Error when converting field: \"*gte\"  value: \"~*sc.Usage\" in time.Duration ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", DynamicDataPrefix+Usage, []string{"one second"}, ""); err == nil || err.Error() != "Error when converting field: \"*lt\"  value: \"~Usage\" in time.Duration " {
-		t.Errorf("Expected error: Error when converting field: \"*lt\"  value: \"~Usage\" in time.Duration ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", MetaScPrefix+Usage, []string{"one second"}, ""); err == nil || err.Error() != "Error when converting field: \"*lt\"  value: \"~*sc.Usage\" in time.Duration " {
+		t.Errorf("Expected error: Error when converting field: \"*lt\"  value: \"~*sc.Usage\" in time.Duration ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+Usage, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~Usage\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~Usage\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+Usage, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.Usage\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.Usage\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
@@ -941,68 +873,39 @@ func TestAppendToSMCostFilter(t *testing.T) {
 	strNow := now.Format("2006-01-02T15:04:05")
 
 	expected.CreatedAt.Begin = &now
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", DynamicDataPrefix+CreatedAt, []string{strNow}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", MetaScPrefix+CreatedAt, []string{strNow}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
 	expected.CreatedAt.End = &now
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", DynamicDataPrefix+CreatedAt, []string{strNow}, ""); err != nil {
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", MetaScPrefix+CreatedAt, []string{strNow}, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", DynamicDataPrefix+CreatedAt, []string{time.Now().String()}, ""); err == nil || err.Error() != "Error when converting field: \"*gte\"  value: \"~CreatedAt\" in time.Time " {
-		t.Errorf("Expected error: Error when converting field: \"*gte\"  value: \"~CreatedAt\" in time.Time ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*gte", MetaScPrefix+CreatedAt, []string{time.Now().String()}, ""); err == nil || err.Error() != "Error when converting field: \"*gte\"  value: \"~*sc.CreatedAt\" in time.Time " {
+		t.Errorf("Expected error: Error when converting field: \"*gte\"  value: \"~*sc.CreatedAt\" in time.Time ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", DynamicDataPrefix+CreatedAt, []string{time.Now().String()}, ""); err == nil || err.Error() != "Error when converting field: \"*lt\"  value: \"~CreatedAt\" in time.Time " {
-		t.Errorf("Expected error: Error when converting field: \"*lt\"  value: \"~CreatedAt\" in time.Time ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*lt", MetaScPrefix+CreatedAt, []string{time.Now().String()}, ""); err == nil || err.Error() != "Error when converting field: \"*lt\"  value: \"~*sc.CreatedAt\" in time.Time " {
+		t.Errorf("Expected error: Error when converting field: \"*lt\"  value: \"~*sc.CreatedAt\" in time.Time ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
-	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", DynamicDataPrefix+CreatedAt, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~CreatedAt\"" {
-		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~CreatedAt\" ,received %v", err)
+	if smfltr, err = AppendToSMCostFilter(smfltr, "*prefix", MetaScPrefix+CreatedAt, []string{"CGRID1", "CGRID2"}, ""); err == nil || err.Error() != "FilterType: \"*prefix\" not supported for FieldName: \"~*sc.CreatedAt\"" {
+		t.Errorf("Expected error: FilterType: \"*prefix\" not supported for FieldName: \"~*sc.CreatedAt\" ,received %v", err)
 	}
 	if !reflect.DeepEqual(smfltr, expected) {
 		t.Errorf("Expected: %s ,received: %s ", ToJSON(expected), ToJSON(smfltr))
 	}
 }
 
-func TestInitAttrReloadCache(t *testing.T) {
-	var expected AttrReloadCache
-	expected.DestinationIDs = []string{}
-	expected.ReverseDestinationIDs = []string{}
-	expected.RatingPlanIDs = []string{}
-	expected.RatingProfileIDs = []string{}
-	expected.ActionIDs = []string{}
-	expected.ActionPlanIDs = []string{}
-	expected.AccountActionPlanIDs = []string{}
-	expected.ActionTriggerIDs = []string{}
-	expected.SharedGroupIDs = []string{}
-	expected.ResourceProfileIDs = []string{}
-	expected.ResourceIDs = []string{}
-	expected.StatsQueueIDs = []string{}
-	expected.StatsQueueProfileIDs = []string{}
-	expected.ThresholdIDs = []string{}
-	expected.ThresholdProfileIDs = []string{}
-	expected.FilterIDs = []string{}
-	expected.SupplierProfileIDs = []string{}
-	expected.AttributeProfileIDs = []string{}
-	expected.ChargerProfileIDs = []string{}
-	expected.DispatcherProfileIDs = []string{}
-	expected.DispatcherHostIDs = []string{}
-	expected.DispatcherRoutesIDs = []string{}
-
-	if rcv := InitAttrReloadCache(); !reflect.DeepEqual(rcv, expected) {
-		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
-	}
-}
 func TestCDRsFilterPrepare(t *testing.T) {
 	fltr := &CDRsFilter{
 		CGRIDs:          []string{"5", "6", "1", "3", "2", "4"},
@@ -1059,4 +962,64 @@ func TestCDRsFilterPrepare(t *testing.T) {
 	if fltr.Prepare(); !reflect.DeepEqual(exp, fltr) {
 		t.Errorf("Expected %s,received %s", ToJSON(exp), ToJSON(fltr))
 	}
+}
+
+func TestNewAttrReloadCacheWithOpts(t *testing.T) {
+	newAttrReloadCache := &AttrReloadCacheWithAPIOpts{
+		DestinationIDs:           []string{MetaAny},
+		ReverseDestinationIDs:    []string{MetaAny},
+		RatingPlanIDs:            []string{MetaAny},
+		RatingProfileIDs:         []string{MetaAny},
+		ActionIDs:                []string{MetaAny},
+		ActionPlanIDs:            []string{MetaAny},
+		AccountActionPlanIDs:     []string{MetaAny},
+		ActionTriggerIDs:         []string{MetaAny},
+		SharedGroupIDs:           []string{MetaAny},
+		ResourceProfileIDs:       []string{MetaAny},
+		ResourceIDs:              []string{MetaAny},
+		StatsQueueIDs:            []string{MetaAny},
+		StatsQueueProfileIDs:     []string{MetaAny},
+		ThresholdIDs:             []string{MetaAny},
+		ThresholdProfileIDs:      []string{MetaAny},
+		FilterIDs:                []string{MetaAny},
+		RouteProfileIDs:          []string{MetaAny},
+		AttributeProfileIDs:      []string{MetaAny},
+		ChargerProfileIDs:        []string{MetaAny},
+		DispatcherProfileIDs:     []string{MetaAny},
+		DispatcherHostIDs:        []string{MetaAny},
+		Dispatchers:              []string{MetaAny},
+		TimingIDs:                []string{MetaAny},
+		AttributeFilterIndexIDs:  []string{MetaAny},
+		ResourceFilterIndexIDs:   []string{MetaAny},
+		StatFilterIndexIDs:       []string{MetaAny},
+		ThresholdFilterIndexIDs:  []string{MetaAny},
+		RouteFilterIndexIDs:      []string{MetaAny},
+		ChargerFilterIndexIDs:    []string{MetaAny},
+		DispatcherFilterIndexIDs: []string{MetaAny},
+		FilterIndexIDs:           []string{MetaAny},
+	}
+	eMap := NewAttrReloadCacheWithOpts()
+	if !reflect.DeepEqual(eMap, newAttrReloadCache) {
+		t.Errorf("Expected %+v \n, received %+v", eMap, newAttrReloadCache)
+	}
+}
+
+func TestNewAttrReloadCacheWithOptsFromMap(t *testing.T) {
+	excluded := NewStringSet([]string{MetaAPIBan, MetaSentryPeer, MetaAccounts, MetaLoadIDs})
+	mp := make(map[string][]string)
+	for k := range CacheInstanceToPrefix {
+		if !excluded.Has(k) {
+			mp[k] = []string{MetaAny}
+		}
+	}
+	exp := NewAttrReloadCacheWithOpts()
+	rply := NewAttrReloadCacheWithOptsFromMap(mp, "", nil)
+	if !reflect.DeepEqual(exp, rply) {
+		t.Errorf("Expected %+v \n, received %+v", ToJSON(exp), ToJSON(rply))
+	}
+	rplyM := rply.Map()
+	if !reflect.DeepEqual(mp, rplyM) {
+		t.Errorf("Expected %+v \n, received %+v", ToJSON(mp), ToJSON(rplyM))
+	}
+
 }

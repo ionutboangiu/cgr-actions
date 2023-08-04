@@ -26,7 +26,7 @@ import (
 	"reflect"
 
 	"github.com/cgrates/cgrates/utils"
-	"github.com/ugorji/go/codec"
+	"github.com/cgrates/ugocodec/codec"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -53,12 +53,12 @@ type DataDB interface {
 	GetRatingProfileDrv(string) (*RatingProfile, error)
 	SetRatingProfileDrv(*RatingProfile) error
 	RemoveRatingProfileDrv(string) error
-	GetDestinationDrv(string, bool, string) (*Destination, error)
+	GetDestinationDrv(string, string) (*Destination, error)
 	SetDestinationDrv(*Destination, string) error
 	RemoveDestinationDrv(string, string) error
-	SetReverseDestinationDrv(*Destination, string) error
-	GetReverseDestinationDrv(string, bool, string) ([]string, error)
-	UpdateReverseDestinationDrv(*Destination, *Destination, string) error
+	RemoveReverseDestinationDrv(string, string, string) error
+	SetReverseDestinationDrv(string, []string, string) error
+	GetReverseDestinationDrv(string, string) ([]string, error)
 	GetActionsDrv(string) (Actions, error)
 	SetActionsDrv(string, Actions) error
 	RemoveActionsDrv(string) error
@@ -91,13 +91,10 @@ type DataDB interface {
 	RemoveTimingDrv(string) error
 	GetLoadHistory(int, bool, string) ([]*utils.LoadInstance, error)
 	AddLoadHistory(*utils.LoadInstance, int, string) error
-	GetFilterIndexesDrv(cacheID, itemIDPrefix, filterType string,
-		fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error)
-	SetFilterIndexesDrv(cacheID, itemIDPrefix string,
-		indexes map[string]utils.StringMap, commit bool, transactionID string) (err error)
-	RemoveFilterIndexesDrv(cacheID, itemIDPrefix string) (err error)
-	MatchFilterIndexDrv(cacheID, itemIDPrefix,
-		filterType, fieldName, fieldVal string) (itemIDs utils.StringMap, err error)
+	GetIndexesDrv(idxItmType, tntCtx, idxKey string) (indexes map[string]utils.StringSet, err error)
+	SetIndexesDrv(idxItmType, tntCtx string,
+		indexes map[string]utils.StringSet, commit bool, transactionID string) (err error)
+	RemoveIndexesDrv(idxItmType, tntCtx, idxKey string) (err error)
 	GetStatQueueProfileDrv(tenant string, ID string) (sq *StatQueueProfile, err error)
 	SetStatQueueProfileDrv(sq *StatQueueProfile) (err error)
 	RemStatQueueProfileDrv(tenant, id string) (err error)
@@ -113,9 +110,9 @@ type DataDB interface {
 	GetFilterDrv(string, string) (*Filter, error)
 	SetFilterDrv(*Filter) error
 	RemoveFilterDrv(string, string) error
-	GetSupplierProfileDrv(string, string) (*SupplierProfile, error)
-	SetSupplierProfileDrv(*SupplierProfile) error
-	RemoveSupplierProfileDrv(string, string) error
+	GetRouteProfileDrv(string, string) (*RouteProfile, error)
+	SetRouteProfileDrv(*RouteProfile) error
+	RemoveRouteProfileDrv(string, string) error
 	GetAttributeProfileDrv(string, string) (*AttributeProfile, error)
 	SetAttributeProfileDrv(*AttributeProfile) error
 	RemoveAttributeProfileDrv(string, string) error
@@ -162,7 +159,7 @@ type LoadReader interface {
 		map[string]string, *utils.PaginatorWithSearch) ([]string, error)
 	GetTPTimings(string, string) ([]*utils.ApierTPTiming, error)
 	GetTPDestinations(string, string) ([]*utils.TPDestination, error)
-	GetTPRates(string, string) ([]*utils.TPRate, error)
+	GetTPRates(string, string) ([]*utils.TPRateRALs, error)
 	GetTPDestinationRates(string, string, *utils.Paginator) ([]*utils.TPDestinationRate, error)
 	GetTPRatingPlans(string, string, *utils.Paginator) ([]*utils.TPRatingPlan, error)
 	GetTPRatingProfiles(*utils.TPRatingProfile) ([]*utils.TPRatingProfile, error)
@@ -175,7 +172,7 @@ type LoadReader interface {
 	GetTPStats(string, string, string) ([]*utils.TPStatProfile, error)
 	GetTPThresholds(string, string, string) ([]*utils.TPThresholdProfile, error)
 	GetTPFilters(string, string, string) ([]*utils.TPFilterProfile, error)
-	GetTPSuppliers(string, string, string) ([]*utils.TPSupplierProfile, error)
+	GetTPRoutes(string, string, string) ([]*utils.TPRouteProfile, error)
 	GetTPAttributes(string, string, string) ([]*utils.TPAttributeProfile, error)
 	GetTPChargers(string, string, string) ([]*utils.TPChargerProfile, error)
 	GetTPDispatcherProfiles(string, string, string) ([]*utils.TPDispatcherProfile, error)
@@ -186,7 +183,7 @@ type LoadWriter interface {
 	RemTpData(string, string, map[string]string) error
 	SetTPTimings([]*utils.ApierTPTiming) error
 	SetTPDestinations([]*utils.TPDestination) error
-	SetTPRates([]*utils.TPRate) error
+	SetTPRates([]*utils.TPRateRALs) error
 	SetTPDestinationRates([]*utils.TPDestinationRate) error
 	SetTPRatingPlans([]*utils.TPRatingPlan) error
 	SetTPRatingProfiles([]*utils.TPRatingProfile) error
@@ -199,7 +196,7 @@ type LoadWriter interface {
 	SetTPStats([]*utils.TPStatProfile) error
 	SetTPThresholds([]*utils.TPThresholdProfile) error
 	SetTPFilters([]*utils.TPFilterProfile) error
-	SetTPSuppliers([]*utils.TPSupplierProfile) error
+	SetTPRoutes([]*utils.TPRouteProfile) error
 	SetTPAttributes([]*utils.TPAttributeProfile) error
 	SetTPChargers([]*utils.TPChargerProfile) error
 	SetTPDispatcherProfiles([]*utils.TPDispatcherProfile) error
@@ -209,7 +206,7 @@ type LoadWriter interface {
 // NewMarshaler returns the marshaler type selected by mrshlerStr
 func NewMarshaler(mrshlerStr string) (ms Marshaler, err error) {
 	switch mrshlerStr {
-	case utils.MSGPACK:
+	case utils.MsgPack:
 		ms = NewCodecMsgpackMarshaler()
 	case utils.JSON:
 		ms = new(JSONMarshaler)
@@ -220,40 +217,40 @@ func NewMarshaler(mrshlerStr string) (ms Marshaler, err error) {
 }
 
 type Marshaler interface {
-	Marshal(v interface{}) ([]byte, error)
-	Unmarshal(data []byte, v interface{}) error
+	Marshal(v any) ([]byte, error)
+	Unmarshal(data []byte, v any) error
 }
 
 type JSONMarshaler struct{}
 
-func (jm *JSONMarshaler) Marshal(v interface{}) ([]byte, error) {
+func (jm *JSONMarshaler) Marshal(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-func (jm *JSONMarshaler) Unmarshal(data []byte, v interface{}) error {
+func (jm *JSONMarshaler) Unmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
 type BSONMarshaler struct{}
 
-func (jm *BSONMarshaler) Marshal(v interface{}) ([]byte, error) {
+func (jm *BSONMarshaler) Marshal(v any) ([]byte, error) {
 	return bson.Marshal(v)
 }
 
-func (jm *BSONMarshaler) Unmarshal(data []byte, v interface{}) error {
+func (jm *BSONMarshaler) Unmarshal(data []byte, v any) error {
 	return bson.Unmarshal(data, v)
 }
 
 type JSONBufMarshaler struct{}
 
-func (jbm *JSONBufMarshaler) Marshal(v interface{}) (data []byte, err error) {
+func (jbm *JSONBufMarshaler) Marshal(v any) (data []byte, err error) {
 	buf := new(bytes.Buffer)
 	err = json.NewEncoder(buf).Encode(v)
 	data = buf.Bytes()
 	return
 }
 
-func (jbm *JSONBufMarshaler) Unmarshal(data []byte, v interface{}) error {
+func (jbm *JSONBufMarshaler) Unmarshal(data []byte, v any) error {
 	return json.NewDecoder(bytes.NewBuffer(data)).Decode(v)
 }
 
@@ -264,18 +261,18 @@ type CodecMsgpackMarshaler struct {
 func NewCodecMsgpackMarshaler() *CodecMsgpackMarshaler {
 	cmm := &CodecMsgpackMarshaler{new(codec.MsgpackHandle)}
 	mh := cmm.mh
-	mh.MapType = reflect.TypeOf(map[string]interface{}(nil))
+	mh.MapType = reflect.TypeOf(map[string]any(nil))
 	mh.RawToString = true
 	return cmm
 }
 
-func (cmm *CodecMsgpackMarshaler) Marshal(v interface{}) (b []byte, err error) {
+func (cmm *CodecMsgpackMarshaler) Marshal(v any) (b []byte, err error) {
 	enc := codec.NewEncoderBytes(&b, cmm.mh)
 	err = enc.Encode(v)
 	return
 }
 
-func (cmm *CodecMsgpackMarshaler) Unmarshal(data []byte, v interface{}) error {
+func (cmm *CodecMsgpackMarshaler) Unmarshal(data []byte, v any) error {
 	dec := codec.NewDecoderBytes(data, cmm.mh)
 	return dec.Decode(&v)
 }
@@ -288,34 +285,31 @@ func NewBincMarshaler() *BincMarshaler {
 	return &BincMarshaler{new(codec.BincHandle)}
 }
 
-func (bm *BincMarshaler) Marshal(v interface{}) (b []byte, err error) {
+func (bm *BincMarshaler) Marshal(v any) (b []byte, err error) {
 	enc := codec.NewEncoderBytes(&b, bm.bh)
 	err = enc.Encode(v)
 	return
 }
 
-func (bm *BincMarshaler) Unmarshal(data []byte, v interface{}) error {
+func (bm *BincMarshaler) Unmarshal(data []byte, v any) error {
 	dec := codec.NewDecoderBytes(data, bm.bh)
 	return dec.Decode(&v)
 }
 
 type GOBMarshaler struct{}
 
-func (gm *GOBMarshaler) Marshal(v interface{}) (data []byte, err error) {
+func (gm *GOBMarshaler) Marshal(v any) (data []byte, err error) {
 	buf := new(bytes.Buffer)
 	err = gob.NewEncoder(buf).Encode(v)
 	data = buf.Bytes()
 	return
 }
 
-func (gm *GOBMarshaler) Unmarshal(data []byte, v interface{}) error {
+func (gm *GOBMarshaler) Unmarshal(data []byte, v any) error {
 	return gob.NewDecoder(bytes.NewBuffer(data)).Decode(v)
 }
 
 // Decide the value of cacheCommit parameter based on transactionID
 func cacheCommit(transactionID string) bool {
-	if transactionID == utils.NonTransactional {
-		return true
-	}
-	return false
+	return transactionID == utils.NonTransactional
 }

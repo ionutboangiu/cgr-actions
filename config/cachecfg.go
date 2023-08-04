@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/cgrates/cgrates/utils"
@@ -31,20 +32,16 @@ type CacheParamCfg struct {
 	TTL       time.Duration
 	StaticTTL bool
 	Precache  bool
+	Remote    bool
+	Replicate bool
 }
 
-func (cParam *CacheParamCfg) loadFromJsonCfg(jsnCfg *CacheParamJsonCfg) error {
+func (cParam *CacheParamCfg) loadFromJSONCfg(jsnCfg *CacheParamJsonCfg) (err error) {
 	if jsnCfg == nil {
-		return nil
+		return
 	}
-	var err error
 	if jsnCfg.Limit != nil {
 		cParam.Limit = *jsnCfg.Limit
-	}
-	if jsnCfg.Ttl != nil {
-		if cParam.TTL, err = utils.ParseDurationWithNanosecs(*jsnCfg.Ttl); err != nil {
-			return err
-		}
 	}
 	if jsnCfg.Static_ttl != nil {
 		cParam.StaticTTL = *jsnCfg.Static_ttl
@@ -52,44 +49,87 @@ func (cParam *CacheParamCfg) loadFromJsonCfg(jsnCfg *CacheParamJsonCfg) error {
 	if jsnCfg.Precache != nil {
 		cParam.Precache = *jsnCfg.Precache
 	}
-	return nil
+	if jsnCfg.Remote != nil {
+		cParam.Remote = *jsnCfg.Remote
+	}
+	if jsnCfg.Replicate != nil {
+		cParam.Replicate = *jsnCfg.Replicate
+	}
+	if jsnCfg.Ttl != nil {
+		cParam.TTL, err = utils.ParseDurationWithNanosecs(*jsnCfg.Ttl)
+	}
+	return
 }
 
-func (cParam *CacheParamCfg) AsMapInterface() map[string]interface{} {
-	var TTL string = ""
-	if cParam.TTL != 0 {
-		TTL = cParam.TTL.String()
-	}
-
-	return map[string]interface{}{
+// AsMapInterface returns the config as a map[string]any
+func (cParam *CacheParamCfg) AsMapInterface() (initialMP map[string]any) {
+	initialMP = map[string]any{
 		utils.LimitCfg:     cParam.Limit,
-		utils.TTLCfg:       TTL,
 		utils.StaticTTLCfg: cParam.StaticTTL,
 		utils.PrecacheCfg:  cParam.Precache,
+		utils.RemoteCfg:    cParam.Remote,
+		utils.ReplicateCfg: cParam.Replicate,
+	}
+	if cParam.TTL != 0 {
+		initialMP[utils.TTLCfg] = cParam.TTL.String()
+	}
+	return
+}
+
+// Clone returns a deep copy of CacheParamCfg
+func (cParam CacheParamCfg) Clone() (cln *CacheParamCfg) {
+	return &CacheParamCfg{
+		Limit:     cParam.Limit,
+		TTL:       cParam.TTL,
+		StaticTTL: cParam.StaticTTL,
+		Precache:  cParam.Precache,
+		Remote:    cParam.Remote,
+		Replicate: cParam.Replicate,
 	}
 }
 
 // CacheCfg used to store the cache config
-type CacheCfg map[string]*CacheParamCfg
+type CacheCfg struct {
+	Partitions       map[string]*CacheParamCfg
+	ReplicationConns []string
+	RemoteConns      []string
+}
 
-func (cCfg CacheCfg) loadFromJsonCfg(jsnCfg *CacheJsonCfg) (err error) {
+func (cCfg *CacheCfg) loadFromJSONCfg(jsnCfg *CacheJsonCfg) (err error) {
 	if jsnCfg == nil {
 		return
 	}
-	for kJsn, vJsn := range *jsnCfg {
-		val := new(CacheParamCfg)
-		if err := val.loadFromJsonCfg(vJsn); err != nil {
-			return err
+	if jsnCfg.Partitions != nil {
+		for kJsn, vJsn := range *jsnCfg.Partitions {
+			val := new(CacheParamCfg)
+			if err := val.loadFromJSONCfg(vJsn); err != nil {
+				return err
+			}
+			cCfg.Partitions[kJsn] = val
 		}
-		cCfg[kJsn] = val
+	}
+	if jsnCfg.Replication_conns != nil {
+		cCfg.ReplicationConns = make([]string, len(*jsnCfg.Replication_conns))
+		for idx, connID := range *jsnCfg.Replication_conns {
+			if connID == utils.MetaInternal {
+				return fmt.Errorf("replication connection ID needs to be different than *internal")
+			}
+			cCfg.ReplicationConns[idx] = connID
+		}
+	}
+	if jsnCfg.Remote_conns != nil {
+		cCfg.RemoteConns = make([]string, len(*jsnCfg.Remote_conns))
+		for idx, connID := range *jsnCfg.Remote_conns {
+			cCfg.RemoteConns[idx] = connID
+		}
 	}
 	return nil
 }
 
 // AsTransCacheConfig transforms the cache config in ltcache config
 func (cCfg CacheCfg) AsTransCacheConfig() (tcCfg map[string]*ltcache.CacheConfig) {
-	tcCfg = make(map[string]*ltcache.CacheConfig, len(cCfg))
-	for k, cPcfg := range cCfg {
+	tcCfg = make(map[string]*ltcache.CacheConfig, len(cCfg.Partitions))
+	for k, cPcfg := range cCfg.Partitions {
 		tcCfg[k] = &ltcache.CacheConfig{
 			MaxItems:  cPcfg.Limit,
 			TTL:       cPcfg.TTL,
@@ -99,19 +139,44 @@ func (cCfg CacheCfg) AsTransCacheConfig() (tcCfg map[string]*ltcache.CacheConfig
 	return
 }
 
-// AddTmpCaches adds all the temotrary caches configuration needed
-func (cCfg CacheCfg) AddTmpCaches() {
-	cCfg[utils.CacheRatingProfilesTmp] = &CacheParamCfg{
+// AddTmpCaches adds all the temporary caches configuration needed
+func (cCfg *CacheCfg) AddTmpCaches() {
+	cCfg.Partitions[utils.CacheRatingProfilesTmp] = &CacheParamCfg{
 		Limit: -1,
 		TTL:   time.Minute,
 	}
 }
 
-func (cCfg *CacheCfg) AsMapInterface() map[string]interface{} {
-	mp := make(map[string]interface{}, len(*cCfg))
-	for key, value := range *cCfg {
-		mp[key] = value.AsMapInterface()
+// AsMapInterface returns the config as a map[string]any
+func (cCfg *CacheCfg) AsMapInterface() (mp map[string]any) {
+	mp = make(map[string]any)
+	partitions := make(map[string]any, len(cCfg.Partitions))
+	for key, value := range cCfg.Partitions {
+		partitions[key] = value.AsMapInterface()
 	}
-	return mp
+	mp[utils.PartitionsCfg] = partitions
+	if cCfg.ReplicationConns != nil {
+		mp[utils.ReplicationConnsCfg] = cCfg.ReplicationConns
+	}
+	if cCfg.RemoteConns != nil {
+		mp[utils.RemoteConnsCfg] = cCfg.RemoteConns
+	}
+	return
+}
 
+// Clone returns a deep copy of CacheCfg
+func (cCfg CacheCfg) Clone() (cln *CacheCfg) {
+	cln = &CacheCfg{
+		Partitions: make(map[string]*CacheParamCfg),
+	}
+	for key, par := range cCfg.Partitions {
+		cln.Partitions[key] = par.Clone()
+	}
+	if cCfg.ReplicationConns != nil {
+		cln.ReplicationConns = utils.CloneStringSlice(cCfg.ReplicationConns)
+	}
+	if cCfg.RemoteConns != nil {
+		cln.RemoteConns = utils.CloneStringSlice(cCfg.RemoteConns)
+	}
+	return
 }

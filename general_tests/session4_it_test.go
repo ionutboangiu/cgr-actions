@@ -110,7 +110,7 @@ func testSes4ItLoadFromFolder(t *testing.T) {
 	if err := ses4RPC.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testSes4SetAccount(t *testing.T) {
@@ -129,24 +129,25 @@ func testSes4CDRsProcessCDR(t *testing.T) {
 	// rerate a free postpaid event in the CDRServer
 	// will make the BalanceInfo nil and result in a panic
 	args := &engine.ArgV1ProcessEvent{
-		Flags: []string{utils.MetaRALs, utils.MetaStore, "*routes:false", utils.MetaRerate},
+		Flags: []string{utils.MetaRALs, utils.MetaStore, "*routes:false"},
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.OriginID:    "testV2CDRsProcessCDR1",
-				utils.OriginHost:  "192.168.1.1",
-				utils.Source:      "testV2CDRsProcessCDR",
-				utils.RequestType: utils.META_POSTPAID,
-				utils.Category:    "free",
-				utils.Account:     "dan7",
-				utils.Subject:     "RP_FREE",
-				utils.Destination: "0775692",
-				utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-				utils.Usage:       time.Minute,
+			Event: map[string]any{
+				utils.OriginID:     "testV2CDRsProcessCDR1",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testV2CDRsProcessCDR",
+				utils.RequestType:  utils.MetaPostpaid,
+				utils.Category:     "free",
+				utils.AccountField: "dan7",
+				utils.Subject:      "RP_FREE",
+				utils.Destination:  "0775692",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
 			},
 		},
 	}
 
+	// Process and store the given CDR.
 	var reply string
 	if err := ses4RPC.Call(utils.CDRsV1ProcessEvent, args, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
@@ -154,6 +155,8 @@ func testSes4CDRsProcessCDR(t *testing.T) {
 		t.Error("Unexpected reply received: ", reply)
 	}
 
+	// Process the CDR again, after adding the *rerate flag.
+	args.Flags = append(args.Flags, utils.MetaRerate)
 	if err := ses4RPC.Call(utils.CDRsV1ProcessEvent, args, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if reply != utils.OK {

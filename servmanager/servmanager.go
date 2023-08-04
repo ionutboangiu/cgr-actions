@@ -25,7 +25,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
@@ -33,24 +32,30 @@ import (
 )
 
 // NewServiceManager returns a service manager
-func NewServiceManager(cfg *config.CGRConfig, engineShutdown chan bool) *ServiceManager {
+func NewServiceManager(cfg *config.CGRConfig, shdChan *utils.SyncedChan, shdWg *sync.WaitGroup, connMgr *engine.ConnManager) *ServiceManager {
 	sm := &ServiceManager{
-		cfg:            cfg,
-		engineShutdown: engineShutdown,
-		subsystems:     make(map[string]Service),
+		cfg:        cfg,
+		subsystems: make(map[string]Service),
+		shdChan:    shdChan,
+		shdWg:      shdWg,
+		connMgr:    connMgr,
 	}
 	return sm
 }
 
 // ServiceManager handles service management ran by the engine
 type ServiceManager struct {
-	sync.RWMutex   // lock access to any shared data
-	cfg            *config.CGRConfig
-	engineShutdown chan bool
-	subsystems     map[string]Service
+	sync.RWMutex // lock access to any shared data
+	cfg          *config.CGRConfig
+	subsystems   map[string]Service // active subsystems managed by SM
+
+	shdChan *utils.SyncedChan
+	shdWg   *sync.WaitGroup
+	connMgr *engine.ConnManager
 }
 
-func (srvMngr *ServiceManager) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+// Call .
+func (srvMngr *ServiceManager) Call(serviceMethod string, args any, reply any) error {
 	parts := strings.Split(serviceMethod, ".")
 	if len(parts) != 2 {
 		return rpcclient.ErrUnsupporteServiceMethod
@@ -150,13 +155,12 @@ func (srvMngr *ServiceManager) StartServices() (err error) {
 	go srvMngr.handleReload()
 	for _, service := range srvMngr.subsystems {
 		if service.ShouldRun() && !service.IsRunning() {
+			srvMngr.shdWg.Add(1)
 			go func(srv Service) {
-				if err := srv.Start(); err != nil {
-					if err == utils.ErrServiceAlreadyRunning { // in case the service was started in another gorutine
-						return
-					}
+				if err := srv.Start(); err != nil &&
+					err != utils.ErrServiceAlreadyRunning { // in case the service was started in another gorutine
 					utils.Logger.Err(fmt.Sprintf("<%s> failed to start %s because: %s", utils.ServiceManager, srv.ServiceName(), err))
-					srvMngr.engineShutdown <- true
+					srvMngr.shdChan.CloseOnce()
 				}
 			}(service)
 		}
@@ -169,131 +173,82 @@ func (srvMngr *ServiceManager) StartServices() (err error) {
 func (srvMngr *ServiceManager) AddServices(services ...Service) {
 	srvMngr.Lock()
 	for _, srv := range services {
-		if _, has := srvMngr.subsystems[srv.ServiceName()]; has { // do not rewrite the service
-			continue
+		if _, has := srvMngr.subsystems[srv.ServiceName()]; !has { // do not rewrite the service
+			srvMngr.subsystems[srv.ServiceName()] = srv
 		}
-		srvMngr.subsystems[srv.ServiceName()] = srv
 	}
 	srvMngr.Unlock()
 }
 
 func (srvMngr *ServiceManager) handleReload() {
-	var err error
 	for {
 		select {
-		case ext := <-srvMngr.engineShutdown:
-			srvMngr.engineShutdown <- ext
-			for srviceName, srv := range srvMngr.subsystems { // gracefully stop all running subsystems
-				if !srv.IsRunning() {
-					continue
-				}
-				if err := srv.Shutdown(); err != nil {
-					utils.Logger.Err(fmt.Sprintf("<%s> Failed to shutdown subsystem <%s> because: %s",
-						utils.ServiceManager, srviceName, err))
-				}
-			}
+		case <-srvMngr.shdChan.Done():
+			srvMngr.ShutdownServices()
 			return
 		case <-srvMngr.GetConfig().GetReloadChan(config.ATTRIBUTE_JSN):
-			if err = srvMngr.reloadService(utils.AttributeS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.AttributeS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.ChargerSCfgJson):
-			if err = srvMngr.reloadService(utils.ChargerS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.ChargerS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.THRESHOLDS_JSON):
-			if err = srvMngr.reloadService(utils.ThresholdS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.ThresholdS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.STATS_JSON):
-			if err = srvMngr.reloadService(utils.StatS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.StatS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.RESOURCES_JSON):
-			if err = srvMngr.reloadService(utils.ResourceS); err != nil {
-				return
-			}
-		case <-srvMngr.GetConfig().GetReloadChan(config.SupplierSJson):
-			if err = srvMngr.reloadService(utils.SupplierS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.ResourceS)
+		case <-srvMngr.GetConfig().GetReloadChan(config.RouteSJson):
+			go srvMngr.reloadService(utils.RouteS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.SCHEDULER_JSN):
-			if err = srvMngr.reloadService(utils.SchedulerS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.SchedulerS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.RALS_JSN):
-			if err = srvMngr.reloadService(utils.RALService); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.RALService)
 		case <-srvMngr.GetConfig().GetReloadChan(config.ApierS):
-			if err = srvMngr.reloadService(utils.APIerSv1); err != nil {
-				return
-			}
-			if err = srvMngr.reloadService(utils.APIerSv2); err != nil {
-				return
-			}
+			go func() {
+				srvMngr.reloadService(utils.APIerSv1)
+				srvMngr.reloadService(utils.APIerSv2)
+			}()
 		case <-srvMngr.GetConfig().GetReloadChan(config.CDRS_JSN):
-			if err = srvMngr.reloadService(utils.CDRServer); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.CDRServer)
 		case <-srvMngr.GetConfig().GetReloadChan(config.SessionSJson):
-			if err = srvMngr.reloadService(utils.SessionS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.SessionS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.ERsJson):
-			if err = srvMngr.reloadService(utils.ERs); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.ERs)
 		case <-srvMngr.GetConfig().GetReloadChan(config.DNSAgentJson):
-			if err = srvMngr.reloadService(utils.DNSAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.DNSAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.FreeSWITCHAgentJSN):
-			if err = srvMngr.reloadService(utils.FreeSWITCHAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.FreeSWITCHAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.KamailioAgentJSN):
-			if err = srvMngr.reloadService(utils.KamailioAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.KamailioAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.AsteriskAgentJSN):
-			if err = srvMngr.reloadService(utils.AsteriskAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.AsteriskAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.RA_JSN):
-			if err = srvMngr.reloadService(utils.RadiusAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.RadiusAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.DA_JSN):
-			if err = srvMngr.reloadService(utils.DiameterAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.DiameterAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.HttpAgentJson):
-			if err = srvMngr.reloadService(utils.HTTPAgent); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.HTTPAgent)
 		case <-srvMngr.GetConfig().GetReloadChan(config.LoaderJson):
-			if err = srvMngr.reloadService(utils.LoaderS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.LoaderS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.AnalyzerCfgJson):
-			if err = srvMngr.reloadService(utils.AnalyzerS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.AnalyzerS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.DispatcherSJson):
-			if err = srvMngr.reloadService(utils.DispatcherS); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.DispatcherS)
 		case <-srvMngr.GetConfig().GetReloadChan(config.DATADB_JSN):
-			if err = srvMngr.reloadService(utils.DataDB); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.DataDB)
 		case <-srvMngr.GetConfig().GetReloadChan(config.STORDB_JSN):
-			if err = srvMngr.reloadService(utils.StorDB); err != nil {
-				return
-			}
+			go srvMngr.reloadService(utils.StorDB)
+		case <-srvMngr.GetConfig().GetReloadChan(config.EEsJson):
+			go srvMngr.reloadService(utils.EEs)
 		case <-srvMngr.GetConfig().GetReloadChan(config.RPCConnsJsonName):
-			engine.Cache.Clear([]string{utils.CacheRPCConnections})
+			go srvMngr.connMgr.Reload()
+		case <-srvMngr.GetConfig().GetReloadChan(config.SIPAgentJson):
+			go srvMngr.reloadService(utils.SIPAgent)
+		case <-srvMngr.GetConfig().GetReloadChan(config.RegistrarCJson):
+			go srvMngr.reloadService(utils.RegistrarC)
+		case <-srvMngr.GetConfig().GetReloadChan(config.HTTP_JSN):
+			go srvMngr.reloadService(utils.GlobalVarS)
+		case <-srvMngr.GetConfig().GetReloadChan(config.CoreSCfgJson):
+			go srvMngr.reloadService(utils.CoreS)
 		}
 		// handle RPC server
 	}
@@ -305,42 +260,53 @@ func (srvMngr *ServiceManager) reloadService(srviceName string) (err error) {
 		if srv.IsRunning() {
 			if err = srv.Reload(); err != nil {
 				utils.Logger.Err(fmt.Sprintf("<%s> failed to reload <%s> err <%s>", utils.ServiceManager, srv.ServiceName(), err))
-				srvMngr.engineShutdown <- true
+				srvMngr.shdChan.CloseOnce()
 				return // stop if we encounter an error
 			}
 		} else {
+			srvMngr.shdWg.Add(1)
 			if err = srv.Start(); err != nil {
 				utils.Logger.Err(fmt.Sprintf("<%s> failed to start <%s> err <%s>", utils.ServiceManager, srv.ServiceName(), err))
-				srvMngr.engineShutdown <- true
+				srvMngr.shdChan.CloseOnce()
 				return // stop if we encounter an error
 			}
 		}
 	} else if srv.IsRunning() {
 		if err = srv.Shutdown(); err != nil {
 			utils.Logger.Err(fmt.Sprintf("<%s> failed to stop service <%s> err <%s>", utils.ServiceManager, srv.ServiceName(), err))
-			srvMngr.engineShutdown <- true
-			return // stop if we encounter an error
+			srvMngr.shdChan.CloseOnce()
 		}
+		srvMngr.shdWg.Done()
 	}
 	return
 }
 
 // GetService returns the named service
 func (srvMngr *ServiceManager) GetService(subsystem string) (srv Service) {
-	var has bool
 	srvMngr.RLock()
-	srv, has = srvMngr.subsystems[subsystem]
+	srv = srvMngr.subsystems[subsystem]
 	srvMngr.RUnlock()
-	if !has { // this should not happen (check the added services)
-		panic(fmt.Sprintf("<%s> Failed to find needed subsystem <%s>",
-			utils.ServiceManager, subsystem)) // because this is not dinamic this should not happen
-	}
 	return
+}
+
+// ShutdownServices will stop all services
+func (srvMngr *ServiceManager) ShutdownServices() {
+	for _, srv := range srvMngr.subsystems { // gracefully stop all running subsystems
+		if srv.IsRunning() {
+			go func(srv Service) {
+				if err := srv.Shutdown(); err != nil {
+					utils.Logger.Err(fmt.Sprintf("<%s> Failed to shutdown subsystem <%s> because: %s",
+						utils.ServiceManager, srv.ServiceName(), err))
+				}
+				srvMngr.shdWg.Done()
+			}(srv)
+		}
+	}
 }
 
 // Service interface that describes what functions should a service implement
 type Service interface {
-	// Start should handle the sercive start
+	// Start should handle the service start
 	Start() error
 	// Reload handles the change of config
 	Reload() error

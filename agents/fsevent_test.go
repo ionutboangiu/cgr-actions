@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package agents
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 	"time"
@@ -163,7 +164,7 @@ variable_outbound_caller_id_name: FreeSWITCH
 variable_outbound_caller_id_number: 0000000000
 variable_callgroup: techsupport
 variable_cgr_reqtype: *prepaid
-variable_cgr_supplier: supplier1
+variable_cgr_route: supplier1
 variable_user_name: 1001
 variable_domain_name: cgrates.org
 variable_sip_from_user_stripped: 1001
@@ -330,7 +331,7 @@ variable_rtp_audio_out_dtmf_packet_count: 0
 variable_rtp_audio_out_cng_packet_count: 0
 variable_rtp_audio_rtcp_packet_count: 1450
 variable_rtp_audio_rtcp_octet_count: 45940
-variable_cgr_flags: *resources,*attributes,*sessions,*suppliers,*suppliers_event_cost,*suppliers_ignore_errors,*accounts`
+variable_cgr_flags: *resources;*attributes;*sessions;*routes;*routes_event_cost;*routes_ignore_errors;*accounts`
 
 func TestEventCreation(t *testing.T) {
 	body := `Event-Name: RE_SCHEDULE
@@ -374,7 +375,7 @@ func TestEventParseStatic(t *testing.T) {
 		ev.GetDestination("^test") != "test" ||
 		setupTime != time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC) ||
 		answerTime != time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC) ||
-		dur != time.Duration(60)*time.Second {
+		dur != 60*time.Second {
 		t.Error("Values out of static not matching",
 			ev.GetReqType("^test") != "test",
 			ev.GetTenant("^test") != "test",
@@ -384,7 +385,7 @@ func TestEventParseStatic(t *testing.T) {
 			ev.GetDestination("^test") != "test",
 			setupTime != time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC),
 			answerTime != time.Date(2013, 12, 7, 8, 42, 24, 0, time.UTC),
-			dur != time.Duration(60)*time.Second)
+			dur != 60*time.Second)
 	}
 }
 
@@ -407,7 +408,7 @@ Task-ID: 2
 Task-Desc: heartbeat
 Task-Group: core
 Task-Runtime: 1349437318`
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	config.SetCgrConfig(cfg)
 	ev := NewFSEvent(body)
 	setupTime, _ := ev.GetSetupTime("Event-Date-Local", "")
@@ -421,7 +422,7 @@ Task-Runtime: 1349437318`
 		ev.GetDestination("FreeSWITCH-Hostname") != "h1.ip-switch.net" ||
 		setupTime != time.Date(2012, 10, 5, 13, 41, 38, 0, time.UTC) ||
 		answerTime != time.Date(2012, 10, 5, 13, 41, 38, 0, time.UTC) ||
-		dur != time.Duration(65)*time.Second {
+		dur != 65*time.Second {
 		t.Error("Values out of static not matching",
 			ev.GetReqType("FreeSWITCH-Hostname") != "h1.ip-switch.net",
 			ev.GetTenant("FreeSWITCH-Hostname") != "h1.ip-switch.net",
@@ -431,7 +432,7 @@ Task-Runtime: 1349437318`
 			ev.GetDestination("FreeSWITCH-Hostname") != "h1.ip-switch.net",
 			setupTime != time.Date(2012, 10, 5, 13, 41, 38, 0, time.UTC),
 			answerTime != time.Date(2012, 10, 5, 13, 41, 38, 0, time.UTC),
-			dur != time.Duration(65)*time.Second)
+			dur != 65*time.Second)
 	}
 }
 
@@ -459,13 +460,13 @@ Task-Runtime: 1349437318`
 }
 
 func TestParseFsHangup(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	config.SetCgrConfig(cfg)
 	ev := NewFSEvent(hangupEv)
 	setupTime, _ := ev.GetSetupTime(utils.MetaDefault, "")
 	answerTime, _ := ev.GetAnswerTime(utils.MetaDefault, "")
 	dur, _ := ev.GetDuration(utils.MetaDefault)
-	if ev.GetReqType(utils.MetaDefault) != utils.META_PREPAID ||
+	if ev.GetReqType(utils.MetaDefault) != utils.MetaPrepaid ||
 		ev.GetTenant(utils.MetaDefault) != "cgrates.org" ||
 		ev.GetCategory(utils.MetaDefault) != "call" ||
 		ev.GetAccount(utils.MetaDefault) != "1001" ||
@@ -473,9 +474,9 @@ func TestParseFsHangup(t *testing.T) {
 		ev.GetDestination(utils.MetaDefault) != "1003" ||
 		setupTime.UTC() != time.Date(2015, 7, 7, 14, 52, 8, 0, time.UTC) ||
 		answerTime.UTC() != time.Date(2015, 7, 7, 14, 52, 8, 0, time.UTC) ||
-		dur != time.Duration(66)*time.Second {
+		dur != 66*time.Second {
 		t.Error("Default values not matching",
-			ev.GetReqType(utils.MetaDefault) != utils.META_PREPAID,
+			ev.GetReqType(utils.MetaDefault) != utils.MetaPrepaid,
 			ev.GetTenant(utils.MetaDefault) != "cgrates.org",
 			ev.GetCategory(utils.MetaDefault) != "call",
 			ev.GetAccount(utils.MetaDefault) != "1001",
@@ -483,68 +484,68 @@ func TestParseFsHangup(t *testing.T) {
 			ev.GetDestination(utils.MetaDefault) != "1003",
 			setupTime.UTC() != time.Date(2015, 7, 7, 14, 52, 8, 0, time.UTC),
 			answerTime.UTC() != time.Date(2015, 7, 7, 14, 52, 8, 0, time.UTC),
-			dur != time.Duration(66)*time.Second)
+			dur != 66*time.Second)
 	}
 }
 
 func TestParseEventValue(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	config.SetCgrConfig(cfg)
 	ev := NewFSEvent(hangupEv)
-	if tor, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.ToR, true), ""); tor != utils.VOICE {
-		t.Error("Unexpected tor parsed", tor)
+	if tor, _ := ev.ParseEventValue(utils.ToR, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.ToR), ""); tor != utils.MetaVoice {
+		t.Errorf("Unexpected tor parsed %q", tor)
 	}
-	if accid, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.OriginID, true), ""); accid != "e3133bf7-dcde-4daf-9663-9a79ffcef5ad" {
+	if accid, _ := ev.ParseEventValue(utils.OriginID, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.OriginID), ""); accid != "e3133bf7-dcde-4daf-9663-9a79ffcef5ad" {
 		t.Error("Unexpected result parsed", accid)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.OriginHost, true), ""); parsed != "10.0.3.15" {
+	if parsed, _ := ev.ParseEventValue(utils.OriginHost, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.OriginHost), ""); parsed != "10.0.3.15" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Source, true), ""); parsed != "FS_EVENT" {
+	if parsed, _ := ev.ParseEventValue(utils.Source, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Source), ""); parsed != "FS_EVENT" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.RequestType, true), ""); parsed != utils.META_PREPAID {
+	if parsed, _ := ev.ParseEventValue(utils.RequestType, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.RequestType), ""); parsed != utils.MetaPrepaid {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Tenant, true), ""); parsed != "cgrates.org" {
+	if parsed, _ := ev.ParseEventValue(utils.Tenant, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Tenant), ""); parsed != "cgrates.org" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Category, true), ""); parsed != "call" {
+	if parsed, _ := ev.ParseEventValue(utils.Category, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Category), ""); parsed != "call" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Account, true), ""); parsed != "1001" {
+	if parsed, _ := ev.ParseEventValue(utils.AccountField, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.AccountField), ""); parsed != "1001" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Subject, true), ""); parsed != "1001" {
+	if parsed, _ := ev.ParseEventValue(utils.Subject, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Subject), ""); parsed != "1001" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Destination, true), ""); parsed != "1003" {
+	if parsed, _ := ev.ParseEventValue(utils.Destination, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Destination), ""); parsed != "1003" {
 		t.Error("Unexpected result parsed", parsed)
 	}
 	sTime, _ := utils.ParseTimeDetectLayout("1436280728471153"[:len("1436280728471153")-6], "") // We discard nanoseconds information so we can correlate csv
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.SetupTime, true), ""); parsed != sTime.String() {
+	if parsed, _ := ev.ParseEventValue(utils.SetupTime, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.SetupTime), ""); parsed != sTime.String() {
 		t.Errorf("Expecting: %s, parsed: %s", sTime.String(), parsed)
 	}
 	aTime, _ := utils.ParseTimeDetectLayout("1436280728971147"[:len("1436280728971147")-6], "")
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.AnswerTime, true), ""); parsed != aTime.String() {
+	if parsed, _ := ev.ParseEventValue(utils.AnswerTime, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.AnswerTime), ""); parsed != aTime.String() {
 		t.Errorf("Expecting: %s, parsed: %s", aTime.String(), parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.Usage, true), ""); parsed != "66000000000" {
+	if parsed, _ := ev.ParseEventValue(utils.Usage, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Usage), ""); parsed != "66000000000" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.PDD, true), ""); parsed != "0.028" {
+	if parsed, _ := ev.ParseEventValue(utils.PDD, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.PDD), ""); parsed != "0.028" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.SUPPLIER, true), ""); parsed != "supplier1" {
+	if parsed, _ := ev.ParseEventValue(utils.Route, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Route), ""); parsed != "supplier1" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.RunID, true), ""); parsed != utils.MetaDefault {
+	if parsed, _ := ev.ParseEventValue(utils.RunID, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.RunID), ""); parsed != utils.MetaDefault {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+utils.COST, true), ""); parsed != "-1" {
+	if parsed, _ := ev.ParseEventValue(utils.Cost, config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+utils.Cost), ""); parsed != "-1" {
 		t.Error("Unexpected result parsed", parsed)
 	}
-	if parsed, _ := ev.ParseEventValue(config.NewRSRParserMustCompile(utils.REGEXP_PREFIX+"Hangup-Cause", true), ""); parsed != "NORMAL_CLEARING" {
+	if parsed, _ := ev.ParseEventValue("Hangup-Cause", config.NewRSRParserMustCompile(utils.MetaDynReq+utils.NestingSep+"Hangup-Cause"), ""); parsed != "NORMAL_CLEARING" {
 		t.Error("Unexpected result parsed", parsed)
 	}
 }
@@ -574,44 +575,44 @@ func TestFsEvAsCGREvent(t *testing.T) {
 }
 
 func TestFsEvAsMapStringInterface(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	config.SetCgrConfig(cfg)
 	ev := NewFSEvent(hangupEv)
 	setupTime, _ := utils.ParseTimeDetectLayout("1436280728", "")
 	aTime, _ := utils.ParseTimeDetectLayout("1436280728", "")
-	expectedMap := make(map[string]interface{})
-	expectedMap[utils.ToR] = utils.VOICE
+	expectedMap := make(map[string]any)
+	expectedMap[utils.ToR] = utils.MetaVoice
 	expectedMap[utils.OriginID] = "e3133bf7-dcde-4daf-9663-9a79ffcef5ad"
 	expectedMap[utils.OriginHost] = "10.0.3.15"
 	expectedMap[utils.Source] = "FS_CHANNEL_HANGUP_COMPLETE"
 	expectedMap[utils.Category] = "call"
 	expectedMap[utils.SetupTime] = setupTime
 	expectedMap[utils.AnswerTime] = aTime
-	expectedMap[utils.RequestType] = utils.META_PREPAID
+	expectedMap[utils.RequestType] = utils.MetaPrepaid
 	expectedMap[utils.Destination] = "1003"
-	expectedMap[utils.Usage] = time.Duration(66) * time.Second
+	expectedMap[utils.Usage] = 66 * time.Second
 	expectedMap[utils.Tenant] = "cgrates.org"
-	expectedMap[utils.Account] = "1001"
+	expectedMap[utils.AccountField] = "1001"
 	expectedMap[utils.Subject] = "1001"
 	expectedMap[utils.Cost] = -1.0
-	expectedMap[utils.PDD] = time.Duration(28) * time.Millisecond
-	expectedMap[utils.ACD] = time.Duration(30) * time.Second
-	expectedMap[utils.DISCONNECT_CAUSE] = "NORMAL_CLEARING"
-	expectedMap[utils.SUPPLIER] = "supplier1"
+	expectedMap[utils.PDD] = 28 * time.Millisecond
+	expectedMap[utils.ACD] = 30 * time.Second
+	expectedMap[utils.DisconnectCause] = "NORMAL_CLEARING"
+	expectedMap[utils.Route] = "supplier1"
 	if storedMap := ev.AsMapStringInterface(""); !reflect.DeepEqual(expectedMap, storedMap) {
 		t.Errorf("Expecting: %s, received: %s", utils.ToJSON(expectedMap), utils.ToJSON(storedMap))
 	}
 }
 
 func TestFsEvGetExtraFields(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	var err error
 	err = nil
 	cfg.FsAgentCfg().ExtraFields, err = config.NewRSRParsersFromSlice([]string{
-		"~Channel-Read-Codec-Name",
-		"~Channel-Write-Codec-Name",
-		"~NonExistingHeader",
-	}, true)
+		"~*req.Channel-Read-Codec-Name",
+		"~*req.Channel-Write-Codec-Name",
+		"~*req.NonExistingHeader",
+	})
 	if err != nil {
 		t.Error(err)
 	}
@@ -636,10 +637,52 @@ func TestSliceAsFsArray(t *testing.T) {
 	}
 }
 
+func TestSliceAsArraySortingParameter(t *testing.T) {
+	eSplrs := engine.SortedRoutesList{{
+		ProfileID: "ACNT_1003",
+		Sorting:   utils.MetaWeight,
+		Routes: []*engine.SortedRoute{
+			{
+				RouteID: "rt1",
+				SortingData: map[string]any{
+					"Weight": 10.0,
+				},
+			},
+			{
+				RouteID: "rt2",
+				SortingData: map[string]any{
+					"Weight": 20.0,
+				},
+			},
+		},
+	}, {
+		ProfileID: "ACNT_1004",
+		Sorting:   utils.MetaWeight,
+		Routes: []*engine.SortedRoute{
+			{
+				RouteID: "RT1",
+				SortingData: map[string]any{
+					"Weight": 10.0,
+				},
+			},
+			{
+				RouteID: "RT2",
+				SortingData: map[string]any{
+					"Weight": 10.0,
+				},
+			},
+		},
+	}}
+	expFs := "ARRAY::4|:rt1|:rt2|:RT1|:RT2"
+	if fsArray := SliceAsFsArray(eSplrs.RoutesWithParams()); expFs != fsArray {
+		t.Errorf("Expected %+v, received %+v", expFs, fsArray)
+	}
+}
+
 // Make sure processing of the hangup event produces the same output as FS-JSON CDR
 func TestSyncFsEventWithJsonCdr(t *testing.T) {
 	body := []byte(`
-{"core-uuid":"63e2315b-d538-4dfa-9ed5-af73ba6210b6","switchname":"teo","channel_data":{"state":"CS_REPORTING","state_number":"11","flags":"0=1;1=1;3=1;20=1;37=1;38=1;40=1;43=1;48=1;53=1;75=1;77=1;106=1;112=1;113=1;122=1;134=1","caps":"1=1;2=1;3=1;4=1;5=1;6=1"},"callStats":{"audio":{"inbound":{"raw_bytes":174156,"media_bytes":166416,"packet_count":1033,"media_packet_count":988,"skip_packet_count":7,"jitter_packet_count":0,"dtmf_packet_count":0,"cng_packet_count":0,"flush_packet_count":45,"largest_jb_size":0,"jitter_min_variance":0.500000,"jitter_max_variance":31.769231,"jitter_loss_rate":0,"jitter_burst_rate":0,"mean_interval":20.171779,"flaw_total":1,"quality_percentage":99,"mos":4.492027,"errorLog":[{"start":1521025783725905,"stop":1521025788366141,"flaws":10763,"consecutiveFlaws":0,"durationMS":4640}]},"outbound":{"raw_bytes":43344,"media_bytes":43344,"packet_count":252,"media_packet_count":252,"skip_packet_count":0,"dtmf_packet_count":0,"cng_packet_count":0,"rtcp_packet_count":0,"rtcp_octet_count":0}}},"variables":{"uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","session_id":"1","sip_from_user":"1001","sip_from_uri":"1001@192.168.56.202","sip_from_host":"192.168.56.202","channel_name":"sofia/internal/1001@192.168.56.202","ep_codec_string":"mod_spandsp.G722@8000h@20i@64000b,CORE_PCM_MODULE.PCMU@8000h@20i@64000b,CORE_PCM_MODULE.PCMA@8000h@20i@64000b,mod_spandsp.GSM@8000h@20i@13200b","sip_local_network_addr":"192.168.56.202","sip_network_ip":"192.168.56.1","sip_network_port":"5060","sip_invite_stamp":"1521025758006702","sip_received_ip":"192.168.56.1","sip_received_port":"5060","sip_via_protocol":"udp","sip_authorized":"true","Event-Name":"REQUEST_PARAMS","Core-UUID":"63e2315b-d538-4dfa-9ed5-af73ba6210b6","FreeSWITCH-Hostname":"teo","FreeSWITCH-Switchname":"teo","FreeSWITCH-IPv4":"10.0.2.15","FreeSWITCH-IPv6":"::1","Event-Date-Local":"2018-03-14 07:09:18","Event-Date-GMT":"Wed, 14 Mar 2018 11:09:18 GMT","Event-Date-Timestamp":"1521025758006702","Event-Calling-File":"sofia.c","Event-Calling-Function":"sofia_handle_sip_i_invite","Event-Calling-Line-Number":"10096","Event-Sequence":"1025","sip_number_alias":"1001","sip_auth_username":"1001","sip_auth_realm":"192.168.56.202","number_alias":"1001","requested_user_name":"1001","requested_domain_name":"192.168.56.202","record_stereo":"true","transfer_fallback_extension":"operator","toll_allow":"domestic,international,local","accountcode":"1001","user_context":"default","effective_caller_id_name":"Extension 1001","effective_caller_id_number":"1001","callgroup":"techsupport","cgr_reqtype":"*prepaid","cgr_flags":"*resources,*attributes,*sessions,*suppliers","user_name":"1001","domain_name":"192.168.56.202","sip_from_user_stripped":"1001","sofia_profile_name":"internal","recovery_profile_name":"internal","sip_req_user":"1002","sip_req_uri":"1002@192.168.56.202","sip_req_host":"192.168.56.202","sip_to_user":"1002","sip_to_uri":"1002@192.168.56.202","sip_to_host":"192.168.56.202","sip_contact_params":"transport=udp;registering_acc=192_168_56_202","sip_contact_user":"1001","sip_contact_port":"5060","sip_contact_uri":"1001@192.168.56.1:5060","sip_contact_host":"192.168.56.1","sip_via_host":"192.168.56.1","sip_via_port":"5060","presence_id":"1001@192.168.56.202","cgr_resource_allocation":"ResGroup1","cgr_suppliers":"ARRAY::3|:supplier2|:supplier3|:supplier1","cgr_notify":"AUTH_OK","max_forwards":"69","transfer_history":"1521025758:86c9ebb2-888f-42d5-9afa-2101449a4b86:bl_xfer:1002/default/XML","transfer_source":"1521025758:86c9ebb2-888f-42d5-9afa-2101449a4b86:bl_xfer:1002/default/XML","DP_MATCH":"ARRAY::1002|:1002","call_uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","call_timeout":"30","current_application_data":"user/1002@192.168.56.202","current_application":"bridge","dialed_user":"1002","dialed_domain":"192.168.56.202","originated_legs":"ARRAY::9c1afb4f-1d4a-4e45-84a3-d25721981bf5;Outbound Call;1002|:9c1afb4f-1d4a-4e45-84a3-d25721981bf5;Outbound Call;1002","switch_m_sdp":"v=0\r\no=1002-jitsi.org 0 0 IN IP4 192.168.56.1\r\ns=-\r\nc=IN IP4 192.168.56.1\r\nt=0 0\r\nm=audio 5004 RTP/AVP 9 0 8 3 101\r\na=rtpmap:9 G722/8000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:3 GSM/8000\r\na=rtpmap:101 telephone-event/8000\r\n","rtp_use_codec_name":"G722","rtp_use_codec_rate":"8000","rtp_use_codec_ptime":"20","rtp_use_codec_channels":"1","rtp_last_audio_codec_string":"G722@8000h@20i@1c","read_codec":"G722","original_read_codec":"G722","read_rate":"16000","original_read_rate":"16000","write_codec":"G722","write_rate":"16000","local_media_ip":"192.168.56.202","local_media_port":"29014","advertised_media_ip":"192.168.56.202","rtp_use_timer_name":"soft","rtp_use_pt":"9","rtp_use_ssrc":"2729250253","endpoint_disposition":"ANSWER","originate_causes":"ARRAY::9c1afb4f-1d4a-4e45-84a3-d25721981bf5;NONE|:9c1afb4f-1d4a-4e45-84a3-d25721981bf5;NONE","originate_disposition":"SUCCESS","DIALSTATUS":"SUCCESS","last_bridge_to":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","bridge_channel":"sofia/internal/1002@192.168.56.1:5060","bridge_uuid":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","signal_bond":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","last_sent_callee_id_name":"Outbound Call","last_sent_callee_id_number":"1002","switch_r_sdp":"v=0\r\no=1001-jitsi.org 0 2 IN IP4 192.168.56.1\r\ns=-\r\nc=IN IP4 192.168.56.1\r\nt=0 0\r\nm=audio 5000 RTP/AVP 96 97 98 9 100 102 0 8 103 3 104 4 101\r\na=rtpmap:96 opus/48000/2\r\na=fmtp:96 usedtx=1\r\na=rtpmap:97 SILK/24000\r\na=rtpmap:98 SILK/16000\r\na=rtpmap:9 G722/8000\r\na=rtpmap:100 speex/32000\r\na=rtpmap:102 speex/16000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:103 iLBC/8000\r\na=rtpmap:3 GSM/8000\r\na=rtpmap:104 speex/8000\r\na=rtpmap:4 G723/8000\r\na=fmtp:4 annexa=no;bitrate=6.3\r\na=rtpmap:101 telephone-event/8000\r\na=ptime:20\r\na=extmap:1 urn:ietf:params:rtp-hdrext:csrc-audio-level\r\na=extmap:2 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\na=rtcp-xr:voip-metrics\r\na=zrtp-hash:1.10 8e8dd2fa6803f32845f26e55879c776a4bc015ee05b41630313aee27ef77fb30\r\nm=video 5006 RTP/AVP 105 99\r\na=rtpmap:105 H264/90000\r\na=fmtp:105 profile-level-id=4DE01f;packetization-mode=1\r\na=rtpmap:99 H264/90000\r\na=fmtp:99 profile-level-id=4DE01f\r\na=recvonly\r\na=imageattr:105 send * recv [x=[1:1920],y=[1:1080]]\r\na=imageattr:99 send * recv [x=[1:1920],y=[1:1080]]\r\n","rtp_use_codec_string":"G722,PCMU,PCMA,GSM","r_sdp_audio_zrtp_hash":"1.10 8e8dd2fa6803f32845f26e55879c776a4bc015ee05b41630313aee27ef77fb30","audio_media_flow":"sendrecv","remote_media_ip":"192.168.56.1","remote_media_port":"5000","rtp_audio_recv_pt":"9","dtmf_type":"rfc2833","rtp_2833_send_payload":"101","rtp_2833_recv_payload":"101","video_possible":"true","video_media_flow":"sendonly","rtp_local_sdp_str":"v=0\r\no=FreeSWITCH 1520996753 1520996756 IN IP4 192.168.56.202\r\ns=FreeSWITCH\r\nc=IN IP4 192.168.56.202\r\nt=0 0\r\nm=audio 29014 RTP/AVP 9 101\r\na=rtpmap:9 G722/8000\r\na=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-16\r\na=ptime:20\r\na=sendrecv\r\nm=video 0 RTP/AVP 19\r\n","sip_to_tag":"aDUZXF1Z1vD6p","sip_from_tag":"df94d020","sip_cseq":"4","sip_call_id":"985e365faa0ec79a7fa75d001ef2449f@0:0:0:0:0:0:0:0","sip_full_via":"SIP/2.0/UDP 192.168.56.1:5060;branch=z9hG4bK-323230-ab335b3491dd24f5ec251b9700716b97","sip_from_display":"1001","sip_full_from":"\"1001\" <sip:1001@192.168.56.202>;tag=df94d020","sip_full_to":"<sip:1002@192.168.56.202>;tag=aDUZXF1Z1vD6p","sip_term_status":"200","proto_specific_hangup_cause":"sip:200","sip_term_cause":"16","last_bridge_role":"originator","sip_user_agent":"Jitsi2.10.5550Windows 10","sip_hangup_disposition":"recv_bye","bridge_hangup_cause":"NORMAL_CLEARING","hangup_cause":"NORMAL_CLEARING","hangup_cause_q850":"16","digits_dialed":"none","start_stamp":"2018-03-14 07:09:18","profile_start_stamp":"2018-03-14 07:09:18","answer_stamp":"2018-03-14 07:09:27","bridge_stamp":"2018-03-14 07:09:27","hold_stamp":"2018-03-14 07:09:27","progress_stamp":"2018-03-14 07:09:18","progress_media_stamp":"2018-03-14 07:09:27","hold_events":"{{1521025767847893,1521025783334494}}","end_stamp":"2018-03-14 07:09:48","start_epoch":"1521025758","start_uepoch":"1521025758006702","profile_start_epoch":"1521025758","profile_start_uepoch":"1521025758026167","answer_epoch":"1521025767","answer_uepoch":"1521025767766321","bridge_epoch":"1521025767","bridge_uepoch":"1521025767766321","last_hold_epoch":"1521025767","last_hold_uepoch":"1521025767847892","hold_accum_seconds":"15","hold_accum_usec":"15486602","hold_accum_ms":"15486","resurrect_epoch":"0","resurrect_uepoch":"0","progress_epoch":"1521025758","progress_uepoch":"1521025758116123","progress_media_epoch":"1521025767","progress_media_uepoch":"1521025767766321","end_epoch":"1521025788","end_uepoch":"1521025788366141","last_app":"bridge","last_arg":"user/1002@192.168.56.202","caller_id":"\"1001\" <1001>","duration":"30","billsec":"21","progresssec":"0","answersec":"9","waitsec":"9","progress_mediasec":"9","flow_billsec":"30","mduration":"30360","billmsec":"20600","progressmsec":"110","answermsec":"9760","waitmsec":"9760","progress_mediamsec":"9760","flow_billmsec":"30360","uduration":"30359439","billusec":"20599820","progressusec":"109421","answerusec":"9759619","waitusec":"9759619","progress_mediausec":"9759619","flow_billusec":"30359439","rtp_audio_in_raw_bytes":"174156","rtp_audio_in_media_bytes":"166416","rtp_audio_in_packet_count":"1033","rtp_audio_in_media_packet_count":"988","rtp_audio_in_skip_packet_count":"7","rtp_audio_in_jitter_packet_count":"0","rtp_audio_in_dtmf_packet_count":"0","rtp_audio_in_cng_packet_count":"0","rtp_audio_in_flush_packet_count":"45","rtp_audio_in_largest_jb_size":"0","rtp_audio_in_jitter_min_variance":"0.50","rtp_audio_in_jitter_max_variance":"31.77","rtp_audio_in_jitter_loss_rate":"0.00","rtp_audio_in_jitter_burst_rate":"0.00","rtp_audio_in_mean_interval":"20.17","rtp_audio_in_flaw_total":"1","rtp_audio_in_quality_percentage":"99.00","rtp_audio_in_mos":"4.49","rtp_audio_out_raw_bytes":"43344","rtp_audio_out_media_bytes":"43344","rtp_audio_out_packet_count":"252","rtp_audio_out_media_packet_count":"252","rtp_audio_out_skip_packet_count":"0","rtp_audio_out_dtmf_packet_count":"0","rtp_audio_out_cng_packet_count":"0","rtp_audio_rtcp_packet_count":"0","rtp_audio_rtcp_octet_count":"0"},"app_log":{"applications":[{"app_name":"info","app_data":"","app_stamp":"1521025758010697"},{"app_name":"park","app_data":"","app_stamp":"1521025758011143"},{"app_name":"set","app_data":"ringback=","app_stamp":"1521025758057183"},{"app_name":"set","app_data":"call_timeout=30","app_stamp":"1521025758057474"},{"app_name":"bridge","app_data":"user/1002@192.168.56.202","app_stamp":"1521025758057698"}]},"callflow":[{"dialplan":"XML","profile_index":"2","extension":{"name":"Local_Extension","number":"1002","applications":[{"app_name":"set","app_data":"ringback=${us-ring}"},{"app_name":"set","app_data":"call_timeout=30"},{"app_name":"bridge","app_data":"user/${destination_number}@${domain_name}"}]},"caller_profile":{"username":"1001","dialplan":"XML","caller_id_name":"1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"1002","destination_number":"1002","uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1001@192.168.56.202","originatee":{"originatee_caller_profiles":[{"username":"1001","dialplan":"XML","caller_id_name":"Extension 1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"1002","destination_number":"1002","uuid":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1002@192.168.56.1:5060"},{"username":"1001","dialplan":"XML","caller_id_name":"Extension 1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"1002","destination_number":"1002","uuid":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1002@192.168.56.1:5060"}]}},"times":{"created_time":"1521025758006702","profile_created_time":"1521025758026167","progress_time":"1521025758116123","progress_media_time":"1521025767766321","answered_time":"1521025767766321","bridged_time":"1521025767766321","last_hold_time":"1521025767847892","hold_accum_time":"15486602","hangup_time":"1521025788366141","resurrect_time":"0","transfer_time":"0"}},{"dialplan":"XML","profile_index":"1","extension":{"name":"CGRateS_Auth","number":"1002","applications":[{"app_name":"info","app_data":""},{"app_name":"park","app_data":""}]},"caller_profile":{"username":"1001","dialplan":"XML","caller_id_name":"1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"","destination_number":"1002","uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1001@192.168.56.202"},"times":{"created_time":"1521025758006702","profile_created_time":"1521025758006702","progress_time":"0","progress_media_time":"0","answered_time":"0","bridged_time":"0","last_hold_time":"0","hold_accum_time":"0","hangup_time":"0","resurrect_time":"0","transfer_time":"1521025758026167"}}]}		`)
+{"core-uuid":"63e2315b-d538-4dfa-9ed5-af73ba6210b6","switchname":"teo","channel_data":{"state":"CS_REPORTING","state_number":"11","flags":"0=1;1=1;3=1;20=1;37=1;38=1;40=1;43=1;48=1;53=1;75=1;77=1;106=1;112=1;113=1;122=1;134=1","caps":"1=1;2=1;3=1;4=1;5=1;6=1"},"callStats":{"audio":{"inbound":{"raw_bytes":174156,"media_bytes":166416,"packet_count":1033,"media_packet_count":988,"skip_packet_count":7,"jitter_packet_count":0,"dtmf_packet_count":0,"cng_packet_count":0,"flush_packet_count":45,"largest_jb_size":0,"jitter_min_variance":0.500000,"jitter_max_variance":31.769231,"jitter_loss_rate":0,"jitter_burst_rate":0,"mean_interval":20.171779,"flaw_total":1,"quality_percentage":99,"mos":4.492027,"errorLog":[{"start":1521025783725905,"stop":1521025788366141,"flaws":10763,"consecutiveFlaws":0,"durationMS":4640}]},"outbound":{"raw_bytes":43344,"media_bytes":43344,"packet_count":252,"media_packet_count":252,"skip_packet_count":0,"dtmf_packet_count":0,"cng_packet_count":0,"rtcp_packet_count":0,"rtcp_octet_count":0}}},"variables":{"uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","session_id":"1","sip_from_user":"1001","sip_from_uri":"1001@192.168.56.202","sip_from_host":"192.168.56.202","channel_name":"sofia/internal/1001@192.168.56.202","ep_codec_string":"mod_spandsp.G722@8000h@20i@64000b,CORE_PCM_MODULE.PCMU@8000h@20i@64000b,CORE_PCM_MODULE.PCMA@8000h@20i@64000b,mod_spandsp.GSM@8000h@20i@13200b","sip_local_network_addr":"192.168.56.202","sip_network_ip":"192.168.56.1","sip_network_port":"5060","sip_invite_stamp":"1521025758006702","sip_received_ip":"192.168.56.1","sip_received_port":"5060","sip_via_protocol":"udp","sip_authorized":"true","Event-Name":"REQUEST_PARAMS","Core-UUID":"63e2315b-d538-4dfa-9ed5-af73ba6210b6","FreeSWITCH-Hostname":"teo","FreeSWITCH-Switchname":"teo","FreeSWITCH-IPv4":"10.0.2.15","FreeSWITCH-IPv6":"::1","Event-Date-Local":"2018-03-14 07:09:18","Event-Date-GMT":"Wed, 14 Mar 2018 11:09:18 GMT","Event-Date-Timestamp":"1521025758006702","Event-Calling-File":"sofia.c","Event-Calling-Function":"sofia_handle_sip_i_invite","Event-Calling-Line-Number":"10096","Event-Sequence":"1025","sip_number_alias":"1001","sip_auth_username":"1001","sip_auth_realm":"192.168.56.202","number_alias":"1001","requested_user_name":"1001","requested_domain_name":"192.168.56.202","record_stereo":"true","transfer_fallback_extension":"operator","toll_allow":"domestic,international,local","accountcode":"1001","user_context":"default","effective_caller_id_name":"Extension 1001","effective_caller_id_number":"1001","callgroup":"techsupport","cgr_reqtype":"*prepaid","cgr_flags":"*resources,*attributes,*sessions,*routes","user_name":"1001","domain_name":"192.168.56.202","sip_from_user_stripped":"1001","sofia_profile_name":"internal","recovery_profile_name":"internal","sip_req_user":"1002","sip_req_uri":"1002@192.168.56.202","sip_req_host":"192.168.56.202","sip_to_user":"1002","sip_to_uri":"1002@192.168.56.202","sip_to_host":"192.168.56.202","sip_contact_params":"transport=udp;registering_acc=192_168_56_202","sip_contact_user":"1001","sip_contact_port":"5060","sip_contact_uri":"1001@192.168.56.1:5060","sip_contact_host":"192.168.56.1","sip_via_host":"192.168.56.1","sip_via_port":"5060","presence_id":"1001@192.168.56.202","cgr_resource_allocation":"ResGroup1","cgr_route":"ARRAY::3|:supplier2|:supplier3|:supplier1","cgr_notify":"AUTH_OK","max_forwards":"69","transfer_history":"1521025758:86c9ebb2-888f-42d5-9afa-2101449a4b86:bl_xfer:1002/default/XML","transfer_source":"1521025758:86c9ebb2-888f-42d5-9afa-2101449a4b86:bl_xfer:1002/default/XML","DP_MATCH":"ARRAY::1002|:1002","call_uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","call_timeout":"30","current_application_data":"user/1002@192.168.56.202","current_application":"bridge","dialed_user":"1002","dialed_domain":"192.168.56.202","originated_legs":"ARRAY::9c1afb4f-1d4a-4e45-84a3-d25721981bf5;Outbound Call;1002|:9c1afb4f-1d4a-4e45-84a3-d25721981bf5;Outbound Call;1002","switch_m_sdp":"v=0\r\no=1002-jitsi.org 0 0 IN IP4 192.168.56.1\r\ns=-\r\nc=IN IP4 192.168.56.1\r\nt=0 0\r\nm=audio 5004 RTP/AVP 9 0 8 3 101\r\na=rtpmap:9 G722/8000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:3 GSM/8000\r\na=rtpmap:101 telephone-event/8000\r\n","rtp_use_codec_name":"G722","rtp_use_codec_rate":"8000","rtp_use_codec_ptime":"20","rtp_use_codec_channels":"1","rtp_last_audio_codec_string":"G722@8000h@20i@1c","read_codec":"G722","original_read_codec":"G722","read_rate":"16000","original_read_rate":"16000","write_codec":"G722","write_rate":"16000","local_media_ip":"192.168.56.202","local_media_port":"29014","advertised_media_ip":"192.168.56.202","rtp_use_timer_name":"soft","rtp_use_pt":"9","rtp_use_ssrc":"2729250253","endpoint_disposition":"ANSWER","originate_causes":"ARRAY::9c1afb4f-1d4a-4e45-84a3-d25721981bf5;NONE|:9c1afb4f-1d4a-4e45-84a3-d25721981bf5;NONE","originate_disposition":"SUCCESS","DIALSTATUS":"SUCCESS","last_bridge_to":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","bridge_channel":"sofia/internal/1002@192.168.56.1:5060","bridge_uuid":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","signal_bond":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","last_sent_callee_id_name":"Outbound Call","last_sent_callee_id_number":"1002","switch_r_sdp":"v=0\r\no=1001-jitsi.org 0 2 IN IP4 192.168.56.1\r\ns=-\r\nc=IN IP4 192.168.56.1\r\nt=0 0\r\nm=audio 5000 RTP/AVP 96 97 98 9 100 102 0 8 103 3 104 4 101\r\na=rtpmap:96 opus/48000/2\r\na=fmtp:96 usedtx=1\r\na=rtpmap:97 SILK/24000\r\na=rtpmap:98 SILK/16000\r\na=rtpmap:9 G722/8000\r\na=rtpmap:100 speex/32000\r\na=rtpmap:102 speex/16000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:103 iLBC/8000\r\na=rtpmap:3 GSM/8000\r\na=rtpmap:104 speex/8000\r\na=rtpmap:4 G723/8000\r\na=fmtp:4 annexa=no;bitrate=6.3\r\na=rtpmap:101 telephone-event/8000\r\na=ptime:20\r\na=extmap:1 urn:ietf:params:rtp-hdrext:csrc-audio-level\r\na=extmap:2 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\na=rtcp-xr:voip-metrics\r\na=zrtp-hash:1.10 8e8dd2fa6803f32845f26e55879c776a4bc015ee05b41630313aee27ef77fb30\r\nm=video 5006 RTP/AVP 105 99\r\na=rtpmap:105 H264/90000\r\na=fmtp:105 profile-level-id=4DE01f;packetization-mode=1\r\na=rtpmap:99 H264/90000\r\na=fmtp:99 profile-level-id=4DE01f\r\na=recvonly\r\na=imageattr:105 send * recv [x=[1:1920],y=[1:1080]]\r\na=imageattr:99 send * recv [x=[1:1920],y=[1:1080]]\r\n","rtp_use_codec_string":"G722,PCMU,PCMA,GSM","r_sdp_audio_zrtp_hash":"1.10 8e8dd2fa6803f32845f26e55879c776a4bc015ee05b41630313aee27ef77fb30","audio_media_flow":"sendrecv","remote_media_ip":"192.168.56.1","remote_media_port":"5000","rtp_audio_recv_pt":"9","dtmf_type":"rfc2833","rtp_2833_send_payload":"101","rtp_2833_recv_payload":"101","video_possible":"true","video_media_flow":"sendonly","rtp_local_sdp_str":"v=0\r\no=FreeSWITCH 1520996753 1520996756 IN IP4 192.168.56.202\r\ns=FreeSWITCH\r\nc=IN IP4 192.168.56.202\r\nt=0 0\r\nm=audio 29014 RTP/AVP 9 101\r\na=rtpmap:9 G722/8000\r\na=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-16\r\na=ptime:20\r\na=sendrecv\r\nm=video 0 RTP/AVP 19\r\n","sip_to_tag":"aDUZXF1Z1vD6p","sip_from_tag":"df94d020","sip_cseq":"4","sip_call_id":"985e365faa0ec79a7fa75d001ef2449f@0:0:0:0:0:0:0:0","sip_full_via":"SIP/2.0/UDP 192.168.56.1:5060;branch=z9hG4bK-323230-ab335b3491dd24f5ec251b9700716b97","sip_from_display":"1001","sip_full_from":"\"1001\" <sip:1001@192.168.56.202>;tag=df94d020","sip_full_to":"<sip:1002@192.168.56.202>;tag=aDUZXF1Z1vD6p","sip_term_status":"200","proto_specific_hangup_cause":"sip:200","sip_term_cause":"16","last_bridge_role":"originator","sip_user_agent":"Jitsi2.10.5550Windows 10","sip_hangup_disposition":"recv_bye","bridge_hangup_cause":"NORMAL_CLEARING","hangup_cause":"NORMAL_CLEARING","hangup_cause_q850":"16","digits_dialed":"none","start_stamp":"2018-03-14 07:09:18","profile_start_stamp":"2018-03-14 07:09:18","answer_stamp":"2018-03-14 07:09:27","bridge_stamp":"2018-03-14 07:09:27","hold_stamp":"2018-03-14 07:09:27","progress_stamp":"2018-03-14 07:09:18","progress_media_stamp":"2018-03-14 07:09:27","hold_events":"{{1521025767847893,1521025783334494}}","end_stamp":"2018-03-14 07:09:48","start_epoch":"1521025758","start_uepoch":"1521025758006702","profile_start_epoch":"1521025758","profile_start_uepoch":"1521025758026167","answer_epoch":"1521025767","answer_uepoch":"1521025767766321","bridge_epoch":"1521025767","bridge_uepoch":"1521025767766321","last_hold_epoch":"1521025767","last_hold_uepoch":"1521025767847892","hold_accum_seconds":"15","hold_accum_usec":"15486602","hold_accum_ms":"15486","resurrect_epoch":"0","resurrect_uepoch":"0","progress_epoch":"1521025758","progress_uepoch":"1521025758116123","progress_media_epoch":"1521025767","progress_media_uepoch":"1521025767766321","end_epoch":"1521025788","end_uepoch":"1521025788366141","last_app":"bridge","last_arg":"user/1002@192.168.56.202","caller_id":"\"1001\" <1001>","duration":"30","billsec":"21","progresssec":"0","answersec":"9","waitsec":"9","progress_mediasec":"9","flow_billsec":"30","mduration":"30360","billmsec":"20600","progressmsec":"110","answermsec":"9760","waitmsec":"9760","progress_mediamsec":"9760","flow_billmsec":"30360","uduration":"30359439","billusec":"20599820","progressusec":"109421","answerusec":"9759619","waitusec":"9759619","progress_mediausec":"9759619","flow_billusec":"30359439","rtp_audio_in_raw_bytes":"174156","rtp_audio_in_media_bytes":"166416","rtp_audio_in_packet_count":"1033","rtp_audio_in_media_packet_count":"988","rtp_audio_in_skip_packet_count":"7","rtp_audio_in_jitter_packet_count":"0","rtp_audio_in_dtmf_packet_count":"0","rtp_audio_in_cng_packet_count":"0","rtp_audio_in_flush_packet_count":"45","rtp_audio_in_largest_jb_size":"0","rtp_audio_in_jitter_min_variance":"0.50","rtp_audio_in_jitter_max_variance":"31.77","rtp_audio_in_jitter_loss_rate":"0.00","rtp_audio_in_jitter_burst_rate":"0.00","rtp_audio_in_mean_interval":"20.17","rtp_audio_in_flaw_total":"1","rtp_audio_in_quality_percentage":"99.00","rtp_audio_in_mos":"4.49","rtp_audio_out_raw_bytes":"43344","rtp_audio_out_media_bytes":"43344","rtp_audio_out_packet_count":"252","rtp_audio_out_media_packet_count":"252","rtp_audio_out_skip_packet_count":"0","rtp_audio_out_dtmf_packet_count":"0","rtp_audio_out_cng_packet_count":"0","rtp_audio_rtcp_packet_count":"0","rtp_audio_rtcp_octet_count":"0"},"app_log":{"applications":[{"app_name":"info","app_data":"","app_stamp":"1521025758010697"},{"app_name":"park","app_data":"","app_stamp":"1521025758011143"},{"app_name":"set","app_data":"ringback=","app_stamp":"1521025758057183"},{"app_name":"set","app_data":"call_timeout=30","app_stamp":"1521025758057474"},{"app_name":"bridge","app_data":"user/1002@192.168.56.202","app_stamp":"1521025758057698"}]},"callflow":[{"dialplan":"XML","profile_index":"2","extension":{"name":"Local_Extension","number":"1002","applications":[{"app_name":"set","app_data":"ringback=${us-ring}"},{"app_name":"set","app_data":"call_timeout=30"},{"app_name":"bridge","app_data":"user/${destination_number}@${domain_name}"}]},"caller_profile":{"username":"1001","dialplan":"XML","caller_id_name":"1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"1002","destination_number":"1002","uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1001@192.168.56.202","originatee":{"originatee_caller_profiles":[{"username":"1001","dialplan":"XML","caller_id_name":"Extension 1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"1002","destination_number":"1002","uuid":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1002@192.168.56.1:5060"},{"username":"1001","dialplan":"XML","caller_id_name":"Extension 1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"1002","destination_number":"1002","uuid":"9c1afb4f-1d4a-4e45-84a3-d25721981bf5","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1002@192.168.56.1:5060"}]}},"times":{"created_time":"1521025758006702","profile_created_time":"1521025758026167","progress_time":"1521025758116123","progress_media_time":"1521025767766321","answered_time":"1521025767766321","bridged_time":"1521025767766321","last_hold_time":"1521025767847892","hold_accum_time":"15486602","hangup_time":"1521025788366141","resurrect_time":"0","transfer_time":"0"}},{"dialplan":"XML","profile_index":"1","extension":{"name":"CGRateS_Auth","number":"1002","applications":[{"app_name":"info","app_data":""},{"app_name":"park","app_data":""}]},"caller_profile":{"username":"1001","dialplan":"XML","caller_id_name":"1001","ani":"1001","aniii":"","caller_id_number":"1001","network_addr":"192.168.56.1","rdnis":"","destination_number":"1002","uuid":"5a3a1d91-90d3-4db4-af5c-cc3ae15d93a4","source":"mod_sofia","context":"default","chan_name":"sofia/internal/1001@192.168.56.202"},"times":{"created_time":"1521025758006702","profile_created_time":"1521025758006702","progress_time":"0","progress_media_time":"0","answered_time":"0","bridged_time":"0","last_hold_time":"0","hold_accum_time":"0","hangup_time":"0","resurrect_time":"0","transfer_time":"1521025758026167"}}]}		`)
 	hangUp := `Event-Name: CHANNEL_HANGUP_COMPLETE
 Core-UUID: 63e2315b-d538-4dfa-9ed5-af73ba6210b6
 FreeSWITCH-Hostname: teo
@@ -776,7 +819,7 @@ variable_effective_caller_id_name: Extension%201001
 variable_effective_caller_id_number: 1001
 variable_callgroup: techsupport
 variable_cgr_reqtype: *prepaid
-variable_cgr_flags: *resources,*attributes,*sessions,*suppliers
+variable_cgr_flags: *resources;*attributes;*sessions;*routes
 variable_user_name: 1001
 variable_domain_name: 192.168.56.202
 variable_sip_from_user_stripped: 1001
@@ -797,7 +840,7 @@ variable_sip_via_host: 192.168.56.1
 variable_sip_via_port: 5060
 variable_presence_id: 1001%40192.168.56.202
 variable_cgr_resource_allocation: ResGroup1
-variable_cgr_suppliers: ARRAY%3A%3A3%7C%3Asupplier2%7C%3Asupplier3%7C%3Asupplier1
+variable_cgr_route: ARRAY%3A%3A3%7C%3Asupplier2%7C%3Asupplier3%7C%3Asupplier1
 variable_cgr_notify: AUTH_OK
 variable_max_forwards: 69
 variable_transfer_history: 1521025758%3A86c9ebb2-888f-42d5-9afa-2101449a4b86%3Abl_xfer%3A1002/default/XML
@@ -952,16 +995,21 @@ variable_rtp_audio_rtcp_packet_count: 0
 variable_rtp_audio_rtcp_octet_count: 0`
 	var fsCdrCfg *config.CGRConfig
 	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
-	fsCdrCfg, _ = config.NewDefaultCGRConfig()
-	fsCdr, _ := engine.NewFSCdr(body, fsCdrCfg)
+	fsCdrCfg = config.NewDefaultCGRConfig()
+	newReader := bytes.NewReader(body)
+	fsCdr, err := engine.NewFSCdr(newReader, fsCdrCfg)
+	if err != nil {
+		t.Error(err)
+	}
 	smGev := engine.NewMapEvent(NewFSEvent(hangUp).AsMapStringInterface(timezone))
 	sessions.GetSetCGRID(smGev)
 	smCDR, err := smGev.AsCDR(fsCdrCfg, utils.EmptyString, timezone)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fsCDR := fsCdr.AsCDR(timezone)
-	if fsCDR.CGRID != smCDR.CGRID {
+	if fsCDR, err := fsCdr.AsCDR(timezone); err != nil {
+		t.Error(err)
+	} else if fsCDR.CGRID != smCDR.CGRID {
 		t.Errorf("Expecting: %s, received: %s", fsCDR.CGRID, smCDR.CGRID)
 	}
 }
@@ -981,12 +1029,12 @@ func TestFsEvV1AuthorizeArgs(t *testing.T) {
 			Time:   &sTime,
 			Event:  ev.AsMapStringInterface(timezone),
 		},
-		GetSuppliers:          true,
-		GetAttributes:         true,
-		SuppliersIgnoreErrors: true,
-		SuppliersMaxCost:      utils.MetaEventCost,
+		GetRoutes:          true,
+		GetAttributes:      true,
+		RoutesIgnoreErrors: true,
+		RoutesMaxCost:      utils.MetaEventCost,
 	}
-	expected.Event[utils.Usage] = config.CgrConfig().SessionSCfg().GetDefaultUsage(utils.VOICE)
+	expected.Event[utils.Usage] = config.CgrConfig().SessionSCfg().GetDefaultUsage(utils.MetaVoice)
 	rcv := ev.V1AuthorizeArgs()
 	if !reflect.DeepEqual(expected.CGREvent.Tenant, rcv.CGREvent.Tenant) {
 		t.Errorf("Expecting: %+v, received: %+v", expected.CGREvent.Tenant, rcv.CGREvent.Tenant)
@@ -998,14 +1046,14 @@ func TestFsEvV1AuthorizeArgs(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", expected.CGREvent.Event, rcv.CGREvent.Event)
 	} else if !reflect.DeepEqual(expected.GetMaxUsage, rcv.GetMaxUsage) {
 		t.Errorf("Expecting: %+v, received: %+v", expected.GetMaxUsage, rcv.GetMaxUsage)
-	} else if !reflect.DeepEqual(expected.GetSuppliers, rcv.GetSuppliers) {
-		t.Errorf("Expecting: %+v, received: %+v", expected.GetSuppliers, rcv.GetSuppliers)
+	} else if !reflect.DeepEqual(expected.GetRoutes, rcv.GetRoutes) {
+		t.Errorf("Expecting: %+v, received: %+v", expected.GetRoutes, rcv.GetRoutes)
 	} else if !reflect.DeepEqual(expected.GetAttributes, rcv.GetAttributes) {
 		t.Errorf("Expecting: %+v, received: %+v", expected.GetAttributes, rcv.GetAttributes)
-	} else if !reflect.DeepEqual(expected.SuppliersMaxCost, rcv.SuppliersMaxCost) {
-		t.Errorf("Expecting: %+v, received: %+v", expected.SuppliersMaxCost, rcv.SuppliersMaxCost)
-	} else if !reflect.DeepEqual(expected.SuppliersIgnoreErrors, rcv.SuppliersIgnoreErrors) {
-		t.Errorf("Expecting: %+v, received: %+v", expected.SuppliersIgnoreErrors, rcv.SuppliersIgnoreErrors)
+	} else if !reflect.DeepEqual(expected.RoutesMaxCost, rcv.RoutesMaxCost) {
+		t.Errorf("Expecting: %+v, received: %+v", expected.RoutesMaxCost, rcv.RoutesMaxCost)
+	} else if !reflect.DeepEqual(expected.RoutesIgnoreErrors, rcv.RoutesIgnoreErrors) {
+		t.Errorf("Expecting: %+v, received: %+v", expected.RoutesIgnoreErrors, rcv.RoutesIgnoreErrors)
 	}
 }
 

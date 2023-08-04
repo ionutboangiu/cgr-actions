@@ -28,6 +28,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -203,7 +204,7 @@ func testCallStartEngine(t *testing.T) {
 			t.Fatal(err)
 		}
 	case utils.Asterisk:
-		if err := engine.CallScript(path.Join(*ariConf, "cgrates", "etc", "init.d", "cgrates"), "start", 5000); err != nil {
+		if err := engine.CallScript(path.Join(*ariConf, "cgrates", "etc", "init.d", "cgrates"), "start", 100); err != nil {
 			t.Fatal(err)
 		}
 	default:
@@ -264,30 +265,30 @@ func testCallAccountsBefore(t *testing.T) {
 	attrs := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1001"}
 	if err := tutorialCallsRpc.Call(utils.APIerSv2GetAccount, attrs, &reply); err != nil {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
-	} else if reply.BalanceMap[utils.MONETARY].GetTotalValue() != 10.0 {
-		t.Errorf("Calling APIerSv1.GetBalance received: %f", reply.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if reply.BalanceMap[utils.MetaMonetary].GetTotalValue() != 10.0 {
+		t.Errorf("Calling APIerSv1.GetBalance received: %f", reply.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 	var reply2 *engine.Account
 	attrs2 := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1002"}
 	if err := tutorialCallsRpc.Call(utils.APIerSv2GetAccount, attrs2, &reply2); err != nil {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
-	} else if reply2.BalanceMap[utils.MONETARY].GetTotalValue() != 10.0 {
-		t.Errorf("Calling APIerSv1.GetBalance received: %f", reply2.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if reply2.BalanceMap[utils.MetaMonetary].GetTotalValue() != 10.0 {
+		t.Errorf("Calling APIerSv1.GetBalance received: %f", reply2.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 	var reply3 *engine.Account
 	attrs3 := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1003"}
 	if err := tutorialCallsRpc.Call(utils.APIerSv2GetAccount, attrs3, &reply3); err != nil {
 		t.Error("Got error on APIerSv2.GetAccount: ", err.Error())
-	} else if reply3.BalanceMap[utils.MONETARY].GetTotalValue() != 10.0 {
-		t.Errorf("Calling APIerSv1.GetBalance received: %f", reply3.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if reply3.BalanceMap[utils.MetaMonetary].GetTotalValue() != 10.0 {
+		t.Errorf("Calling APIerSv1.GetBalance received: %f", reply3.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 }
 
 func testCallStatMetricsBefore(t *testing.T) {
 	var metrics map[string]string
 	expectedMetrics := map[string]string{
-		utils.MetaTCC: utils.NOT_AVAILABLE,
-		utils.MetaTCD: utils.NOT_AVAILABLE,
+		utils.MetaTCC: utils.NotAvailable,
+		utils.MetaTCD: utils.NotAvailable,
 	}
 	if err := tutorialCallsRpc.Call(utils.StatSv1GetQueueStringMetrics,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "Stats2"}, &metrics); err != nil {
@@ -305,16 +306,18 @@ func testCallStatMetricsBefore(t *testing.T) {
 
 func testCallCheckResourceBeforeAllocation(t *testing.T) {
 	var rs *engine.Resources
-	args := &utils.ArgRSv1ResourceUsage{
-		UsageID: "OriginID",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "ResourceEvent",
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
-		}}
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "ResourceEvent",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
+		},
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "OriginID",
+		},
+	}
 	if err := tutorialCallsRpc.Call(utils.ResourceSv1GetResourcesForEvent, args, &rs); err != nil {
 		t.Fatal(err)
 	} else if len(*rs) != 1 {
@@ -365,47 +368,49 @@ func testCallStartPjsuaListener(t *testing.T) {
 		acnts, 5070, time.Duration(*waitRater)*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 }
 
 // Call from 1001 (prepaid) to 1002
 func testCallCall1001To1002(t *testing.T) {
 	if err := engine.PjsuaCallUri(
 		&engine.PjsuaAccount{Id: "sip:1001@127.0.0.1", Username: "1001", Password: "CGRateS.org", Realm: "*"},
-		"sip:1002@127.0.0.1", "sip:127.0.0.1:5080", time.Duration(67)*time.Second, 5071); err != nil {
+		"sip:1002@127.0.0.1", "sip:127.0.0.1:5080", 67*time.Second, 5071); err != nil {
 		t.Fatal(err)
 	}
 	// give time to session to start so we can check it
-	time.Sleep(1 * time.Second)
+	time.Sleep(time.Second)
 }
 
 // GetActiveSessions
 func testCallGetActiveSessions(t *testing.T) {
 	var reply *[]*sessions.ExternalSession
-	expected := &sessions.ExternalSession{
-		RequestType: "*prepaid",
-		Tenant:      "cgrates.org",
-		Category:    "call",
-		Account:     "1001",
-		Subject:     "1001",
-		Destination: "1002",
+	expected := &[]*sessions.ExternalSession{
+		{
+			RequestType: "*prepaid",
+			Tenant:      "cgrates.org",
+			Category:    "call",
+			Account:     "1001",
+			Subject:     "1001",
+			Destination: "1002",
+		},
 	}
 	if err := tutorialCallsRpc.Call(utils.SessionSv1GetActiveSessions,
 		nil, &reply); err != nil {
 		t.Error("Got error on SessionSv1.GetActiveSessions: ", err.Error())
 	} else {
-		for _, session := range *reply {
-			if session.RunID != utils.MetaDefault {
-				continue
-			}
-			// compare some fields (eg. CGRId is generated)
-			if !reflect.DeepEqual(expected.RequestType, session.RequestType) {
-				t.Errorf("Expected: %s, received: %s", expected.RequestType, session.RequestType)
-			} else if !reflect.DeepEqual(expected.Account, session.Account) {
-				t.Errorf("Expected: %s, received: %s", expected.Account, session.Account)
-			} else if !reflect.DeepEqual(expected.Destination, session.Destination) {
-				t.Errorf("Expected: %s, received: %s", expected.Destination, session.Destination)
-			}
+		if len(*reply) == 2 {
+			sort.Slice(*reply, func(i, j int) bool {
+				return strings.Compare((*reply)[i].RequestType, (*reply)[j].RequestType) > 0
+			})
+		}
+		// compare some fields (eg. CGRId is generated)
+		if !reflect.DeepEqual((*expected)[0].RequestType, (*reply)[0].RequestType) {
+			t.Errorf("Expected: %s, received: %s", (*expected)[0].RequestType, (*reply)[0].RequestType)
+		} else if !reflect.DeepEqual((*expected)[0].Account, (*reply)[0].Account) {
+			t.Errorf("Expected: %s, received: %s", (*expected)[0].Account, (*reply)[0].Account)
+		} else if !reflect.DeepEqual((*expected)[0].Destination, (*reply)[0].Destination) {
+			t.Errorf("Expected: %s, received: %s", (*expected)[0].Destination, (*reply)[0].Destination)
 		}
 	}
 }
@@ -414,7 +419,7 @@ func testCallGetActiveSessions(t *testing.T) {
 func testCallCall1002To1001(t *testing.T) {
 	if err := engine.PjsuaCallUri(
 		&engine.PjsuaAccount{Id: "sip:1002@127.0.0.1", Username: "1002", Password: "CGRateS.org", Realm: "*"},
-		"sip:1001@127.0.0.1", "sip:127.0.0.1:5080", time.Duration(65)*time.Second, 5072); err != nil {
+		"sip:1001@127.0.0.1", "sip:127.0.0.1:5080", 65*time.Second, 5072); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -452,16 +457,18 @@ func testCallCall1003To1001SecondTime(t *testing.T) {
 // Check if the resource was Allocated
 func testCallCheckResourceAllocation(t *testing.T) {
 	var rs *engine.Resources
-	args := &utils.ArgRSv1ResourceUsage{
-		UsageID: "OriginID1",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "ResourceAllocation",
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
-		}}
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "ResourceAllocation",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
+		},
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "OriginID1",
+		},
+	}
 	if err := tutorialCallsRpc.Call(utils.ResourceSv1GetResourcesForEvent, args, &rs); err != nil {
 		t.Fatal(err)
 	} else if len(*rs) != 1 {
@@ -473,7 +480,7 @@ func testCallCheckResourceAllocation(t *testing.T) {
 		}
 	}
 	// Allow calls to finish before start querying the results
-	time.Sleep(time.Duration(50) * time.Second)
+	time.Sleep(50 * time.Second)
 }
 
 // Make sure account was debited properly
@@ -482,8 +489,8 @@ func testCallAccount1001(t *testing.T) {
 	attrs := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1001"}
 	if err := tutorialCallsRpc.Call(utils.APIerSv2GetAccount, attrs, &reply); err != nil {
 		t.Error(err.Error())
-	} else if reply.BalanceMap[utils.MONETARY].GetTotalValue() == 10.0 { // Make sure we debitted
-		t.Errorf("Expected: 10, received: %+v", reply.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if reply.BalanceMap[utils.MetaMonetary].GetTotalValue() == 10.0 { // Make sure we debitted
+		t.Errorf("Expected: 10, received: %+v", reply.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	} else if reply.Disabled == true {
 		t.Error("Account disabled")
 	}
@@ -493,13 +500,13 @@ func testCallAccount1001(t *testing.T) {
 func testCall1001Cdrs(t *testing.T) {
 	var reply []*engine.ExternalCDR
 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}, Accounts: []string{"1001"}}
-	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, req, &reply); err != nil {
+	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, &req, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(reply) != 2 {
 		t.Error("Unexpected number of CDRs returned: ", len(reply))
 	} else {
 		for _, cdr := range reply {
-			if cdr.RequestType != utils.META_PREPAID {
+			if cdr.RequestType != utils.MetaPrepaid {
 				t.Errorf("Unexpected RequestType for CDR: %+v", cdr.RequestType)
 			}
 			if cdr.Destination == "1002" {
@@ -534,12 +541,12 @@ func testCall1002Cdrs(t *testing.T) {
 	var reply []*engine.ExternalCDR
 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault},
 		Accounts: []string{"1002"}, DestinationPrefixes: []string{"1001"}}
-	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, req, &reply); err != nil {
+	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, &req, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(reply) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(reply))
 	} else {
-		if reply[0].RequestType != utils.META_POSTPAID {
+		if reply[0].RequestType != utils.MetaPostpaid {
 			t.Errorf("Unexpected RequestType for CDR: %+v", reply[0].RequestType)
 		}
 		// in case of Asterisk take the integer part from usage
@@ -560,13 +567,13 @@ func testCall1003Cdrs(t *testing.T) {
 	var reply []*engine.ExternalCDR
 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault},
 		Accounts: []string{"1003"}, DestinationPrefixes: []string{"1001"}}
-	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, req, &reply); err != nil {
+	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, &req, &reply); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(reply) != 2 {
 		t.Error("Unexpected number of CDRs returned: ", len(reply))
 	} else {
 		for _, cdr := range reply {
-			if cdr.RequestType != utils.META_PREPAID {
+			if cdr.RequestType != utils.MetaPrepaid {
 				t.Errorf("Unexpected RequestType for CDR: %+v", cdr.RequestType)
 			}
 			// in case of Asterisk take the integer part from usage
@@ -588,15 +595,19 @@ func testCall1003Cdrs(t *testing.T) {
 func testCallStatMetrics(t *testing.T) {
 	var metrics map[string]string
 	firstStatMetrics1 := map[string]string{
+		utils.MetaTCC: "1.35346",
+		utils.MetaTCD: "2m27s",
+	}
+	firstStatMetrics2 := map[string]string{
+		utils.MetaTCC: "1.35009",
+		utils.MetaTCD: "2m25s",
+	}
+	firstStatMetrics3 := map[string]string{
 		utils.MetaTCC: "1.34009",
 		utils.MetaTCD: "2m24s",
 	}
-	firstStatMetrics3 := map[string]string{
-		utils.MetaTCC: "1.33998",
-		utils.MetaTCD: "2m24s",
-	}
 	firstStatMetrics4 := map[string]string{
-		utils.MetaTCC: "1.35332",
+		utils.MetaTCC: "1.35346",
 		utils.MetaTCD: "2m24s",
 	}
 	secondStatMetrics1 := map[string]string{
@@ -610,12 +621,13 @@ func testCallStatMetrics(t *testing.T) {
 
 	if err := tutorialCallsRpc.Call(utils.StatSv1GetQueueStringMetrics,
 		&utils.TenantID{Tenant: "cgrates.org", ID: "Stats2"}, &metrics); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if optConf == utils.Asterisk {
 		metrics[utils.MetaTCD] = strings.Split(metrics[utils.MetaTCD], ".")[0] + "s"
 	}
 	if !reflect.DeepEqual(firstStatMetrics1, metrics) &&
+		!reflect.DeepEqual(firstStatMetrics2, metrics) &&
 		!reflect.DeepEqual(firstStatMetrics3, metrics) &&
 		!reflect.DeepEqual(firstStatMetrics4, metrics) {
 		t.Errorf("expecting: %+v, received reply: %s", firstStatMetrics1, metrics)
@@ -635,16 +647,18 @@ func testCallStatMetrics(t *testing.T) {
 
 func testCallCheckResourceRelease(t *testing.T) {
 	var rs *engine.Resources
-	args := &utils.ArgRSv1ResourceUsage{
-		UsageID: "OriginID2",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "ResourceRelease",
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
-		}}
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "ResourceRelease",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
+		},
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "OriginID2",
+		},
+	}
 	if err := tutorialCallsRpc.Call(utils.ResourceSv1GetResourcesForEvent, args, &rs); err != nil {
 		t.Fatal(err)
 	} else if len(*rs) != 1 {
@@ -691,16 +705,16 @@ func testCallSyncSessions(t *testing.T) {
 	// 1001 call 1002 stop the call after 12 seconds
 	if err := engine.PjsuaCallUri(
 		&engine.PjsuaAccount{Id: "sip:1001@127.0.0.1", Username: "1001", Password: "CGRateS.org", Realm: "*"},
-		"sip:1002@127.0.0.1", "sip:127.0.0.1:5080", time.Duration(120)*time.Second, 5076); err != nil {
+		"sip:1002@127.0.0.1", "sip:127.0.0.1:5080", 120*time.Second, 5076); err != nil {
 		t.Fatal(err)
 	}
 	// 1001 call 1003 stop the call after 11 seconds
 	if err := engine.PjsuaCallUri(
 		&engine.PjsuaAccount{Id: "sip:1001@127.0.0.1", Username: "1001", Password: "CGRateS.org", Realm: "*"},
-		"sip:1003@127.0.0.1", "sip:127.0.0.1:5080", time.Duration(120)*time.Second, 5077); err != nil {
+		"sip:1003@127.0.0.1", "sip:127.0.0.1:5080", 120*time.Second, 5077); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(time.Second)
 	// get active sessions
 	if err := tutorialCallsRpc.Call(utils.SessionSv1GetActiveSessions,
 		nil, &reply); err != nil {
@@ -710,16 +724,18 @@ func testCallSyncSessions(t *testing.T) {
 	}
 	//check if resource was allocated for 2 calls(1001->1002;1001->1003)
 	var rs *engine.Resources
-	args := &utils.ArgRSv1ResourceUsage{
-		UsageID: "OriginID3",
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "AllocateResource",
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002"},
-		}}
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "AllocateResource",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.Subject:      "1001",
+			utils.Destination:  "1002",
+		},
+		APIOpts: map[string]any{
+			utils.OptsResourcesUsageID: "OriginID3",
+		},
+	}
 	if err := tutorialCallsRpc.Call(utils.ResourceSv1GetResourcesForEvent, args, &rs); err != nil {
 		t.Fatal(err)
 	} else if len(*rs) != 1 {
@@ -747,17 +763,15 @@ func testCallSyncSessions(t *testing.T) {
 		engine.ForceKillProcName(utils.Asterisk,
 			int(tutorialCallsCfg.SessionSCfg().ChannelSyncInterval.Nanoseconds()/1e6))
 	default:
-		t.Errorf("Unsuported format")
+		t.Errorf("unsupported format")
 	}
 
 	time.Sleep(2 * time.Second)
 
 	// activeSessions shouldn't be active
 	if err := tutorialCallsRpc.Call(utils.SessionSv1GetActiveSessions,
-		nil, &reply); err == nil {
-		t.Error("SessionSv1.GetActiveSessions should not be nil")
-	} else if err.Error() != utils.ErrNotFound.Error() {
-		t.Errorf("Expected: %s, received %s", utils.ErrNotFound.Error(), err)
+		nil, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+		t.Errorf("Got error on SessionSv1.GetActiveSessions: %v and reply: %s", err, utils.ToJSON(reply))
 	}
 
 	var sourceForCDR string
@@ -780,22 +794,22 @@ func testCallSyncSessions(t *testing.T) {
 		RunIDs:   []string{utils.MetaDefault},
 		Accounts: []string{"1001"},
 	}
-	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, req, &rplCdrs); err != nil {
+	if err := tutorialCallsRpc.Call(utils.APIerSv2GetCDRs, &req, &rplCdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(rplCdrs) != numberOfCDR { // cdr from sync session + cdr from before
 		t.Fatal("Unexpected number of CDRs returned: ", len(rplCdrs), utils.ToJSON(rplCdrs))
 	} else if time1, err := utils.ParseDurationWithSecs(rplCdrs[0].Usage); err != nil {
 		t.Error(err)
-	} else if time1 > time.Duration(15*time.Second) {
+	} else if time1 > 15*time.Second {
 		t.Error("Unexpected time duration : ", time1)
 	} else if time1, err := utils.ParseDurationWithSecs(rplCdrs[1].Usage); err != nil {
 		t.Error(err)
-	} else if time1 > time.Duration(15*time.Second) {
+	} else if time1 > 15*time.Second {
 		t.Error("Unexpected time duration : ", time1)
 	} else if numberOfCDR == 3 {
 		if time1, err := utils.ParseDurationWithSecs(rplCdrs[2].Usage); err != nil {
 			t.Error(err)
-		} else if time1 > time.Duration(15*time.Second) {
+		} else if time1 > 15*time.Second {
 			t.Error("Unexpected time duration : ", time1)
 		}
 	}
@@ -836,6 +850,6 @@ func testCallStopFS(t *testing.T) {
 	case utils.Asterisk:
 		engine.ForceKillProcName(utils.Asterisk, 1000)
 	default:
-		t.Errorf("Unsuported format")
+		t.Errorf("unsupported format")
 	}
 }

@@ -47,17 +47,19 @@ var (
 
 	sesRndCgrEv = &utils.CGREvent{
 		Tenant: sesRndTenant,
-		Event: map[string]interface{}{
-			utils.Tenant:           sesRndTenant,
-			utils.Category:         utils.CALL,
-			utils.ToR:              utils.VOICE,
-			utils.Account:          sesRndAccount,
-			utils.Destination:      "TEST",
-			utils.SetupTime:        time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-			utils.AnswerTime:       time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-			utils.Usage:            10 * time.Second,
-			utils.SessionTTL:       0,
-			utils.CGRDebitInterval: time.Second,
+		Event: map[string]any{
+			utils.Tenant:       sesRndTenant,
+			utils.Category:     utils.Call,
+			utils.ToR:          utils.MetaVoice,
+			utils.AccountField: sesRndAccount,
+			utils.Destination:  "TEST",
+			utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+			utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+			utils.Usage:        10 * time.Second,
+		},
+		APIOpts: map[string]any{
+			utils.OptsSessionsTTL:   0,
+			utils.OptsDebitInterval: time.Second,
 		},
 	}
 
@@ -114,8 +116,8 @@ func TestSesRndIt(t *testing.T) {
 
 func testSesRndItPreparePostpaidUP(t *testing.T) {
 	sesRndCgrEv.Event[utils.Subject] = "up"
-	sesRndCgrEv.Event[utils.RequestType] = utils.META_POSTPAID
-	sesRndCgrEv.Event[utils.OriginID] = "RndupMETA_POSTPAID"
+	sesRndCgrEv.Event[utils.RequestType] = utils.MetaPostpaid
+	sesRndCgrEv.Event[utils.OriginID] = "RndupMetaPostpaid"
 	sesRndExpMaxUsage = 10 * time.Second
 	sesRndExpCost = 0.4
 	sesRndExpBalanceValue = 3599999999999.5977
@@ -123,8 +125,8 @@ func testSesRndItPreparePostpaidUP(t *testing.T) {
 
 func testSesRndItPreparePostpaidDOWN(t *testing.T) {
 	sesRndCgrEv.Event[utils.Subject] = "down"
-	sesRndCgrEv.Event[utils.RequestType] = utils.META_POSTPAID
-	sesRndCgrEv.Event[utils.OriginID] = "RnddownMETA_POSTPAID"
+	sesRndCgrEv.Event[utils.RequestType] = utils.MetaPostpaid
+	sesRndCgrEv.Event[utils.OriginID] = "RnddownMetaPostpaid"
 	sesRndExpMaxUsage = 10 * time.Second
 	sesRndExpCost = 0.3
 	sesRndExpBalanceValue = 3599999999999.697
@@ -132,8 +134,8 @@ func testSesRndItPreparePostpaidDOWN(t *testing.T) {
 
 func testSesRndItPreparePrepaidUP(t *testing.T) {
 	sesRndCgrEv.Event[utils.Subject] = "up"
-	sesRndCgrEv.Event[utils.RequestType] = utils.META_PREPAID
-	sesRndCgrEv.Event[utils.OriginID] = "RndupMETA_PREPAID"
+	sesRndCgrEv.Event[utils.RequestType] = utils.MetaPrepaid
+	sesRndCgrEv.Event[utils.OriginID] = "RndupMetaPrepaid"
 	sesRndExpMaxUsage = 3 * time.Hour
 	sesRndExpCost = 0.4
 	sesRndExpBalanceValue = 3599999999999.5977
@@ -141,8 +143,8 @@ func testSesRndItPreparePrepaidUP(t *testing.T) {
 
 func testSesRndItPreparePrepaidDOWN(t *testing.T) {
 	sesRndCgrEv.Event[utils.Subject] = "down"
-	sesRndCgrEv.Event[utils.RequestType] = utils.META_PREPAID
-	sesRndCgrEv.Event[utils.OriginID] = "RnddownMETA_PREPAID"
+	sesRndCgrEv.Event[utils.RequestType] = utils.MetaPrepaid
+	sesRndCgrEv.Event[utils.OriginID] = "RnddownMetaPrepaid"
 	sesRndExpMaxUsage = 3 * time.Hour
 	sesRndExpCost = 0.3
 	sesRndExpBalanceValue = 3599999999999.697
@@ -183,8 +185,8 @@ func testSesRndItRPCConn(t *testing.T) {
 
 func testSesRndItLoadRating(t *testing.T) {
 	var reply string
-	if err := sesRndRPC.Call(utils.APIerSv1SetTPRate, &utils.TPRate{
-		TPid: utils.TEST_SQL,
+	if err := sesRndRPC.Call(utils.APIerSv1SetTPRate, &utils.TPRateRALs{
+		TPid: utils.TestSQL,
 		ID:   "RT1",
 		RateSlots: []*utils.RateSlot{
 			{ConnectFee: 0, Rate: 0.033, RateUnit: "1s", RateIncrement: "1s", GroupIntervalStart: "0s"},
@@ -196,10 +198,10 @@ func testSesRndItLoadRating(t *testing.T) {
 	}
 
 	dr := &utils.TPDestinationRate{
-		TPid: utils.TEST_SQL,
+		TPid: utils.TestSQL,
 		ID:   "DR_UP",
 		DestinationRates: []*utils.DestinationRate{
-			{DestinationId: utils.ANY, RateId: "RT1", RoundingMethod: utils.ROUNDING_UP, RoundingDecimals: 1},
+			{DestinationId: utils.MetaAny, RateId: "RT1", RoundingMethod: utils.MetaRoundingUp, RoundingDecimals: 1},
 		},
 	}
 	if err := sesRndRPC.Call(utils.APIerSv1SetTPDestinationRate, dr, &reply); err != nil {
@@ -208,7 +210,7 @@ func testSesRndItLoadRating(t *testing.T) {
 		t.Error("Unexpected reply received when calling APIerSv1.SetTPDestinationRate: ", reply)
 	}
 	dr.ID = "DR_DOWN"
-	dr.DestinationRates[0].RoundingMethod = utils.ROUNDING_DOWN
+	dr.DestinationRates[0].RoundingMethod = utils.MetaRoundingDown
 	if err := sesRndRPC.Call(utils.APIerSv1SetTPDestinationRate, dr, &reply); err != nil {
 		t.Error("Got error on APIerSv1.SetTPDestinationRate: ", err.Error())
 	} else if reply != utils.OK {
@@ -216,10 +218,10 @@ func testSesRndItLoadRating(t *testing.T) {
 	}
 
 	rp := &utils.TPRatingPlan{
-		TPid: utils.TEST_SQL,
+		TPid: utils.TestSQL,
 		ID:   "RP_UP",
 		RatingPlanBindings: []*utils.TPRatingPlanBinding{
-			{DestinationRatesId: "DR_UP", TimingId: utils.ANY, Weight: 10},
+			{DestinationRatesId: "DR_UP", TimingId: utils.MetaAny, Weight: 10},
 		},
 	}
 	if err := sesRndRPC.Call(utils.APIerSv1SetTPRatingPlan, rp, &reply); err != nil {
@@ -236,10 +238,10 @@ func testSesRndItLoadRating(t *testing.T) {
 	}
 
 	rpf := &utils.TPRatingProfile{
-		TPid:     utils.TEST_SQL,
-		LoadId:   utils.TEST_SQL,
+		TPid:     utils.TestSQL,
+		LoadId:   utils.TestSQL,
 		Tenant:   sesRndTenant,
-		Category: utils.CALL,
+		Category: utils.Call,
 		Subject:  "up",
 		RatingPlanActivations: []*utils.TPRatingActivation{{
 			RatingPlanId:     "RP_UP",
@@ -259,16 +261,16 @@ func testSesRndItLoadRating(t *testing.T) {
 		t.Error("Unexpected reply received when calling APIerSv1.SetTPRatingProfile: ", reply)
 	}
 
-	if err := sesRndRPC.Call(utils.APIerSv1LoadRatingPlan, &v1.AttrLoadRatingPlan{TPid: utils.TEST_SQL}, &reply); err != nil {
+	if err := sesRndRPC.Call(utils.APIerSv1LoadRatingPlan, &v1.AttrLoadRatingPlan{TPid: utils.TestSQL}, &reply); err != nil {
 		t.Error("Got error on APIerSv1.LoadRatingPlan: ", err.Error())
 	} else if reply != utils.OK {
 		t.Error("Calling APIerSv1.LoadRatingPlan got reply: ", reply)
 	}
 
 	if err := sesRndRPC.Call(utils.APIerSv1LoadRatingProfile, &utils.TPRatingProfile{
-		TPid: utils.TEST_SQL, LoadId: utils.TEST_SQL,
-		Tenant: sesRndTenant, Category: utils.CALL}, &reply); err != nil {
-		t.Error("Got error on APIerSv1.VOICE: ", err.Error())
+		TPid: utils.TestSQL, LoadId: utils.TestSQL,
+		Tenant: sesRndTenant, Category: utils.Call}, &reply); err != nil {
+		t.Error("Got error on APIerSv1.LoadRatingProfile: ", err.Error())
 	} else if reply != utils.OK {
 		t.Error("Calling APIerSv1.LoadRatingProfile got reply: ", reply)
 	}
@@ -282,7 +284,7 @@ func testSesRndItAddCharger(t *testing.T) {
 		Tenant:       sesRndTenant,
 		ID:           "default",
 		RunID:        utils.MetaDefault,
-		AttributeIDs: []string{utils.META_NONE},
+		AttributeIDs: []string{utils.MetaNone},
 		Weight:       20,
 	}, &result); err != nil {
 		t.Error(err)
@@ -296,9 +298,9 @@ func testSesRndItAddVoiceBalance(t *testing.T) {
 	if err := sesRndRPC.Call(utils.APIerSv2SetBalance, utils.AttrSetBalance{
 		Tenant:      sesRndTenant,
 		Account:     sesRndAccount,
-		BalanceType: utils.MONETARY,
+		BalanceType: utils.MetaMonetary,
 		Value:       float64(time.Hour),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID: "TestSesBal1",
 		},
 	}, &reply); err != nil {
@@ -316,7 +318,7 @@ func testSesRndItAddVoiceBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := float64(time.Hour)
-	if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != expected {
+	if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != expected {
 		t.Errorf("Expected: %v, received: %v", expected, rply)
 	}
 }
@@ -330,7 +332,7 @@ func testSesRndItPrepareCDRs(t *testing.T) {
 		}, &reply); err != nil {
 		t.Error(err)
 		return
-	} else if reply.MaxUsage != sesRndExpMaxUsage {
+	} else if *reply.MaxUsage != sesRndExpMaxUsage {
 		t.Errorf("Unexpected MaxUsage: %v", reply.MaxUsage)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -383,7 +385,7 @@ func testSesRndItCheckCdrs(t *testing.T) {
 		}, &acnt); err != nil {
 		t.Fatal(err)
 	}
-	if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != sesRndExpBalanceValue {
+	if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != sesRndExpBalanceValue {
 		t.Errorf("Expected: %+v, received: %v", utils.ToJSON(sesRndExpBalanceValue), utils.ToJSON(rply))
 	}
 }

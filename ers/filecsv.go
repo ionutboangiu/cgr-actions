@@ -19,14 +19,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package ers
 
 import (
-	"bufio"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cgrates/cgrates/agents"
@@ -36,21 +34,22 @@ import (
 )
 
 func NewCSVFileER(cfg *config.CGRConfig, cfgIdx int,
-	rdrEvents chan *erEvent, rdrErr chan error,
+	rdrEvents, partialEvents chan *erEvent, rdrErr chan error,
 	fltrS *engine.FilterS, rdrExit chan struct{}) (er EventReader, err error) {
 	srcPath := cfg.ERsCfg().Readers[cfgIdx].SourcePath
 	if strings.HasSuffix(srcPath, utils.Slash) {
 		srcPath = srcPath[:len(srcPath)-1]
 	}
 	csvEr := &CSVFileER{
-		cgrCfg:    cfg,
-		cfgIdx:    cfgIdx,
-		fltrS:     fltrS,
-		rdrDir:    srcPath,
-		rdrEvents: rdrEvents,
-		rdrError:  rdrErr,
-		rdrExit:   rdrExit,
-		conReqs:   make(chan struct{}, cfg.ERsCfg().Readers[cfgIdx].ConcurrentReqs)}
+		cgrCfg:        cfg,
+		cfgIdx:        cfgIdx,
+		fltrS:         fltrS,
+		rdrDir:        srcPath,
+		rdrEvents:     rdrEvents,
+		partialEvents: partialEvents,
+		rdrError:      rdrErr,
+		rdrExit:       rdrExit,
+		conReqs:       make(chan struct{}, cfg.ERsCfg().Readers[cfgIdx].ConcurrentReqs)}
 	var processFile struct{}
 	for i := 0; i < cfg.ERsCfg().Readers[cfgIdx].ConcurrentReqs; i++ {
 		csvEr.conReqs <- processFile // Empty initiate so we do not need to wait later when we pop
@@ -60,19 +59,50 @@ func NewCSVFileER(cfg *config.CGRConfig, cfgIdx int,
 
 // CSVFileER implements EventReader interface for .csv files
 type CSVFileER struct {
-	sync.RWMutex
-	cgrCfg    *config.CGRConfig
-	cfgIdx    int // index of config instance within ERsCfg.Readers
-	fltrS     *engine.FilterS
-	rdrDir    string
-	rdrEvents chan *erEvent // channel to dispatch the events created to
-	rdrError  chan error
-	rdrExit   chan struct{}
-	conReqs   chan struct{} // limit number of opened files
+	cgrCfg        *config.CGRConfig
+	cfgIdx        int // index of config instance within ERsCfg.Readers
+	fltrS         *engine.FilterS
+	rdrDir        string
+	rdrEvents     chan *erEvent // channel to dispatch the events created to
+	partialEvents chan *erEvent // channel to dispatch the partial events created to
+	rdrError      chan error
+	rdrExit       chan struct{}
+	conReqs       chan struct{} // limit number of opened files
+
 }
 
 func (rdr *CSVFileER) Config() *config.EventReaderCfg {
 	return rdr.cgrCfg.ERsCfg().Readers[rdr.cfgIdx]
+}
+
+func (rdr *CSVFileER) serveDefault() {
+	tm := time.NewTimer(0)
+	for {
+		// Not automated, process and sleep approach
+		select {
+		case <-rdr.rdrExit:
+			tm.Stop()
+			utils.Logger.Info(
+				fmt.Sprintf("<%s> stop monitoring path <%s>",
+					utils.ERs, rdr.rdrDir))
+			return
+		case <-tm.C:
+		}
+		filesInDir, _ := os.ReadDir(rdr.rdrDir)
+		for _, file := range filesInDir {
+			if !strings.HasSuffix(file.Name(), utils.CSVSuffix) { // hardcoded file extension for csv event reader
+				continue // used in order to filter the files from directory
+			}
+			go func(fileName string) {
+				if err := rdr.processFile(rdr.rdrDir, fileName); err != nil {
+					utils.Logger.Warning(
+						fmt.Sprintf("<%s> processing file %s, error: %s",
+							utils.ERs, fileName, err.Error()))
+				}
+			}(file.Name())
+		}
+		tm.Reset(rdr.Config().RunDelay)
+	}
 }
 
 func (rdr *CSVFileER) Serve() (err error) {
@@ -80,36 +110,10 @@ func (rdr *CSVFileER) Serve() (err error) {
 	case time.Duration(0): // 0 disables the automatic read, maybe done per API
 		return
 	case time.Duration(-1):
-		return watchDir(rdr.rdrDir, rdr.processFile,
+		return utils.WatchDir(rdr.rdrDir, rdr.processFile,
 			utils.ERs, rdr.rdrExit)
 	default:
-		go func() {
-			for {
-				// Not automated, process and sleep approach
-				select {
-				case <-rdr.rdrExit:
-					utils.Logger.Info(
-						fmt.Sprintf("<%s> stop monitoring path <%s>",
-							utils.ERs, rdr.rdrDir))
-					return
-				default:
-				}
-				filesInDir, _ := os.ReadDir(rdr.rdrDir)
-				for _, file := range filesInDir {
-					if !strings.HasSuffix(file.Name(), utils.CSVSuffix) { // hardcoded file extension for csv event reader
-						continue // used in order to filter the files from directory
-					}
-					go func(fileName string) {
-						if err := rdr.processFile(rdr.rdrDir, fileName); err != nil {
-							utils.Logger.Warning(
-								fmt.Sprintf("<%s> processing file %s, error: %s",
-									utils.ERs, fileName, err.Error()))
-						}
-					}(file.Name())
-				}
-				time.Sleep(rdr.Config().RunDelay)
-			}
-		}()
+		go rdr.serveDefault()
 	}
 	return
 }
@@ -128,45 +132,79 @@ func (rdr *CSVFileER) processFile(fPath, fName string) (err error) {
 		return
 	}
 	defer file.Close()
-	csvReader := csv.NewReader(bufio.NewReader(file))
-	csvReader.FieldsPerRecord = rdr.cgrCfg.ERsCfg().Readers[rdr.cfgIdx].RowLength
-	csvReader.Comma = utils.CSV_SEP
-	if len(rdr.Config().FieldSep) > 0 {
-		csvReader.Comma = rune(rdr.Config().FieldSep[0])
+	csvReader := csv.NewReader(file)
+	var rowLength int
+	if rdr.Config().Opts.CSVOpts.CSVRowLength != nil {
+		rowLength = *rdr.Config().Opts.CSVOpts.CSVRowLength
 	}
-	csvReader.Comment = '#'
+	csvReader.FieldsPerRecord = rowLength
+	csvReader.Comment = utils.CommentChar
+	csvReader.Comma = utils.CSVSep
+	if rdr.Config().Opts.CSVOpts.CSVFieldSeparator != nil {
+		csvReader.Comma = rune((*rdr.Config().Opts.CSVOpts.CSVFieldSeparator)[0])
+	}
+	if rdr.Config().Opts.CSVOpts.CSVLazyQuotes != nil {
+		csvReader.LazyQuotes = *rdr.Config().Opts.CSVOpts.CSVLazyQuotes
+	}
+	var indxAls map[string]int
 	rowNr := 0 // This counts the rows in the file, not really number of CDRs
 	evsPosted := 0
 	timeStart := time.Now()
-	reqVars := utils.NavigableMap2{utils.MetaFileName: utils.NewNMData(fName)}
+	reqVars := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{utils.MetaFileName: utils.NewLeafNode(fName)}}
+	var hdrDefChar string
+	if rdr.cgrCfg.ERsCfg().Readers[rdr.cfgIdx].Opts.CSVOpts.CSVHeaderDefineChar != nil {
+		hdrDefChar = *rdr.cgrCfg.ERsCfg().Readers[rdr.cfgIdx].Opts.CSVOpts.CSVHeaderDefineChar
+	}
 	for {
 		var record []string
 		if record, err = csvReader.Read(); err != nil {
 			if err == io.EOF {
+				err = nil //If it reaches the end of the file, return nil
 				break
 			}
 			return
 		}
+		if rowNr == 0 && len(record) > 0 &&
+			strings.HasPrefix(record[0], hdrDefChar) {
+			record[0] = strings.TrimPrefix(record[0], hdrDefChar)
+			// map the templates
+			indxAls = make(map[string]int)
+			for i, hdr := range record {
+				indxAls[hdr] = i
+			}
+			continue
+		}
 		rowNr++ // increment the rowNr after checking if it's not the end of file
+
 		agReq := agents.NewAgentRequest(
-			config.NewSliceDP(record), reqVars,
-			nil, nil, rdr.Config().Tenant,
+			config.NewSliceDP(record, indxAls), reqVars,
+			nil, nil, nil, rdr.Config().Tenant,
 			rdr.cgrCfg.GeneralCfg().DefaultTenant,
 			utils.FirstNonEmpty(rdr.Config().Timezone,
 				rdr.cgrCfg.GeneralCfg().DefaultTimezone),
-			rdr.fltrS, nil, nil) // create an AgentRequest
+			rdr.fltrS, nil) // create an AgentRequest
 		if pass, err := rdr.fltrS.Pass(agReq.Tenant, rdr.Config().Filters,
-			agReq); err != nil || !pass {
+			agReq); err != nil {
+			utils.Logger.Warning(
+				fmt.Sprintf("<%s> reading file: <%s> row <%d>, ignoring due to filter error: <%s>",
+					utils.ERs, absPath, rowNr, err.Error()))
+			return err
+		} else if !pass {
 			continue
 		}
-		if err := agReq.SetFields(rdr.Config().Fields); err != nil {
+		if err = agReq.SetFields(rdr.Config().Fields); err != nil {
 			utils.Logger.Warning(
 				fmt.Sprintf("<%s> reading file: <%s> row <%d>, ignoring due to error: <%s>",
 					utils.ERs, absPath, rowNr, err.Error()))
-			continue
+			return
 		}
-		rdr.rdrEvents <- &erEvent{
-			cgrEvent: config.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep),
+		cgrEv := utils.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep, agReq.Opts)
+		rdrEv := rdr.rdrEvents
+		if _, isPartial := cgrEv.APIOpts[utils.PartialOpt]; isPartial {
+			rdrEv = rdr.partialEvents
+		}
+		rdrEv <- &erEvent{
+			cgrEvent: cgrEv,
 			rdrCfg:   rdr.Config(),
 		}
 		evsPosted++
@@ -181,6 +219,6 @@ func (rdr *CSVFileER) processFile(fPath, fName string) (err error) {
 
 	utils.Logger.Info(
 		fmt.Sprintf("%s finished processing file <%s>. Total records processed: %d, events posted: %d, run duration: %s",
-			utils.ERs, absPath, rowNr, evsPosted, time.Now().Sub(timeStart)))
+			utils.ERs, absPath, rowNr, evsPosted, time.Since(timeStart)))
 	return
 }

@@ -42,18 +42,21 @@ var (
 
 	sesExpCgrEv = &utils.CGREvent{
 		Tenant: sesExpTenant,
-		Event: map[string]interface{}{
-			utils.Tenant:           sesExpTenant,
-			utils.Category:         "call",
-			utils.ToR:              utils.VOICE,
-			utils.OriginID:         "TestRefund",
-			utils.RequestType:      utils.META_PREPAID,
-			utils.Account:          sesExpAccount,
-			utils.Subject:          "*zero1s",
-			utils.Destination:      "TEST",
-			utils.SetupTime:        time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-			utils.AnswerTime:       time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-			utils.CGRDebitInterval: time.Second,
+		Event: map[string]any{
+			utils.Tenant:       sesExpTenant,
+			utils.Category:     "call",
+			utils.ToR:          utils.MetaVoice,
+			utils.OriginID:     "TestRefund",
+			utils.RequestType:  utils.MetaPrepaid,
+			utils.AccountField: sesExpAccount,
+			utils.Subject:      "*zero1s",
+			utils.Destination:  "TEST",
+			utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+			utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+		},
+		APIOpts: map[string]any{
+			utils.OptsSessionsTTL:   0,
+			utils.OptsDebitInterval: time.Second,
 		},
 	}
 
@@ -145,9 +148,9 @@ func testSesExpItAddVoiceBalance(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      sesExpTenant,
 		Account:     sesExpAccount,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       float64(time.Hour),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "TestSesBal1",
 			utils.RatingSubject: "*zero1s",
 		},
@@ -161,9 +164,9 @@ func testSesExpItAddVoiceBalance(t *testing.T) {
 	attrSetBalance = utils.AttrSetBalance{
 		Tenant:      sesExpTenant,
 		Account:     sesExpAccount,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       float64(time.Second),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "TestSesBalExpire",
 			utils.RatingSubject: "*zero1s",
 			utils.ExpiryTime:    time.Now().Add(50 * time.Millisecond),
@@ -185,7 +188,7 @@ func testSesExpItAddVoiceBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := float64(time.Hour + time.Second)
-	if rply := acnt.BalanceMap[utils.VOICE].GetTotalValue(); rply != expected {
+	if rply := acnt.BalanceMap[utils.MetaVoice].GetTotalValue(); rply != expected {
 		t.Errorf("Expected: %v, received: %v", expected, rply)
 	}
 }
@@ -200,7 +203,7 @@ func testSesExpItInitSession(t *testing.T) {
 		}, &rply); err != nil {
 		t.Error(err)
 		return
-	} else if rply.MaxUsage != 3*time.Hour {
+	} else if *rply.MaxUsage != 3*time.Hour {
 		t.Errorf("Unexpected MaxUsage: %v", rply.MaxUsage)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -234,7 +237,7 @@ func testSesExpItTerminateSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := float64(time.Hour - 9*time.Second)
-	if rply := acnt.BalanceMap[utils.VOICE].GetTotalValue(); rply != expected {
+	if rply := acnt.BalanceMap[utils.MetaVoice].GetTotalValue(); rply != expected {
 		t.Errorf("Expected: %v, received: %v", expected, rply)
 	}
 }
@@ -242,9 +245,7 @@ func testSesExpItTerminateSession(t *testing.T) {
 func testSesExpItProcessCDR(t *testing.T) {
 	var reply string
 	if err := sesExpRPC.Call(utils.SessionSv1ProcessCDR,
-		&engine.ArgsProcessEvent{
-			CGREvent: sesExpCgrEv,
-		}, &reply); err != nil {
+		sesExpCgrEv, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
 		t.Errorf("Received reply: %s", reply)
@@ -265,7 +266,7 @@ func testSesExpItProcessCDR(t *testing.T) {
 func testSesExpItRerate(t *testing.T) {
 	var reply string
 	sesExpCgrEv.Event[utils.Usage] = time.Second
-	sesExpCgrEv.Event[utils.RequestType] = utils.META_POSTPAID // change the request type in order to not wait 12s to check the cost for a closed session
+	sesExpCgrEv.Event[utils.RequestType] = utils.MetaPostpaid // change the request type in order to not wait 12s to check the cost for a closed session
 	if err := sesExpRPC.Call(utils.CDRsV1ProcessEvent,
 		&engine.ArgV1ProcessEvent{
 			Flags:    []string{utils.MetaRerate},
@@ -284,7 +285,7 @@ func testSesExpItRerate(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := float64(time.Hour - time.Second)
-	if rply := acnt.BalanceMap[utils.VOICE].GetTotalValue(); rply != expected {
+	if rply := acnt.BalanceMap[utils.MetaVoice].GetTotalValue(); rply != expected {
 		t.Errorf("Expected: %v, received: %v", expected, rply)
 	}
 }

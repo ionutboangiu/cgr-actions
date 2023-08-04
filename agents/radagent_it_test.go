@@ -51,7 +51,14 @@ var (
 		testRAitStartEngine,
 		testRAitApierRpcConn,
 		testRAitTPFromFolder,
-		testRAitAuth,
+		testRAitAuthPAPSuccess,
+		testRAitAuthPAPFail,
+		testRAitAuthCHAPSuccess,
+		testRAitAuthCHAPFail,
+		testRAitAuthMSCHAPV2Success,
+		testRAitAuthMSCHAPV2Fail,
+		testRAitChallenge,
+		testRAitChallengeResponse,
 		testRAitAcctStart,
 		testRAitAcctStop,
 		testRAitStopCgrEngine,
@@ -60,7 +67,7 @@ var (
 
 // Test start here
 func TestRAit(t *testing.T) {
-	engine.KillEngine(0)
+	// engine.KillEngine(0)
 	switch *dbType {
 	case utils.MetaInternal:
 		raonfigDIR = "radagent_internal"
@@ -106,8 +113,6 @@ func testRAitInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	raCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(raCfg)
 	if isDispatcherActive {
 		raCfg.ListenCfg().RPCJSONListen = ":6012"
 	}
@@ -192,7 +197,7 @@ func testRadiusitTPLoadData(t *testing.T) {
 	}
 }
 
-func testRAitAuth(t *testing.T) {
+func testRAitAuthPAPSuccess(t *testing.T) {
 	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -200,6 +205,11 @@ func testRAitAuth(t *testing.T) {
 	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
 		t.Error(err)
 	}
+	if err := authReq.AddAVPWithName("User-Password", "CGRateSPassword1", ""); err != nil {
+		t.Error(err)
+	}
+	// encode the password as required so we can decode it properly
+	authReq.AVPs[1].RawValue = radigo.EncodeUserPassword([]byte("CGRateSPassword1"), []byte("CGRateS.org"), authReq.Authenticator[:])
 	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
 		t.Error(err)
 	}
@@ -220,13 +230,350 @@ func testRAitAuth(t *testing.T) {
 	}
 	reply, err := raAuthClnt.SendRequest(authReq)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if reply.Code != radigo.AccessAccept {
+		t.Errorf("Received reply: %+v", utils.ToJSON(reply))
+	}
+	if len(reply.AVPs) != 1 { // make sure max duration is received
+		t.Errorf("Received AVPs: %+v", utils.ToJSON(reply.AVPs))
+	} else if !reflect.DeepEqual([]byte("session_max_time#10800"), reply.AVPs[0].RawValue) {
+		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+	}
+}
+
+func testRAitAuthPAPFail(t *testing.T) {
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("User-Password", "CGRateSPassword2", ""); err != nil {
+		t.Error(err)
+	}
+	// encode the password as required so we can decode it properly
+	authReq.AVPs[1].RawValue = radigo.EncodeUserPassword([]byte("CGRateSPassword2"), []byte("CGRateS.org"), authReq.Authenticator[:])
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "51585361", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessReject {
 		t.Errorf("Received reply: %+v", reply)
 	}
 	if len(reply.AVPs) != 1 { // make sure max duration is received
 		t.Errorf("Received AVPs: %+v", reply.AVPs)
+	} else if !reflect.DeepEqual(utils.RadauthFailed, string(reply.AVPs[0].RawValue)) {
+		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+	}
+}
+
+func testRAitAuthCHAPSuccess(t *testing.T) {
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("CHAP-Password", "CGRateSPassword1", ""); err != nil {
+		t.Error(err)
+	}
+	authReq.AVPs[1].RawValue = radigo.EncodeCHAPPassword([]byte("CGRateSPassword1"), authReq.Authenticator[:])
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "51585362", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessAccept {
+		t.Errorf("Received reply: %+v", utils.ToJSON(reply))
+	}
+	if len(reply.AVPs) != 1 { // make sure max duration is received
+		t.Errorf("Received AVPs: %+v", utils.ToJSON(reply.AVPs))
+	} else if !reflect.DeepEqual([]byte("session_max_time#10800"), reply.AVPs[0].RawValue) {
+		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+	}
+}
+
+func testRAitAuthCHAPFail(t *testing.T) {
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("CHAP-Password", "CGRateSPassword2", ""); err != nil {
+		t.Error(err)
+	}
+	authReq.AVPs[1].RawValue = radigo.EncodeCHAPPassword([]byte("CGRateSPassword2"), authReq.Authenticator[:])
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "51585362", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessReject {
+		t.Errorf("Received reply: %+v", reply)
+	}
+	if len(reply.AVPs) != 1 { // make sure max duration is received
+		t.Errorf("Received AVPs: %+v", reply.AVPs)
+	} else if !reflect.DeepEqual(utils.RadauthFailed, string(reply.AVPs[0].RawValue)) {
+		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+	}
+}
+
+func testRAitAuthMSCHAPV2Success(t *testing.T) {
+	for _, dictPath := range raCfg.RadiusAgentCfg().ClientDictionaries {
+		if dictRad, err = radigo.NewDictionaryFromFolderWithRFC2865(dictPath); err != nil {
+			return
+		}
+	}
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("MS-CHAP-Challenge", string(authReq.Authenticator[:]), "Microsoft"); err != nil {
+		t.Error(err)
+	}
+
+	respVal, err := radigo.GenerateClientMSCHAPResponse(authReq.Authenticator, "1001", "CGRateSPassword1")
+	if err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("MS-CHAP-Response", string(respVal), "Microsoft"); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "51585363", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessAccept {
+		t.Errorf("Received reply: %+v", utils.ToJSON(reply))
+	}
+	if len(reply.AVPs) != 2 { // make sure max duration is received
+		t.Errorf("Received AVPs: %+v", utils.ToJSON(reply.AVPs))
+	} else {
+		for _, avp := range reply.AVPs {
+			if avp.Number == 26 && len(avp.RawValue) != 49 {
+				t.Errorf("Unexpected lenght of MS-CHAP2-Success AVP: %+v", len(avp.RawValue))
+			}
+			if avp.Number == 225 && !reflect.DeepEqual([]byte("session_max_time#10800"), reply.AVPs[1].RawValue) {
+				t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+			}
+		}
+	}
+
+}
+
+func testRAitAuthMSCHAPV2Fail(t *testing.T) {
+	for _, dictPath := range raCfg.RadiusAgentCfg().ClientDictionaries {
+		if dictRad, err = radigo.NewDictionaryFromFolderWithRFC2865(dictPath); err != nil {
+			return
+		}
+	}
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("MS-CHAP-Challenge", string(authReq.Authenticator[:]), "Microsoft"); err != nil {
+		t.Error(err)
+	}
+	respVal, err := radigo.GenerateClientMSCHAPResponse(authReq.Authenticator, "1001", "CGRateSPassword2")
+	if err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("MS-CHAP-Response", string(respVal), "Microsoft"); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "51585363", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessReject {
+		t.Errorf("Received reply: %+v", reply)
+	}
+	if len(reply.AVPs) != 1 { // make sure max duration is received
+		t.Errorf("Received AVPs: %+v", reply.AVPs)
+	} else if !reflect.DeepEqual(utils.RadauthFailed, string(reply.AVPs[0].RawValue)) {
+		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+	}
+}
+
+func testRAitChallenge(t *testing.T) {
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "12345678", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessChallenge {
+		t.Errorf("Received reply: %+v", utils.ToJSON(reply))
+	}
+	if len(reply.AVPs) != 1 { // make sure the client receive the message
+		t.Errorf("Received AVPs: %+v", utils.ToJSON(reply.AVPs))
+	} else if !reflect.DeepEqual([]byte("Missing User-Password"), reply.AVPs[0].RawValue) {
+		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
+	}
+}
+
+func testRAitChallengeResponse(t *testing.T) {
+	if raAuthClnt, err = radigo.NewClient("udp", "127.0.0.1:1812", "CGRateS.org", dictRad, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	authReq := raAuthClnt.NewRequest(radigo.AccessRequest, 1) // emulates Kamailio packet out of radius_load_caller_avps()
+	if err := authReq.AddAVPWithName("User-Name", "1001", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("User-Password", "CGRateSPassword1", ""); err != nil {
+		t.Error(err)
+	}
+	// encode the password as required so we can decode it properly
+	authReq.AVPs[1].RawValue = radigo.EncodeUserPassword([]byte("CGRateSPassword1"), []byte("CGRateS.org"), authReq.Authenticator[:])
+	if err := authReq.AddAVPWithName("Service-Type", "SIP-Caller-AVPs", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Called-Station-Id", "1002", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Acct-Session-Id", "e4921177ab0e3586c37f6a185864b71a@0:0:0:0:0:0:0:0", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Sip-From-Tag", "12345678", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("NAS-IP-Address", "127.0.0.1", ""); err != nil {
+		t.Error(err)
+	}
+	if err := authReq.AddAVPWithName("Event-Timestamp", "1497106115", ""); err != nil {
+		t.Error(err)
+	}
+	reply, err := raAuthClnt.SendRequest(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Code != radigo.AccessAccept {
+		t.Errorf("Received reply: %+v", utils.ToJSON(reply))
+	}
+	if len(reply.AVPs) != 1 { // make sure max duration is received
+		t.Errorf("Received AVPs: %+v", utils.ToJSON(reply.AVPs))
 	} else if !reflect.DeepEqual([]byte("session_max_time#10800"), reply.AVPs[0].RawValue) {
 		t.Errorf("Received: %s", string(reply.AVPs[0].RawValue))
 	}
@@ -365,7 +712,7 @@ func testRAitAcctStop(t *testing.T) {
 	if len(reply.AVPs) != 0 { // we don't expect AVPs to be populated
 		t.Errorf("Received AVPs: %+v", reply.AVPs)
 	}
-	// Make sure the session was disconnected from SMG
+	// Make sure the sessin was disconnected from SMG
 	var aSessions []*sessions.ExternalSession
 	if err := raRPC.Call(utils.SessionSv1GetActiveSessions,
 		utils.SessionFilter{
@@ -379,7 +726,7 @@ func testRAitAcctStop(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	var cdrs []*engine.ExternalCDR
 	args := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}, DestinationPrefixes: []string{"1002"}}
-	if err := raRPC.Call(utils.APIerSv2GetCDRs, args, &cdrs); err != nil {
+	if err := raRPC.Call(utils.APIerSv2GetCDRs, &args, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))

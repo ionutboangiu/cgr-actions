@@ -24,12 +24,18 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/ericlagergren/decimal"
 )
 
 // StringToInterface will parse string into supported types
 // if no other conversion possible, original string will be returned
-func StringToInterface(s string) interface{} {
+func StringToInterface(s string) any {
+	if s == EmptyString {
+		return s
+	}
 	// int64
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
@@ -56,7 +62,7 @@ func StringToInterface(s string) interface{} {
 
 // ReflectFieldInterface parses intf attepting to return the field value or error otherwise
 // Supports "ExtraFields" where additional fields are dynamically inserted in map with field name: extraFieldsLabel
-func ReflectFieldInterface(intf interface{}, fldName, extraFieldsLabel string) (retIf interface{}, err error) {
+func ReflectFieldInterface(intf any, fldName, extraFieldsLabel string) (retIf any, err error) {
 	v := reflect.ValueOf(intf)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -92,7 +98,7 @@ func ReflectFieldInterface(intf interface{}, fldName, extraFieldsLabel string) (
 
 // ReflectFieldAsString parses intf and attepting to return the field as string or error otherwise
 // Supports "ExtraFields" where additional fields are dynamically inserted in map with field name: extraFieldsLabel
-func ReflectFieldAsString(intf interface{}, fldName, extraFieldsLabel string) (string, error) {
+func ReflectFieldAsString(intf any, fldName, extraFieldsLabel string) (string, error) {
 	field, err := ReflectFieldInterface(intf, fldName, extraFieldsLabel)
 	if err != nil {
 		return "", err
@@ -105,26 +111,79 @@ func ReflectFieldAsString(intf interface{}, fldName, extraFieldsLabel string) (s
 		return strconv.FormatInt(vOf.Int(), 10), nil
 	case reflect.Float64:
 		return strconv.FormatFloat(vOf.Float(), 'f', -1, 64), nil
-	case reflect.Interface:
-		return IfaceAsString(field), nil
 	default:
 		return "", fmt.Errorf("Cannot convert to string field type: %s", vOf.Kind().String())
 	}
 }
 
-func IfaceAsTime(itm interface{}, timezone string) (t time.Time, err error) {
-	switch val := itm.(type) {
+func IfaceAsTime(itm any, timezone string) (t time.Time, err error) {
+	switch v := itm.(type) {
 	case time.Time:
-		return val, nil
+		return v, nil
 	case string:
-		return ParseTimeDetectLayout(val, timezone)
+		return ParseTimeDetectLayout(v, timezone)
 	default:
 		err = fmt.Errorf("cannot convert field: %+v to time.Time", itm)
 	}
 	return
 }
 
-func IfaceAsDuration(itm interface{}) (d time.Duration, err error) {
+func IfaceAsBig(itm any) (b *decimal.Big, err error) {
+	switch it := itm.(type) {
+	case time.Duration:
+		return decimal.New(int64(it), 0), nil
+	case int: // check every int type
+		return decimal.New(int64(it), 0), nil
+	case int8:
+		return decimal.New(int64(it), 0), nil
+	case int16:
+		return decimal.New(int64(it), 0), nil
+	case int32:
+		return decimal.New(int64(it), 0), nil
+	case int64:
+		return decimal.New(it, 0), nil
+	case uint:
+		return new(decimal.Big).SetUint64(uint64(it)), nil
+	case uint8:
+		return new(decimal.Big).SetUint64(uint64(it)), nil
+	case uint16:
+		return new(decimal.Big).SetUint64(uint64(it)), nil
+	case uint32:
+		return new(decimal.Big).SetUint64(uint64(it)), nil
+	case uint64:
+		return new(decimal.Big).SetUint64(it), nil
+	case float32: // automatically hitting here also ints
+		return new(decimal.Big).SetFloat64(float64(it)), nil
+	case float64: // automatically hitting here also ints
+		return new(decimal.Big).SetFloat64(it), nil
+	case string:
+		if strings.HasSuffix(it, NsSuffix) ||
+			strings.HasSuffix(it, UsSuffix) ||
+			strings.HasSuffix(it, µSuffix) ||
+			strings.HasSuffix(it, MsSuffix) ||
+			strings.HasSuffix(it, SSuffix) ||
+			strings.HasSuffix(it, MSuffix) ||
+			strings.HasSuffix(it, HSuffix) {
+			var tm time.Duration
+			if tm, err = time.ParseDuration(it); err != nil {
+				return
+			}
+			return decimal.New(int64(tm), 0), nil
+		}
+		z, ok := new(decimal.Big).SetString(it)
+		// verify ok and check if the value was converted successfuly
+		// and the big is a valid number
+		if !ok || z.IsNaN(0) {
+			return nil, fmt.Errorf("can't convert <%+v> to decimal", it)
+		}
+		return z, nil
+	default:
+		err = fmt.Errorf("cannot convert field: %+v to time.Duration", it)
+	}
+	return
+}
+
+func IfaceAsDuration(itm any) (d time.Duration, err error) {
 	switch it := itm.(type) {
 	case time.Duration:
 		return it, nil
@@ -137,7 +196,7 @@ func IfaceAsDuration(itm interface{}) (d time.Duration, err error) {
 	case int32:
 		return time.Duration(int64(it)), nil
 	case int64:
-		return time.Duration(it), nil
+		return time.Duration(int64(it)), nil
 	case uint:
 		return time.Duration(int64(it)), nil
 	case uint8:
@@ -160,7 +219,30 @@ func IfaceAsDuration(itm interface{}) (d time.Duration, err error) {
 	return
 }
 
-func IfaceAsInt64(itm interface{}) (i int64, err error) {
+// IfaceAsTInt converts interface to type int
+func IfaceAsTInt(itm any) (i int, err error) {
+	switch it := itm.(type) {
+	case int:
+		return it, nil
+	case time.Duration:
+		return int(it.Nanoseconds()), nil
+	case int32:
+		return int(it), nil
+	case int64:
+		return int(it), nil
+	case float32:
+		return int(it), nil
+	case float64:
+		return int(it), nil
+	case string:
+		return strconv.Atoi(it)
+	default:
+		err = fmt.Errorf("cannot convert field<%T>: %+v to int", it, it)
+	}
+	return
+}
+
+func IfaceAsInt64(itm any) (i int64, err error) {
 	switch it := itm.(type) {
 	case int:
 		return int64(it), nil
@@ -179,7 +261,7 @@ func IfaceAsInt64(itm interface{}) (i int64, err error) {
 }
 
 // same function as IfaceAsInt64 but if the value is float round it to int64 instead of returning error
-func IfaceAsTInt64(itm interface{}) (i int64, err error) {
+func IfaceAsTInt64(itm any) (i int64, err error) {
 	switch it := itm.(type) {
 	case int:
 		return int64(it), nil
@@ -201,7 +283,7 @@ func IfaceAsTInt64(itm interface{}) (i int64, err error) {
 	return
 }
 
-func IfaceAsFloat64(itm interface{}) (f float64, err error) {
+func IfaceAsFloat64(itm any) (f float64, err error) {
 	switch it := itm.(type) {
 	case float64:
 		return it, nil
@@ -218,26 +300,50 @@ func IfaceAsFloat64(itm interface{}) (f float64, err error) {
 	}
 	return
 }
-
-func IfaceAsBool(itm interface{}) (b bool, err error) {
-	switch val := itm.(type) {
-	case bool:
-		return val, nil
-	case string:
-		return strconv.ParseBool(val)
-	case int:
-		return val > 0, nil
-	case int64:
-		return val > 0, nil
+func IfaceAsTFloat64(itm any) (f float64, err error) {
+	switch it := itm.(type) {
 	case float64:
-		return val > 0, nil
+		return it, nil
+	case time.Duration:
+		return float64(it.Nanoseconds()), nil
+	case int:
+		return float64(it), nil
+	case int64:
+		return float64(it), nil
+	case string:
+		if strings.HasSuffix(it, SSuffix) || strings.HasSuffix(it, MSuffix) || strings.HasSuffix(it, HSuffix) {
+			var tm time.Duration
+			if tm, err = time.ParseDuration(it); err != nil {
+				return
+			}
+			return float64(tm), nil
+		}
+		return strconv.ParseFloat(it, 64)
+	default:
+		err = fmt.Errorf("cannot convert field: %+v to float64", it)
+	}
+	return
+}
+
+func IfaceAsBool(itm any) (b bool, err error) {
+	switch v := itm.(type) {
+	case bool:
+		return v, nil
+	case string:
+		return strconv.ParseBool(v)
+	case int:
+		return v > 0, nil
+	case int64:
+		return v > 0, nil
+	case float64:
+		return v > 0, nil
 	default:
 		err = fmt.Errorf("cannot convert field: %+v to bool", itm)
 	}
 	return
 }
 
-func IfaceAsString(fld interface{}) (out string) {
+func IfaceAsString(fld any) (out string) {
 	switch value := fld.(type) {
 	case nil:
 		return
@@ -267,15 +373,13 @@ func IfaceAsString(fld interface{}) (out string) {
 		return value.String()
 	case string:
 		return value
-	case NMInterface:
-		return value.String()
 	default: // Maybe we are lucky and the value converts to string
 		return ToJSON(fld)
 	}
 }
 
 // IfaceAsSliceString is trying to convert the interface to a slice of strings
-func IfaceAsSliceString(fld interface{}) (out []string, err error) {
+func IfaceAsSliceString(fld any) (out []string, err error) {
 	switch value := fld.(type) {
 	case nil:
 		return
@@ -346,7 +450,7 @@ func IfaceAsSliceString(fld interface{}) (out []string, err error) {
 		}
 	case []string:
 		out = value
-	case []interface{}:
+	case []any:
 		out = make([]string, len(value))
 		for i, val := range value {
 			out[i] = IfaceAsString(val)
@@ -357,24 +461,7 @@ func IfaceAsSliceString(fld interface{}) (out []string, err error) {
 	return
 }
 
-// AsMapStringIface converts an item (mostly struct) as map[string]interface{}
-func AsMapStringIface(item interface{}) (map[string]interface{}, error) {
-	out := make(map[string]interface{})
-	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct { // Only structs for now
-		return nil, fmt.Errorf("AsMapStringIface only accepts structs; got %T", v)
-	}
-	typ := v.Type()
-	for i := 0; i < v.NumField(); i++ {
-		out[typ.Field(i).Name] = v.Field(i).Interface()
-	}
-	return out, nil
-}
-
-func GetUniformType(item interface{}) (interface{}, error) {
+func GetUniformType(item any) (any, error) {
 	valItm := reflect.ValueOf(item)
 	switch valItm.Kind() { // convert evreting to float64
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -388,10 +475,9 @@ func GetUniformType(item interface{}) (interface{}, error) {
 	default:
 		return nil, errors.New("incomparable")
 	}
-	return item, nil
 }
 
-func GetBasicType(item interface{}) interface{} {
+func GetBasicType(item any) any {
 	valItm := reflect.ValueOf(item)
 	switch valItm.Kind() { // convert evreting to float64
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -403,12 +489,11 @@ func GetBasicType(item interface{}) interface{} {
 	default:
 		return item
 	}
-	return item
 }
 
 // GreaterThan attempts to compare two items
 // returns the result or error if not comparable
-func GreaterThan(item, oItem interface{}, orEqual bool) (gte bool, err error) {
+func GreaterThan(item, oItem any, orEqual bool) (gte bool, err error) {
 	item = GetBasicType(item)
 	oItem = GetBasicType(oItem)
 	typItem := reflect.TypeOf(item)
@@ -462,7 +547,7 @@ func GreaterThan(item, oItem interface{}, orEqual bool) (gte bool, err error) {
 	return
 }
 
-func EqualTo(item, oItem interface{}) (eq bool, err error) {
+func EqualTo(item, oItem any) (eq bool, err error) {
 	item = GetBasicType(item)
 	oItem = GetBasicType(oItem)
 	typItem := reflect.TypeOf(item)
@@ -504,7 +589,7 @@ func EqualTo(item, oItem interface{}) (eq bool, err error) {
 
 // Sum attempts to sum multiple items
 // returns the result or error if not comparable
-func Sum(items ...interface{}) (sum interface{}, err error) {
+func Sum(items ...any) (sum any, err error) {
 	//we need at least 2 items to sum them
 	if len(items) < 2 {
 		return nil, ErrNotEnoughParameters
@@ -512,117 +597,214 @@ func Sum(items ...interface{}) (sum interface{}, err error) {
 
 	switch dt := items[0].(type) {
 	case time.Duration:
-		sum = dt
+		s := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsDuration(item); err != nil {
 				return nil, err
 			} else {
-				sum = sum.(time.Duration) + itmVal
+				s += itmVal
 			}
 		}
+		sum = s
 	case time.Time:
-		sum = dt
+		s := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsDuration(item); err != nil {
 				return nil, err
 			} else {
-				sum = sum.(time.Time).Add(itmVal)
+				s = s.Add(itmVal)
 			}
 		}
+		sum = s
 	case float64:
-		sum = dt
+		s := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsFloat64(item); err != nil {
 				return nil, err
 			} else {
-				sum = sum.(float64) + itmVal
+				s += itmVal
 			}
 		}
+		sum = s
 	case int64:
-		sum = dt
+		s := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsInt64(item); err != nil {
 				return nil, err
 			} else {
-				sum = sum.(int64) + itmVal
+				s += itmVal
 			}
 		}
+		sum = s
 	case int:
-		// need explicit conversion for int
-		if firstItmVal, err := IfaceAsInt64(dt); err != nil {
-			return nil, err
-		} else {
-			sum = firstItmVal
-		}
+		s := int64(dt)
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsInt64(item); err != nil {
 				return nil, err
 			} else {
-				sum = sum.(int64) + itmVal
+				s += itmVal
 			}
 		}
+		sum = s
 	}
 	return
 }
 
 // Difference attempts to sum multiple items
 // returns the result or error if not comparable
-func Difference(items ...interface{}) (diff interface{}, err error) {
+func Difference(tm string, items ...any) (diff any, err error) {
 	//we need at least 2 items to diff them
 	if len(items) < 2 {
 		return nil, ErrNotEnoughParameters
 	}
 	switch dt := items[0].(type) {
 	case time.Duration:
-		diff = dt
+		d := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsDuration(item); err != nil {
 				return nil, err
 			} else {
-				diff = diff.(time.Duration) - itmVal
+				d -= itmVal
 			}
 		}
+		diff = d
 	case time.Time:
-		diff = dt
-		for _, item := range items[1:] {
+		d := dt
+		for i, item := range items[1:] {
+			if itmVal, err := IfaceAsTime(item, tm); err == nil {
+				diff = d.Sub(itmVal)
+				if len(items) == i+1 {
+					return diff, nil
+				}
+				items[i] = diff
+				return Difference(tm, items[i:]...)
+			}
+
 			if itmVal, err := IfaceAsDuration(item); err != nil {
 				return nil, err
 			} else {
-				diff = diff.(time.Time).Add(-itmVal)
+				d = d.Add(-itmVal)
 			}
 		}
+		diff = d
 	case float64:
-		diff = dt
+		d := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsFloat64(item); err != nil {
 				return nil, err
 			} else {
-				diff = diff.(float64) - itmVal
+				d -= itmVal
 			}
 		}
+		diff = d
 	case int64:
-		diff = dt
+		d := dt
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsInt64(item); err != nil {
 				return nil, err
 			} else {
-				diff = diff.(int64) - itmVal
+				d -= itmVal
 			}
 		}
+		diff = d
 	case int:
-		// need explicit conversion for int
-		if firstItmVal, err := IfaceAsInt64(dt); err != nil {
-			return nil, err
-		} else {
-			diff = firstItmVal
-		}
+		d := int64(dt)
 		for _, item := range items[1:] {
 			if itmVal, err := IfaceAsInt64(item); err != nil {
 				return nil, err
 			} else {
-				diff = diff.(int64) - itmVal
+				d -= itmVal
 			}
 		}
+		diff = d
+	default: // unsupported comparison
+		return nil, fmt.Errorf("unsupported type")
+	}
+	return
+}
+
+// Multiply attempts to multiply multiple items
+// returns the result or error if not comparable
+func Multiply(items ...any) (mlt any, err error) {
+	//we need at least 2 items to diff them
+	if len(items) < 2 {
+		return nil, ErrNotEnoughParameters
+	}
+	switch dt := items[0].(type) {
+	case float64:
+		m := dt
+		for _, item := range items[1:] {
+			if itmVal, err := IfaceAsFloat64(item); err != nil {
+				return nil, err
+			} else {
+				m *= itmVal
+			}
+		}
+		mlt = m
+	case int64:
+		m := dt
+		for _, item := range items[1:] {
+			if itmVal, err := IfaceAsInt64(item); err != nil {
+				return nil, err
+			} else {
+				m *= itmVal
+			}
+		}
+		mlt = m
+	case int:
+		m := int64(dt)
+		for _, item := range items[1:] {
+			if itmVal, err := IfaceAsInt64(item); err != nil {
+				return nil, err
+			} else {
+				m *= itmVal
+			}
+		}
+		mlt = m
+	default: // unsupported comparison
+		return nil, fmt.Errorf("unsupported type")
+	}
+	return
+}
+
+// Divide attempts to divide multiple items
+// returns the result or error if not comparable
+func Divide(items ...any) (div any, err error) {
+	//we need at least 2 items to diff them
+	if len(items) < 2 {
+		return nil, ErrNotEnoughParameters
+	}
+	switch dt := items[0].(type) {
+	case float64:
+		d := dt
+		for _, item := range items[1:] {
+			if itmVal, err := IfaceAsFloat64(item); err != nil {
+				return nil, err
+			} else {
+				d /= itmVal
+			}
+		}
+		div = d
+	case int64:
+		d := dt
+		for _, item := range items[1:] {
+			if itmVal, err := IfaceAsInt64(item); err != nil {
+				return nil, err
+			} else {
+				d /= itmVal
+			}
+		}
+		div = d
+	case int:
+		d := int64(dt)
+		for _, item := range items[1:] {
+			if itmVal, err := IfaceAsInt64(item); err != nil {
+				return nil, err
+			} else {
+				d /= itmVal
+			}
+		}
+		div = d
 	default: // unsupported comparison
 		return nil, fmt.Errorf("unsupported type")
 	}
@@ -631,7 +813,7 @@ func Difference(items ...interface{}) (diff interface{}, err error) {
 
 // ReflectFieldMethodInterface parses intf attepting to return the field value or error otherwise
 // Supports "ExtraFields" where additional fields are dynamically inserted in map with field name: extraFieldsLabel
-func ReflectFieldMethodInterface(obj interface{}, fldName string) (retIf interface{}, err error) {
+func ReflectFieldMethodInterface(obj any, fldName string) (retIf any, err error) {
 	v := reflect.ValueOf(obj)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -645,13 +827,12 @@ func ReflectFieldMethodInterface(obj interface{}, fldName string) (retIf interfa
 	case reflect.Slice, reflect.Array:
 		//convert fldName to int
 		idx, err := strconv.Atoi(fldName)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			if idx >= v.Len() {
+				return nil, fmt.Errorf("index out of range")
+			}
+			field = v.Index(idx)
 		}
-		if idx >= v.Len() {
-			return nil, fmt.Errorf("index out of range")
-		}
-		field = v.Index(idx)
 	default:
 		return nil, fmt.Errorf("unsupported field kind: %v", v.Kind())
 	}

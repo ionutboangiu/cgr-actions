@@ -26,7 +26,7 @@ func init() {
 	c := &CmdCacheRemoveGroup{
 		name:      "cache_remove_group",
 		rpcMethod: utils.CacheSv1RemoveGroup,
-		rpcParams: &utils.ArgsGetGroupWithArgDispatcher{},
+		rpcParams: &utils.ArgsGetGroupWithAPIOpts{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +36,7 @@ func init() {
 type CmdCacheRemoveGroup struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.ArgsGetGroupWithArgDispatcher
+	rpcParams *utils.ArgsGetGroupWithAPIOpts
 	*CommandExecuter
 }
 
@@ -48,9 +48,9 @@ func (self *CmdCacheRemoveGroup) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdCacheRemoveGroup) RpcParams(reset bool) interface{} {
+func (self *CmdCacheRemoveGroup) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.ArgsGetGroupWithArgDispatcher{}
+		self.rpcParams = &utils.ArgsGetGroupWithAPIOpts{}
 	}
 	return self.rpcParams
 }
@@ -59,7 +59,7 @@ func (self *CmdCacheRemoveGroup) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdCacheRemoveGroup) RpcResult() interface{} {
+func (self *CmdCacheRemoveGroup) RpcResult() any {
 	var reply string
 	return &reply
 }

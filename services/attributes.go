@@ -22,18 +22,21 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewAttributeService returns the Attribute Service
 func NewAttributeService(cfg *config.CGRConfig, dm *DataDBService,
 	cacheS *engine.CacheS, filterSChan chan *engine.FilterS,
-	server *utils.Server, internalChan chan birpc.ClientConnector) servmanager.Service {
+	server *cores.Server, internalChan chan rpcclient.ClientConnector,
+	anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &AttributeService{
 		connChan:    internalChan,
 		cfg:         cfg,
@@ -41,6 +44,8 @@ func NewAttributeService(cfg *config.CGRConfig, dm *DataDBService,
 		cacheS:      cacheS,
 		filterSChan: filterSChan,
 		server:      server,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -51,14 +56,16 @@ type AttributeService struct {
 	dm          *DataDBService
 	cacheS      *engine.CacheS
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 
 	attrS    *engine.AttributeService
-	rpc      *v1.AttributeSv1
-	connChan chan birpc.ClientConnector
+	rpc      *v1.AttributeSv1               // useful on restart
+	connChan chan rpcclient.ClientConnector // publish the internal Subsystem when available
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
-// Start should handle the sercive start
+// Start should handle the service start
 func (attrS *AttributeService) Start() (err error) {
 	if attrS.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
@@ -75,34 +82,26 @@ func (attrS *AttributeService) Start() (err error) {
 
 	attrS.Lock()
 	defer attrS.Unlock()
-	attrS.attrS, err = engine.NewAttributeService(datadb, filterS, attrS.cfg)
-	if err != nil {
-		utils.Logger.Crit(
-			fmt.Sprintf("<%s> Could not init, error: %s",
-				utils.AttributeS, err.Error()))
-		return
-	}
+	attrS.attrS = engine.NewAttributeService(datadb, filterS, attrS.cfg)
 	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.AttributeS))
 	attrS.rpc = v1.NewAttributeSv1(attrS.attrS)
 	if !attrS.cfg.DispatcherSCfg().Enabled {
 		attrS.server.RpcRegister(attrS.rpc)
 	}
-	attrS.connChan <- attrS.rpc
+	attrS.connChan <- attrS.anz.GetInternalCodec(attrS.rpc, utils.AttributeS)
 	return
 }
 
 // Reload handles the change of config
 func (attrS *AttributeService) Reload() (err error) {
-	return // for the momment nothing to reload
+	return // for the moment nothing to reload
 }
 
 // Shutdown stops the service
 func (attrS *AttributeService) Shutdown() (err error) {
 	attrS.Lock()
 	defer attrS.Unlock()
-	if err = attrS.attrS.Shutdown(); err != nil {
-		return
-	}
+	attrS.attrS.Shutdown()
 	attrS.attrS = nil
 	attrS.rpc = nil
 	<-attrS.connChan

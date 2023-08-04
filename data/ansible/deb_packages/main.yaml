@@ -3,7 +3,7 @@
   vars:
     # CGRateS vars
     cgrates_dir: "/home/{{ user }}/go/src/github.com/cgrates/cgrates"
-    cgrates_branch: "v0.10"
+    cgrates_branch: "master"
     cgrates_distribution: "nightly"
     ###############################################################
     ######################## GPG Vars #############################
@@ -70,7 +70,7 @@
 # Install Go
     - name: Install Go
       import_role:
-        name: ../roles/install_go
+        name: ../roles/go
 
 ###########################################################################################################################
 ###########################################################################################################################
@@ -138,7 +138,6 @@
 ###########################################################################################################################
 # Generate package
     - name:  Generate package
-      become: yes
       command: 'sudo env "PATH={{ customPath }}" make deb'
       args:
         chdir: '{{ cgrates_dir }}/packages'
@@ -221,7 +220,7 @@
 
     - name: Move the new package to /var/packages/deb
       become: yes
-      shell: "sudo mv /tmp/{{ item}} /var/packages/deb/{{ cgrates_distribution }}/"
+      shell: "mv /tmp/{{ item}} /var/packages/deb/{{ cgrates_distribution }}/"
       with_items: "{{ hostvars['apt']['debFileName']['stdout_lines'] }}"
 
     - name: Create the new symlink cgrates_current_amd64.deb

@@ -33,6 +33,13 @@ type RatingProfile struct {
 	RatingPlanActivations RatingPlanActivations
 }
 
+// RatingProfileWithAPIOpts is used in replicatorV1 for dispatcher
+type RatingProfileWithAPIOpts struct {
+	*RatingProfile
+	Tenant  string
+	APIOpts map[string]any
+}
+
 type RatingPlanActivation struct {
 	ActivationTime time.Time
 	RatingPlanId   string
@@ -160,18 +167,18 @@ func (rpf *RatingProfile) GetRatingPlansForPrefix(cd *CallDescriptor) (err error
 			continue
 		}
 		prefix := ""
-		destinationId := ""
+		destinationID := ""
 		var rps RateIntervalList
-		if cd.Destination == utils.ANY || cd.Destination == "" {
-			cd.Destination = utils.ANY
-			if _, ok := rpl.DestinationRates[utils.ANY]; ok {
-				rps = rpl.RateIntervalList(utils.ANY)
-				prefix = utils.ANY
-				destinationId = utils.ANY
+		if cd.Destination == utils.MetaAny || cd.Destination == "" {
+			cd.Destination = utils.MetaAny
+			if _, ok := rpl.DestinationRates[utils.MetaAny]; ok {
+				rps = rpl.RateIntervalList(utils.MetaAny)
+				prefix = utils.MetaAny
+				destinationID = utils.MetaAny
 			}
 		} else {
 			for _, p := range utils.SplitPrefix(cd.Destination, MIN_PREFIX_MATCH) {
-				if destIDs, err := dm.GetReverseDestination(p, false, utils.NonTransactional); err == nil {
+				if destIDs, err := dm.GetReverseDestination(p, true, true, utils.NonTransactional); err == nil {
 					var bestWeight *float64
 					for _, dID := range destIDs {
 						var timeChecker bool
@@ -191,7 +198,7 @@ func (rpf *RatingProfile) GetRatingPlansForPrefix(cd *CallDescriptor) (err error
 								bestWeight = utils.Float64Pointer(currentWeight)
 								rps = ril
 								prefix = p
-								destinationId = dID
+								destinationID = dID
 							}
 						}
 					}
@@ -201,10 +208,10 @@ func (rpf *RatingProfile) GetRatingPlansForPrefix(cd *CallDescriptor) (err error
 				}
 			}
 			if rps == nil { // fallback on *any destination
-				if _, ok := rpl.DestinationRates[utils.ANY]; ok {
-					rps = rpl.RateIntervalList(utils.ANY)
-					prefix = utils.ANY
-					destinationId = utils.ANY
+				if _, ok := rpl.DestinationRates[utils.MetaAny]; ok {
+					rps = rpl.RateIntervalList(utils.MetaAny)
+					prefix = utils.MetaAny
+					destinationID = utils.MetaAny
 				}
 			}
 		}
@@ -223,7 +230,7 @@ func (rpf *RatingProfile) GetRatingPlansForPrefix(cd *CallDescriptor) (err error
 				MatchedSubject: rpf.Id,
 				RatingPlanId:   rpl.Id,
 				MatchedPrefix:  prefix,
-				MatchedDestId:  destinationId,
+				MatchedDestId:  destinationID,
 				ActivationTime: rpa.ActivationTime,
 				RateIntervals:  rps,
 				FallbackKeys:   rpa.FallbackKeys})
@@ -253,13 +260,13 @@ type TenantRatingSubject struct {
 }
 
 func RatingProfileSubjectPrefixMatching(key string) (rp *RatingProfile, err error) {
-	if !getRpSubjectPrefixMatching() || strings.HasSuffix(key, utils.ANY) {
+	if !getRpSubjectPrefixMatching() || strings.HasSuffix(key, utils.MetaAny) {
 		return dm.GetRatingProfile(key, false, utils.NonTransactional)
 	}
 	if rp, err = dm.GetRatingProfile(key, false, utils.NonTransactional); err == nil && rp != nil { // rp nil represents cached no-result
 		return
 	}
-	lastIndex := strings.LastIndex(key, utils.CONCATENATED_KEY_SEP)
+	lastIndex := strings.LastIndex(key, utils.ConcatenatedKeySep)
 	baseKey := key[:lastIndex]
 	subject := key[lastIndex:]
 	lenSubject := len(subject)

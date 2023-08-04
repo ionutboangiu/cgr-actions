@@ -21,21 +21,24 @@ package services
 import (
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v2 "github.com/cgrates/cgrates/apier/v2"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewAPIerSv2Service returns the APIerSv2 Service
 func NewAPIerSv2Service(apiv1 *APIerSv1Service, cfg *config.CGRConfig,
-	server *utils.Server,
-	internalAPIerSv2Chan chan birpc.ClientConnector) *APIerSv2Service {
+	server *cores.Server, internalAPIerSv2Chan chan rpcclient.ClientConnector,
+	anz *AnalyzerService, srvDep map[string]*sync.WaitGroup) *APIerSv2Service {
 	return &APIerSv2Service{
 		apiv1:    apiv1,
 		connChan: internalAPIerSv2Chan,
 		cfg:      cfg,
 		server:   server,
+		anz:      anz,
+		srvDep:   srvDep,
 	}
 }
 
@@ -43,11 +46,13 @@ func NewAPIerSv2Service(apiv1 *APIerSv1Service, cfg *config.CGRConfig,
 type APIerSv2Service struct {
 	sync.RWMutex
 	cfg    *config.CGRConfig
-	server *utils.Server
+	server *cores.Server
 
 	apiv1    *APIerSv1Service
 	api      *v2.APIerSv2
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -73,11 +78,7 @@ func (api *APIerSv2Service) Start() (err error) {
 		api.server.RpcRegisterName(utils.ApierV2, api.api)
 	}
 
-	utils.RegisterRpcParams("", &v2.CDRsV2{})
-	utils.RegisterRpcParams("", api.api)
-	utils.RegisterRpcParams(utils.ApierV2, api.api)
-
-	api.connChan <- api.api
+	api.connChan <- api.anz.GetInternalCodec(api.api, utils.APIerSv2)
 	return
 }
 
@@ -89,9 +90,9 @@ func (api *APIerSv2Service) Reload() (err error) {
 // Shutdown stops the service
 func (api *APIerSv2Service) Shutdown() (err error) {
 	api.Lock()
-	defer api.Unlock()
 	api.api = nil
 	<-api.connChan
+	api.Unlock()
 	return
 }
 

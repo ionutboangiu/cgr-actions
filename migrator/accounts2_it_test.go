@@ -54,7 +54,8 @@ func TestAccMigrateWithInternal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acc2CfgOut, err = config.NewCGRConfigFromPath(acc2PathIn)
+	acc2PathOut = path.Join(*dataDir, "conf", "samples", "migwithinternal")
+	acc2CfgOut, err = config.NewCGRConfigFromPath(acc2PathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,19 +66,19 @@ func TestAccMigrateWithInternal(t *testing.T) {
 }
 
 func testAcc2ITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(acc2CfgIn.DataDbCfg().DataDbType,
-		acc2CfgIn.DataDbCfg().DataDbHost, acc2CfgIn.DataDbCfg().DataDbPort,
-		acc2CfgIn.DataDbCfg().DataDbName, acc2CfgIn.DataDbCfg().DataDbUser,
-		acc2CfgIn.DataDbCfg().DataDbPass, acc2CfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", acc2CfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(acc2CfgIn.DataDbCfg().Type,
+		acc2CfgIn.DataDbCfg().Host, acc2CfgIn.DataDbCfg().Port,
+		acc2CfgIn.DataDbCfg().Name, acc2CfgIn.DataDbCfg().User,
+		acc2CfgIn.DataDbCfg().Password, acc2CfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), acc2CfgIn.DataDbCfg().Opts, acc2CfgIn.DataDbCfg().Items)
 	if err != nil {
 		t.Error(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(acc2CfgOut.DataDbCfg().DataDbType,
-		acc2CfgOut.DataDbCfg().DataDbHost, acc2CfgOut.DataDbCfg().DataDbPort,
-		acc2CfgOut.DataDbCfg().DataDbName, acc2CfgOut.DataDbCfg().DataDbUser,
-		acc2CfgOut.DataDbCfg().DataDbPass, acc2CfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", acc2CfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(acc2CfgOut.DataDbCfg().Type,
+		acc2CfgOut.DataDbCfg().Host, acc2CfgOut.DataDbCfg().Port,
+		acc2CfgOut.DataDbCfg().Name, acc2CfgOut.DataDbCfg().User,
+		acc2CfgOut.DataDbCfg().Password, acc2CfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), acc2CfgOut.DataDbCfg().Opts, acc2CfgOut.DataDbCfg().Items)
 	if err != nil {
 		t.Error(err)
 	}
@@ -85,26 +86,30 @@ func testAcc2ITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(acc2CfgIn.StorDbCfg().Type,
 		acc2CfgIn.StorDbCfg().Host, acc2CfgIn.StorDbCfg().Port,
 		acc2CfgIn.StorDbCfg().Name, acc2CfgIn.StorDbCfg().User,
-		acc2CfgIn.StorDbCfg().Password, acc2CfgIn.GeneralCfg().DBDataEncoding, acc2CfgIn.StorDbCfg().SSLMode,
-		acc2CfgIn.StorDbCfg().MaxOpenConns, acc2CfgIn.StorDbCfg().MaxIdleConns,
-		acc2CfgIn.StorDbCfg().ConnMaxLifetime, acc2CfgIn.StorDbCfg().StringIndexedFields,
-		acc2CfgIn.StorDbCfg().PrefixIndexedFields, acc2CfgIn.StorDbCfg().Items)
+		acc2CfgIn.StorDbCfg().Password, acc2CfgIn.GeneralCfg().DBDataEncoding,
+		acc2CfgIn.StorDbCfg().StringIndexedFields, acc2CfgIn.StorDbCfg().PrefixIndexedFields,
+		acc2CfgIn.StorDbCfg().Opts, acc2CfgIn.StorDbCfg().Items)
 	if err != nil {
 		t.Error(err)
 	}
 	storDBOut, err := NewMigratorStorDB(acc2CfgOut.StorDbCfg().Type,
 		acc2CfgOut.StorDbCfg().Host, acc2CfgOut.StorDbCfg().Port,
 		acc2CfgOut.StorDbCfg().Name, acc2CfgOut.StorDbCfg().User,
-		acc2CfgOut.StorDbCfg().Password, acc2CfgIn.GeneralCfg().DBDataEncoding, acc2CfgIn.StorDbCfg().SSLMode,
-		acc2CfgOut.StorDbCfg().MaxOpenConns, acc2CfgOut.StorDbCfg().MaxIdleConns,
-		acc2CfgOut.StorDbCfg().ConnMaxLifetime, acc2CfgOut.StorDbCfg().StringIndexedFields,
-		acc2CfgOut.StorDbCfg().PrefixIndexedFields, acc2CfgOut.StorDbCfg().Items)
+		acc2CfgOut.StorDbCfg().Password, acc2CfgIn.GeneralCfg().DBDataEncoding,
+		acc2CfgOut.StorDbCfg().StringIndexedFields, acc2CfgOut.StorDbCfg().PrefixIndexedFields,
+		acc2CfgOut.StorDbCfg().Opts, acc2CfgOut.StorDbCfg().Items)
 	if err != nil {
 		t.Error(err)
 	}
-	acc2Migrator, err = NewMigrator(dataDBIn, dataDBOut,
-		storDBIn, storDBOut,
-		false, false, false, false)
+	if reflect.DeepEqual(acc2PathIn, acc2PathOut) {
+		acc2Migrator, err = NewMigrator(dataDBIn, dataDBOut,
+			storDBIn, storDBOut,
+			false, true, false, false)
+	} else {
+		acc2Migrator, err = NewMigrator(dataDBIn, dataDBOut,
+			storDBIn, storDBOut,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -149,9 +154,9 @@ func testAcc2ITMigrate(t *testing.T) {
 	v1Acc := &v1Account{
 		Id: "*OUT:CUSTOMER_1:rif",
 		BalanceMap: map[string]v1BalanceChain{
-			utils.DATA:  {v1b},
-			utils.VOICE: {v1b},
-			utils.MONETARY: {
+			utils.MetaData:  {v1b},
+			utils.MetaVoice: {v1b},
+			utils.MetaMonetary: {
 				&v1Balance{Value: 21,
 					ExpirationDate: time.Date(2012, 1, 1, 0, 0, 0, 0, time.UTC),
 					Timings:        timingSlice}}}}
@@ -195,9 +200,9 @@ func testAcc2ITMigrate(t *testing.T) {
 	testAccount := &engine.Account{
 		ID: "CUSTOMER_1:rif",
 		BalanceMap: map[string]engine.Balances{
-			utils.DATA:     {v2d},
-			utils.VOICE:    {v2b},
-			utils.MONETARY: {m2}},
+			utils.MetaData:     {v2d},
+			utils.MetaVoice:    {v2b},
+			utils.MetaMonetary: {m2}},
 		UnitCounters:   engine.UnitCounters{},
 		ActionTriggers: engine.ActionTriggers{},
 	}
@@ -250,9 +255,7 @@ func testAcc2ITMigrate(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", testAccount.BalanceMap, result.BalanceMap)
 	} else if !reflect.DeepEqual(testAccount.UnitCounters, result.UnitCounters) {
 		t.Errorf("Expecting: %+v, received: %+v", testAccount.UnitCounters, result.UnitCounters)
-	}
-	//check if old account was deleted
-	if _, err = acc2Migrator.dmIN.getv1Account(); err != utils.ErrNoMoreData {
-		t.Error("Error should be not found : ", err)
+	} else if acc2Migrator.stats[utils.Accounts] != 1 {
+		t.Errorf("Expecting: 1, received: %+v", acc2Migrator.stats[utils.Accounts])
 	}
 }

@@ -19,15 +19,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package migrator
 
 import (
-	"fmt"
-
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
 func (m *Migrator) migrateCurrentTPratingprofiles() (err error) {
 
-	tpids, err := m.storDBIn.StorDB().GetTpIds(utils.TBLTPRateProfiles)
+	tpids, err := m.storDBIn.StorDB().GetTpIds(utils.TBLTPRatingProfiles)
 	if err != nil {
 		return err
 	}
@@ -43,7 +41,7 @@ func (m *Migrator) migrateCurrentTPratingprofiles() (err error) {
 					return err
 				}
 				for _, ratPrf := range ratingProfile {
-					if err := m.storDBIn.StorDB().RemTpData(utils.TBLTPRateProfiles, ratPrf.TPid,
+					if err := m.storDBIn.StorDB().RemTpData(utils.TBLTPRatingProfiles, ratPrf.TPid,
 						map[string]string{"loadid": ratPrf.LoadId,
 							"tenant": ratPrf.Tenant, "category": ratPrf.Category,
 							"subject": ratPrf.Subject}); err != nil {
@@ -60,17 +58,8 @@ func (m *Migrator) migrateCurrentTPratingprofiles() (err error) {
 func (m *Migrator) migrateTPratingprofiles() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentStorDBVersions()
-	vrs, err = m.storDBOut.StorDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.TpRatingProfiles); err != nil {
+		return
 	}
 	switch vrs[utils.TpRatingProfiles] {
 	case current[utils.TpRatingProfiles]:
@@ -81,5 +70,5 @@ func (m *Migrator) migrateTPratingprofiles() (err error) {
 			return err
 		}
 	}
-	return m.ensureIndexesStorDB(utils.TBLTPRateProfiles)
+	return m.ensureIndexesStorDB(utils.TBLTPRatingProfiles)
 }

@@ -18,10 +18,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package utils
 
 import (
-	"fmt"
-	"net"
+	"errors"
 	"reflect"
-	"syscall"
 	"testing"
 )
 
@@ -94,6 +92,13 @@ func TestNewErrServiceNotOperational(t *testing.T) {
 	}
 }
 
+func TestNewErrRates(t *testing.T) {
+	err := errors.New("ErrorRates")
+	if rcv := NewErrRateS(err); rcv.Error() != "RATES_ERROR:ErrorRates" {
+		t.Errorf("Expecting: RATES_ERROR:ErrorRates, received: %+v", rcv)
+	}
+}
+
 func TestNewErrNotConnected(t *testing.T) {
 	if rcv := NewErrNotConnected("Error"); rcv.Error() != "NOT_CONNECTED: Error" {
 		t.Errorf("Expecting: NOT_CONNECTED: Error, received: %+v", rcv)
@@ -116,8 +121,8 @@ func TestNewErrResourceS(t *testing.T) {
 
 func TestNewErrSupplierS(t *testing.T) {
 	cgrError := NewCGRError("context", "apiError", "shortError", "longError")
-	if rcv := NewErrSupplierS(cgrError); rcv.Error() != "SUPPLIERS_ERROR:shortError" {
-		t.Errorf("Expecting: SUPPLIERS_ERROR:shortError, received: %+v", rcv)
+	if rcv := NewErrRouteS(cgrError); rcv.Error() != "ROUTES_ERROR:shortError" {
+		t.Errorf("Expecting: ROUTES_ERROR:shortError, received: %+v", rcv)
 	}
 }
 func TestNewErrAttributeS(t *testing.T) {
@@ -193,32 +198,6 @@ func TestErrEnvNotFound(t *testing.T) {
 	}
 }
 
-func TestIsNetworkError(t *testing.T) {
-	if IsNetworkError(nil) {
-		t.Errorf("Expecting: false, received: true")
-	}
-	if !IsNetworkError(ErrReqUnsynchronized) {
-		t.Errorf("Expecting: true, received: false")
-	}
-	var err error
-	if IsNetworkError(err) {
-		t.Errorf("Nill error should not be consider a network error")
-	}
-	err = &net.OpError{Err: syscall.ECONNRESET}
-	if !IsNetworkError(err) {
-		t.Errorf("syscall.ECONNRESET should be consider a network error")
-	}
-	err = fmt.Errorf("NOT_FOUND")
-	if IsNetworkError(err) {
-		t.Errorf("%s error should not be consider a network error", err)
-	}
-	err = ErrDisconnected
-	if !IsNetworkError(err) {
-		t.Errorf("%s error should be consider a network error", err)
-	}
-
-}
-
 func TestErrPathNotReachable(t *testing.T) {
 	if rcv := ErrPathNotReachable("test/path"); rcv.Error() != `path:"test/path" is not reachable` {
 		t.Errorf("Expecting: path:'test/path' is not reachable, received: %+v", rcv)
@@ -228,5 +207,40 @@ func TestErrPathNotReachable(t *testing.T) {
 func TestErrNotConvertibleTF(t *testing.T) {
 	if rcv := ErrNotConvertibleTF("test_type1", "test_type2"); rcv.Error() != `not convertible : from: test_type1 to:test_type2` {
 		t.Errorf("Expecting: not convertible : from: test_type1 to:test_type2, received: %+v", rcv)
+	}
+}
+
+func TestNewErrChargerS(t *testing.T) {
+	expected := `CHARGERS_ERROR:NOT_FOUND`
+	if rcv := NewErrChargerS(ErrNotFound); rcv.Error() != expected {
+		t.Errorf("Expecting: %q, received: %q", expected, rcv.Error())
+	}
+}
+
+func TestNewErrStatS(t *testing.T) {
+	expected := "STATS_ERROR:NOT_FOUND"
+	if rcv := NewErrStatS(ErrNotFound); rcv.Error() != expected {
+		t.Errorf("Expected %+q, receiveed %+q", expected, rcv.Error())
+	}
+}
+
+func TestNewErrCDRS(t *testing.T) {
+	expected := "CDRS_ERROR:NOT_FOUND"
+	if rcv := NewErrCDRS(ErrNotFound); rcv.Error() != expected {
+		t.Errorf("Expected %+q, received %+q", expected, rcv.Error())
+	}
+}
+
+func TestNewErrThresholdS(t *testing.T) {
+	expected := "THRESHOLDS_ERROR:NOT_FOUND"
+	if rcv := NewErrThresholdS(ErrNotFound); rcv.Error() != expected {
+		t.Errorf("Expected %+q, received %+q", expected, rcv.Error())
+	}
+}
+
+func TestNewSTIRError(t *testing.T) {
+	expected := `*stir_authenticate: wrong header`
+	if rcv := NewSTIRError("wrong header"); rcv.Error() != expected {
+		t.Errorf("Expecting: %q, received: %q", expected, rcv.Error())
 	}
 }

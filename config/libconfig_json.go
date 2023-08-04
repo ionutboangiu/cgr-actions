@@ -18,34 +18,36 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 package config
 
+import (
+	"encoding/json"
+)
+
 // General config section
 type GeneralJsonCfg struct {
-	Node_id              *string
-	Logger               *string
-	Log_level            *int
-	Http_skip_tls_verify *bool
-	Rounding_decimals    *int
-	Dbdata_encoding      *string
-	Tpexport_dir         *string
-	Poster_attempts      *int
-	Failed_posts_dir     *string
-	Failed_posts_ttl     *string
-	Default_request_type *string
-	Default_category     *string
-	Default_tenant       *string
-	Default_timezone     *string
-	Default_caching      *string
-	Connect_attempts     *int
-	Reconnects           *int
-	Connect_timeout      *string
-	Reply_timeout        *string
-	Locking_timeout      *string
-	Digest_separator     *string
-	Digest_equal         *string
-	Rsr_separator        *string
-	Max_parallel_conns   *int
-	Concurrent_requests  *int
-	Concurrent_strategy  *string
+	Node_id                *string
+	Logger                 *string
+	Log_level              *int
+	Rounding_decimals      *int
+	Dbdata_encoding        *string
+	Tpexport_dir           *string
+	Poster_attempts        *int
+	Failed_posts_dir       *string
+	Failed_posts_ttl       *string
+	Default_request_type   *string
+	Default_category       *string
+	Default_tenant         *string
+	Default_timezone       *string
+	Default_caching        *string
+	Connect_attempts       *int
+	Reconnects             *int
+	Max_reconnect_interval *string
+	Connect_timeout        *string
+	Reply_timeout          *string
+	Locking_timeout        *string
+	Digest_separator       *string
+	Digest_equal           *string
+	Rsr_separator          *string
+	Max_parallel_conns     *int
 }
 
 // Listen config section
@@ -58,14 +60,33 @@ type ListenJsonCfg struct {
 	Http_tls     *string
 }
 
+type HTTPClientOptsJson struct {
+	SkipTLSVerify         *bool   `json:"skipTlsVerify"`
+	TLSHandshakeTimeout   *string `json:"tlsHandshakeTimeout"`
+	DisableKeepAlives     *bool   `json:"disableKeepAlives"`
+	DisableCompression    *bool   `json:"disableCompression"`
+	MaxIdleConns          *int    `json:"maxIdleConns"`
+	MaxIdleConnsPerHost   *int    `json:"maxIdleConnsPerHost"`
+	MaxConnsPerHost       *int    `json:"maxConnsPerHost"`
+	IdleConnTimeout       *string `json:"IdleConnTimeout"`
+	ResponseHeaderTimeout *string `json:"responseHeaderTimeout"`
+	ExpectContinueTimeout *string `json:"expectContinueTimeout"`
+	ForceAttemptHTTP2     *bool   `json:"forceAttemptHttp2"`
+	DialTimeout           *string `json:"dialTimeout"`
+	DialFallbackDelay     *string `json:"dialFallbackDelay"`
+	DialKeepAlive         *string `json:"dialKeepAlive"`
+}
+
 // HTTP config section
 type HTTPJsonCfg struct {
 	Json_rpc_url        *string
+	Registrars_url      *string
 	Ws_url              *string
 	Freeswitch_cdrs_url *string
 	Http_Cdrs           *string
 	Use_basic_auth      *bool
 	Auth_users          *map[string]string
+	Client_opts         *HTTPClientOptsJson
 }
 
 type TlsJsonCfg struct {
@@ -78,6 +99,29 @@ type TlsJsonCfg struct {
 	Ca_certificate     *string
 }
 
+type DBOptsJson struct {
+	RedisMaxConns           *int              `json:"redisMaxConns"`
+	RedisConnectAttempts    *int              `json:"redisConnectAttempts"`
+	RedisSentinel           *string           `json:"redisSentinel"`
+	RedisCluster            *bool             `json:"redisCluster"`
+	RedisClusterSync        *string           `json:"redisClusterSync"`
+	RedisClusterOndownDelay *string           `json:"redisClusterOndownDelay"`
+	RedisConnectTimeout     *string           `json:"redisConnectTimeout"`
+	RedisReadTimeout        *string           `json:"redisReadTimeout"`
+	RedisWriteTimeout       *string           `json:"redisWriteTimeout"`
+	MongoQueryTimeout       *string           `json:"mongoQueryTimeout"`
+	RedisTLS                *bool             `json:"redisTLS"`
+	RedisClientCertificate  *string           `json:"redisClientCertificate"`
+	RedisClientKey          *string           `json:"redisClientKey"`
+	RedisCACertificate      *string           `json:"redisCACertificate"`
+	SQLMaxOpenConns         *int              `json:"sqlMaxOpenConns"`
+	SQLMaxIdleConns         *int              `json:"sqlMaxIdleConns"`
+	SQLConnMaxLifetime      *string           `json:"sqlConnMaxLifetime"`
+	MySQLDSNParams          map[string]string `json:"mysqlDSNParams"`
+	PgSSLMode               *string           `json:"pgSSLMode"`
+	MySQLLocation           *string           `json:"mysqlLocation"`
+}
+
 // Database config
 type DbJsonCfg struct {
 	Db_type               *string
@@ -86,26 +130,23 @@ type DbJsonCfg struct {
 	Db_name               *string
 	Db_user               *string
 	Db_password           *string
-	Max_open_conns        *int // Used only in case of storDb
-	Max_idle_conns        *int
-	Conn_max_lifetime     *int // Used only in case of storDb
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
-	Redis_sentinel        *string
-	Query_timeout         *string
-	Sslmode               *string // Used only in case of storDb
 	Remote_conns          *[]string
+	Remote_conn_id        *string
 	Replication_conns     *[]string
-	Items                 *map[string]*ItemOptJson
 	Replication_filtered  *bool
+	Replication_cache     *string
+	Items                 *map[string]*ItemOptJson
+	Opts                  *DBOptsJson
 }
 
 type ItemOptJson struct {
+	Limit      *int
+	Ttl        *string
+	Static_ttl *bool
 	Remote     *bool
 	Replicate  *bool
-	Ttl        *string
-	Limit      *int
-	Static_ttl *bool
 	// used for ArgDispatcher in case we send this to a dispatcher engine
 	Route_id *string
 	Api_key  *string
@@ -115,6 +156,7 @@ type ItemOptJson struct {
 type FilterSJsonCfg struct {
 	Stats_conns     *[]string
 	Resources_conns *[]string
+	Apiers_conns    *[]string
 }
 
 // Rater config section
@@ -122,7 +164,6 @@ type RalsJsonCfg struct {
 	Enabled                    *bool
 	Thresholds_conns           *[]string
 	Stats_conns                *[]string
-	CacheS_conns               *[]string
 	Rp_subject_prefix_matching *bool
 	Remove_expired             *bool
 	Max_computed_usage         *map[string]string
@@ -132,9 +173,12 @@ type RalsJsonCfg struct {
 
 // Scheduler config section
 type SchedulerJsonCfg struct {
-	Enabled    *bool
-	Cdrs_conns *[]string
-	Filters    *[]string
+	Enabled                 *bool
+	Cdrs_conns              *[]string
+	Thresholds_conns        *[]string
+	Stats_conns             *[]string
+	Filters                 *[]string
+	Dynaprepaid_actionplans *[]string
 }
 
 // Cdrs config section
@@ -149,60 +193,207 @@ type CdrsJsonCfg struct {
 	Thresholds_conns     *[]string
 	Stats_conns          *[]string
 	Online_cdr_exports   *[]string
-}
-
-// Cdre config section
-type CdreJsonCfg struct {
-	Export_format      *string
-	Export_path        *string
-	Filters            *[]string
-	Tenant             *string
-	Attributes_context *string
-	Synchronous        *bool
-	Attempts           *int
-	Field_separator    *string
-	Fields             *[]*FcTemplateJsonCfg
+	Scheduler_conns      *[]string
+	Ees_conns            *[]string
 }
 
 // EventReaderSJsonCfg contains the configuration of EventReaderService
 type ERsJsonCfg struct {
-	Enabled        *bool
-	Sessions_conns *[]string
-	Readers        *[]*EventReaderJsonCfg
+	Enabled           *bool
+	Sessions_conns    *[]string
+	Readers           *[]*EventReaderJsonCfg
+	Partial_cache_ttl *string
+}
+
+type EventReaderOptsJson struct {
+	PartialPath                       *string `json:"partialPath"`
+	PartialCacheAction                *string `json:"partialCacheAction"`
+	PartialOrderField                 *string `json:"partialOrderField"`
+	PartialCSVFieldSeparator          *string `json:"partialcsvFieldSeparator"`
+	CSVRowLength                      *int    `json:"csvRowLength"`
+	CSVFieldSeparator                 *string `json:"csvFieldSeparator"`
+	CSVHeaderDefineChar               *string `json:"csvHeaderDefineChar"`
+	CSVLazyQuotes                     *bool   `json:"csvLazyQuotes"`
+	XMLRootPath                       *string `json:"xmlRootPath"`
+	AMQPQueueID                       *string `json:"amqpQueueID"`
+	AMQPQueueIDProcessed              *string `json:"amqpQueueIDProcessed"`
+	AMQPUsername                      *string `json:"amqpUsername"`
+	AMQPPassword                      *string `json:"amqpPassword"`
+	AMQPUsernameProcessed             *string `json:"amqpUsernameProcessed"`
+	AMQPPasswordProcessed             *string `json:"amqpPasswordProcessed"`
+	AMQPConsumerTag                   *string `json:"amqpConsumerTag"`
+	AMQPExchange                      *string `json:"amqpExchange"`
+	AMQPExchangeType                  *string `json:"amqpExchangeType"`
+	AMQPRoutingKey                    *string `json:"amqpRoutingKey"`
+	AMQPExchangeProcessed             *string `json:"amqpExchangeProcessed"`
+	AMQPExchangeTypeProcessed         *string `json:"amqpExchangeTypeProcessed"`
+	AMQPRoutingKeyProcessed           *string `json:"amqpRoutingKeyProcessed"`
+	KafkaTopic                        *string `json:"kafkaTopic"`
+	KafkaGroupID                      *string `json:"kafkaGroupID"`
+	KafkaMaxWait                      *string `json:"kafkaMaxWait"`
+	KafkaTopicProcessed               *string `json:"kafkaTopicProcessed"`
+	SQLDBName                         *string `json:"sqlDBName"`
+	SQLTableName                      *string `json:"sqlTableName"`
+	PgSSLMode                         *string `json:"pgSSLMode"`
+	SQLDBNameProcessed                *string `json:"sqlDBNameProcessed"`
+	SQLTableNameProcessed             *string `json:"sqlTableNameProcessed"`
+	PgSSLModeProcessed                *string `json:"pgSSLModeProcessed"`
+	AWSRegion                         *string `json:"awsRegion"`
+	AWSKey                            *string `json:"awsKey"`
+	AWSSecret                         *string `json:"awsSecret"`
+	AWSToken                          *string `json:"awsToken"`
+	AWSRegionProcessed                *string `json:"awsRegionProcessed"`
+	AWSKeyProcessed                   *string `json:"awsKeyProcessed"`
+	AWSSecretProcessed                *string `json:"awsSecretProcessed"`
+	AWSTokenProcessed                 *string `json:"awsTokenProcessed"`
+	SQSQueueID                        *string `json:"sqsQueueID"`
+	SQSQueueIDProcessed               *string `json:"sqsQueueIDProcessed"`
+	S3BucketID                        *string `json:"s3BucketID"`
+	S3FolderPathProcessed             *string `json:"s3FolderPathProcessed"`
+	S3BucketIDProcessed               *string `json:"s3BucketIDProcessed"`
+	NATSJetStream                     *bool   `json:"natsJetStream"`
+	NATSConsumerName                  *string `json:"natsConsumerName"`
+	NATSSubject                       *string `json:"natsSubject"`
+	NATSQueueID                       *string `json:"natsQueueID"`
+	NATSJWTFile                       *string `json:"natsJWTFile"`
+	NATSSeedFile                      *string `json:"natsSeedFile"`
+	NATSCertificateAuthority          *string `json:"natsCertificateAuthority"`
+	NATSClientCertificate             *string `json:"natsClientCertificate"`
+	NATSClientKey                     *string `json:"natsClientKey"`
+	NATSJetStreamMaxWait              *string `json:"natsJetStreamMaxWait"`
+	NATSJetStreamProcessed            *bool   `json:"natsJetStreamProcessed"`
+	NATSSubjectProcessed              *string `json:"natsSubjectProcessed"`
+	NATSJWTFileProcessed              *string `json:"natsJWTFileProcessed"`
+	NATSSeedFileProcessed             *string `json:"natsSeedFileProcessed"`
+	NATSCertificateAuthorityProcessed *string `json:"natsCertificateAuthorityProcessed"`
+	NATSClientCertificateProcessed    *string `json:"natsClientCertificateProcessed"`
+	NATSClientKeyProcessed            *string `json:"natsClientKeyProcessed"`
+	NATSJetStreamMaxWaitProcessed     *string `json:"natsJetStreamMaxWaitProcessed"`
 }
 
 // EventReaderSJsonCfg is the configuration of a single EventReader
 type EventReaderJsonCfg struct {
-	Id                          *string
-	Type                        *string
-	Row_length                  *int
-	Field_separator             *string
-	Run_delay                   *string
-	Concurrent_requests         *int
-	Source_path                 *string
-	Processed_path              *string
-	Xml_root_path               *string
-	Tenant                      *string
-	Timezone                    *string
-	Filters                     *[]string
-	Flags                       *[]string
-	Failed_calls_prefix         *string
-	Partial_record_cache        *string
-	Partial_cache_expiry_action *string
-	Fields                      *[]*FcTemplateJsonCfg
-	Cache_dump_fields           *[]*FcTemplateJsonCfg
+	Id                    *string
+	Type                  *string
+	Run_delay             *string
+	Concurrent_requests   *int
+	Source_path           *string
+	Processed_path        *string
+	Opts                  *EventReaderOptsJson
+	Tenant                *string
+	Timezone              *string
+	Filters               *[]string
+	Flags                 *[]string
+	Fields                *[]*FcTemplateJsonCfg
+	Partial_commit_fields *[]*FcTemplateJsonCfg
+	Cache_dump_fields     *[]*FcTemplateJsonCfg
 }
 
-// SM-Generic config section
+// EEsJsonCfg contains the configuration of EventExporterService
+type EEsJsonCfg struct {
+	Enabled          *bool
+	Attributes_conns *[]string
+	Cache            *map[string]*CacheParamJsonCfg
+	Exporters        *[]*EventExporterJsonCfg
+}
+
+type EventExporterOptsJson struct {
+	CSVFieldSeparator           *string           `json:"csvFieldSeparator"`
+	ElsCloud                    *bool             `json:"elsCloud"`
+	ElsAPIKey                   *string           `json:"elsApiKey"`
+	ElsServiceToken             *string           `json:"elsServiceToken"`
+	ElsCertificateFingerprint   *string           `json:"elsCertificateFingerPrint"`
+	ElsUsername                 *string           `json:"elsUsername"`
+	ElsPassword                 *string           `json:"elsPassword"`
+	ElsDiscoverNodesOnStart     *bool             `json:"elsDiscoverNodesOnStart"`
+	ElsDiscoverNodesInterval    *string           `json:"elsDiscoverNodesInterval"`
+	ElsEnableDebugLogger        *bool             `json:"elsEnableDebugLogger"`
+	ElsLogger                   *string           `json:"elsLogger"`
+	ElsCompressRequestBody      *bool             `json:"elsCompressRequestBody"`
+	ElsCompressRequestBodyLevel *int              `json:"elsCompressRequestBodyLevel"`
+	ElsRetryOnStatus            *[]int            `json:"elsRetryOnStatus"`
+	ElsMaxRetries               *int              `json:"elsMaxRetries"`
+	ElsDisableRetry             *bool             `json:"elsDisableRetry"`
+	ElsIndex                    *string           `json:"elsIndex"`
+	ElsIfPrimaryTerm            *int              `json:"elsIfPrimaryTerm"`
+	ElsIfSeqNo                  *int              `json:"elsIfSeqNo"`
+	ElsOpType                   *string           `json:"elsOpType"`
+	ElsPipeline                 *string           `json:"elsPipeline"`
+	ElsRouting                  *string           `json:"elsRouting"`
+	ElsTimeout                  *string           `json:"elsTimeout"`
+	ElsVersion                  *int              `json:"elsVersion"`
+	ElsVersionType              *string           `json:"elsVersionType"`
+	ElsWaitForActiveShards      *string           `json:"elsWaitForActiveShards"`
+	SQLMaxIdleConns             *int              `json:"sqlMaxIdleConns"`
+	SQLMaxOpenConns             *int              `json:"sqlMaxOpenConns"`
+	SQLConnMaxLifetime          *string           `json:"sqlConnMaxLifetime"`
+	MYSQLDSNParams              map[string]string `json:"mysqlDSNParams"`
+	SQLTableName                *string           `json:"sqlTableName"`
+	SQLDBName                   *string           `json:"sqlDBName"`
+	PgSSLMode                   *string           `json:"pgSSLMode"`
+	KafkaTopic                  *string           `json:"kafkaTopic"`
+	AMQPQueueID                 *string           `json:"amqpQueueID"`
+	AMQPRoutingKey              *string           `json:"amqpRoutingKey"`
+	AMQPExchange                *string           `json:"amqpExchange"`
+	AMQPExchangeType            *string           `json:"amqpExchangeType"`
+	AMQPUsername                *string           `json:"amqpUsername"`
+	AMQPPassword                *string           `json:"amqpPassword"`
+	AWSRegion                   *string           `json:"awsRegion"`
+	AWSKey                      *string           `json:"awsKey"`
+	AWSSecret                   *string           `json:"awsSecret"`
+	AWSToken                    *string           `json:"awsToken"`
+	SQSQueueID                  *string           `json:"sqsQueueID"`
+	S3BucketID                  *string           `json:"s3BucketID"`
+	S3FolderPath                *string           `json:"s3FolderPath"`
+	NATSJetStream               *bool             `json:"natsJetStream"`
+	NATSSubject                 *string           `json:"natsSubject"`
+	NATSJWTFile                 *string           `json:"natsJWTFile"`
+	NATSSeedFile                *string           `json:"natsSeedFile"`
+	NATSCertificateAuthority    *string           `json:"natsCertificateAuthority"`
+	NATSClientCertificate       *string           `json:"natsClientCertificate"`
+	NATSClientKey               *string           `json:"natsClientKey"`
+	NATSJetStreamMaxWait        *string           `json:"natsJetStreamMaxWait"`
+	RPCCodec                    *string           `json:"rpcCodec"`
+	ServiceMethod               *string           `json:"serviceMethod"`
+	KeyPath                     *string           `json:"keyPath"`
+	CertPath                    *string           `json:"certPath"`
+	CAPath                      *string           `json:"caPath"`
+	ConnIDs                     *[]string         `json:"connIDs"`
+	TLS                         *bool             `json:"tls"`
+	RPCConnTimeout              *string           `json:"rpcConnTimeout"`
+	RPCReplyTimeout             *string           `json:"rpcReplyTimeout"`
+	RPCAPIOpts                  map[string]any    `json:"rpcAPIOpts"`
+}
+
+// EventExporterJsonCfg is the configuration of a single EventExporter
+type EventExporterJsonCfg struct {
+	Id                  *string
+	Type                *string
+	Export_path         *string
+	Opts                *EventExporterOptsJson
+	Timezone            *string
+	Filters             *[]string
+	Flags               *[]string
+	Attribute_ids       *[]string
+	Attribute_context   *string
+	Synchronous         *bool
+	Attempts            *int
+	Failed_posts_dir    *string
+	Concurrent_requests *int
+	Fields              *[]*FcTemplateJsonCfg
+}
+
+// SessionSJsonCfg config section
 type SessionSJsonCfg struct {
 	Enabled                *bool
 	Listen_bijson          *string
+	Listen_bigob           *string
 	Chargers_conns         *[]string
 	Rals_conns             *[]string
 	Resources_conns        *[]string
 	Thresholds_conns       *[]string
 	Stats_conns            *[]string
-	Suppliers_conns        *[]string
+	Routes_conns           *[]string
 	Cdrs_conns             *[]string
 	Replication_conns      *[]string
 	Attributes_conns       *[]string
@@ -218,6 +409,9 @@ type SessionSJsonCfg struct {
 	Channel_sync_interval  *string
 	Terminate_attempts     *int
 	Alterable_fields       *[]string
+	Min_dur_low_balance    *string
+	Scheduler_conns        *[]string
+	Stir                   *STIRJsonCfg
 	Default_usage          *map[string]string
 }
 
@@ -228,6 +422,7 @@ type FreeswitchAgentJsonCfg struct {
 	Subscribe_park         *bool
 	Create_cdr             *bool
 	Extra_fields           *[]string
+	Low_balance_ann_file   *string
 	Empty_balance_context  *string
 	Empty_balance_ann_file *string
 	Max_wait_connection    *string
@@ -236,10 +431,11 @@ type FreeswitchAgentJsonCfg struct {
 
 // Represents one connection instance towards FreeSWITCH
 type FsConnJsonCfg struct {
-	Address    *string
-	Password   *string
-	Reconnects *int
-	Alias      *string
+	Address                *string
+	Password               *string
+	Reconnects             *int
+	Max_reconnect_interval *string
+	Alias                  *string
 }
 
 type RPCConnsJson struct {
@@ -250,20 +446,29 @@ type RPCConnsJson struct {
 
 // Represents one connection instance towards a rater/cdrs server
 type RemoteHostJson struct {
-	Id          *string
-	Address     *string
-	Transport   *string
-	Synchronous *bool
-	Tls         *bool
+	Id                     *string
+	Address                *string
+	Transport              *string
+	Synchronous            *bool
+	Tls                    *bool
+	Key_path               *string
+	Cert_path              *string
+	Ca_path                *string
+	Conn_attempts          *int
+	Reconnects             *int
+	Max_reconnect_interval *string
+	Connect_timeout        *string
+	Reply_timeout          *string
 }
 
 type AstConnJsonCfg struct {
-	Alias            *string
-	Address          *string
-	User             *string
-	Password         *string
-	Connect_attempts *int
-	Reconnects       *int
+	Alias                  *string
+	Address                *string
+	User                   *string
+	Password               *string
+	Connect_attempts       *int
+	Reconnects             *int
+	Max_reconnect_interval *string
 }
 
 type AsteriskAgentJsonCfg struct {
@@ -278,9 +483,15 @@ type CacheParamJsonCfg struct {
 	Ttl        *string
 	Static_ttl *bool
 	Precache   *bool
+	Remote     *bool
+	Replicate  *bool
 }
 
-type CacheJsonCfg map[string]*CacheParamJsonCfg
+type CacheJsonCfg struct {
+	Partitions        *map[string]*CacheParamJsonCfg
+	Replication_conns *[]string
+	Remote_conns      *[]string
+}
 
 // SM-Kamailio config section
 type KamAgentJsonCfg struct {
@@ -288,13 +499,15 @@ type KamAgentJsonCfg struct {
 	Sessions_conns *[]string
 	Create_cdr     *bool
 	Evapi_conns    *[]*KamConnJsonCfg
+	Timezone       *string
 }
 
 // Represents one connection instance towards Kamailio
 type KamConnJsonCfg struct {
-	Alias      *string
-	Address    *string
-	Reconnects *int
+	Alias                  *string
+	Address                *string
+	Reconnects             *int
+	Max_reconnect_interval *string
 }
 
 // Represents one connection instance towards OpenSIPS
@@ -317,7 +530,8 @@ type DiameterAgentJsonCfg struct {
 	Concurrent_requests  *int
 	Synced_conn_requests *bool
 	Asr_template         *string
-	Templates            map[string][]*FcTemplateJsonCfg
+	Rar_template         *string
+	Forced_disconnect    *string
 	Request_processors   *[]*ReqProcessorJsnCfg
 }
 
@@ -344,11 +558,15 @@ type HttpAgentJsonCfg struct {
 	Request_processors *[]*ReqProcessorJsnCfg
 }
 
+type ListenerJsnCfg struct {
+	Address *string
+	Network *string
+}
+
 // DNSAgentJsonCfg
 type DNSAgentJsonCfg struct {
 	Enabled            *bool
-	Listen             *string
-	Listen_net         *string
+	Listeners          *[]*ListenerJsnCfg
 	Sessions_conns     *[]string
 	Timezone           *string
 	Request_processors *[]*ReqProcessorJsnCfg
@@ -364,14 +582,27 @@ type ReqProcessorJsnCfg struct {
 	Reply_fields   *[]*FcTemplateJsonCfg
 }
 
+type AttributesOptsJson struct {
+	ProfileIDs           *[]string `json:"*profileIDs"`
+	ProfileRuns          *int      `json:"*profileRuns"`
+	ProfileIgnoreFilters *bool     `json:"*profileIgnoreFilters"`
+	ProcessRuns          *int      `json:"*processRuns"`
+	Context              *string   `json:"*context"`
+}
+
 // Attribute service config section
 type AttributeSJsonCfg struct {
 	Enabled               *bool
+	Stats_conns           *[]string
+	Resources_conns       *[]string
+	Apiers_conns          *[]string
 	Indexed_selects       *bool
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
+	Suffix_indexed_fields *[]string
 	Nested_fields         *bool // applies when indexed fields is not defined
-	Process_runs          *int
+	Any_context           *bool
+	Opts                  *AttributesOptsJson
 }
 
 // ChargerSJsonCfg service config section
@@ -381,7 +612,14 @@ type ChargerSJsonCfg struct {
 	Attributes_conns      *[]string
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
+	Suffix_indexed_fields *[]string
 	Nested_fields         *bool // applies when indexed fields is not defined
+}
+
+type ResourcesOptsJson struct {
+	UsageID  *string  `json:"*usageID"`
+	UsageTTL *string  `json:"*usageTTL"`
+	Units    *float64 `json:"*units"`
 }
 
 // ResourceLimiter service config section
@@ -392,7 +630,14 @@ type ResourceSJsonCfg struct {
 	Store_interval        *string
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
+	Suffix_indexed_fields *[]string
 	Nested_fields         *bool // applies when indexed fields is not defined
+	Opts                  *ResourcesOptsJson
+}
+
+type StatsOptsJson struct {
+	ProfileIDs           *[]string `json:"*profileIDs"`
+	ProfileIgnoreFilters *bool     `json:"*profileIgnoreFilters"`
 }
 
 // Stat service config section
@@ -404,7 +649,14 @@ type StatServJsonCfg struct {
 	Thresholds_conns         *[]string
 	String_indexed_fields    *[]string
 	Prefix_indexed_fields    *[]string
+	Suffix_indexed_fields    *[]string
 	Nested_fields            *bool // applies when indexed fields is not defined
+	Opts                     *StatsOptsJson
+}
+
+type ThresholdsOptsJson struct {
+	ProfileIDs           *[]string `json:"*profileIDs"`
+	ProfileIgnoreFilters *bool     `json:"*profileIgnoreFilters"`
 }
 
 // Threshold service config section
@@ -414,26 +666,40 @@ type ThresholdSJsonCfg struct {
 	Store_interval        *string
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
+	Suffix_indexed_fields *[]string
 	Nested_fields         *bool // applies when indexed fields is not defined
+	Opts                  *ThresholdsOptsJson
 }
 
-// Supplier service config section
-type SupplierSJsonCfg struct {
+type RoutesOptsJson struct {
+	Context      *string `json:"*context"`
+	IgnoreErrors *bool   `json:"*ignoreErrors"`
+	MaxCost      any     `json:"*maxCost"`
+	Limit        *int    `json:"*limit"`
+	Offset       *int    `json:"*offset"`
+	ProfileCount *int    `json:"*profileCount"`
+}
+
+// Route service config section
+type RouteSJsonCfg struct {
 	Enabled               *bool
 	Indexed_selects       *bool
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
+	Suffix_indexed_fields *[]string
 	Nested_fields         *bool // applies when indexed fields is not defined
 	Attributes_conns      *[]string
 	Resources_conns       *[]string
 	Stats_conns           *[]string
 	Rals_conns            *[]string
 	Default_ratio         *int
+	Opts                  *RoutesOptsJson
 }
 
 type LoaderJsonDataType struct {
 	Type      *string
 	File_name *string
+	Flags     *[]string
 	Fields    *[]*FcTemplateJsonCfg
 }
 
@@ -442,8 +708,8 @@ type LoaderJsonCfg struct {
 	Enabled         *bool
 	Tenant          *string
 	Dry_run         *bool
-	Run_delay       *int
-	Lock_filename   *string
+	Run_delay       *string
+	Lockfile_path   *string
 	Caches_conns    *[]string
 	Field_separator *string
 	Tp_in_dir       *string
@@ -494,35 +760,52 @@ type DispatcherSJsonCfg struct {
 	Indexed_selects       *bool
 	String_indexed_fields *[]string
 	Prefix_indexed_fields *[]string
+	Suffix_indexed_fields *[]string
 	Nested_fields         *bool // applies when indexed fields is not defined
 	Attributes_conns      *[]string
+	Any_subsystem         *bool
+	Prevent_loop          *bool
+}
+
+type RegistrarCJsonCfg struct {
+	Registrars_conns *[]string
+	Hosts            []*RemoteHostJsonWithTenant
+	Refresh_interval *string
+}
+
+type RegistrarCJsonCfgs struct {
+	RPC         *RegistrarCJsonCfg
+	Dispatchers *RegistrarCJsonCfg
 }
 
 type LoaderCfgJson struct {
-	Tpid            *string
-	Data_path       *string
-	Disable_reverse *bool
-	Field_separator *string
-	Caches_conns    *[]string
-	Scheduler_conns *[]string
+	Tpid             *string
+	Data_path        *string
+	Disable_reverse  *bool
+	Field_separator  *string
+	Caches_conns     *[]string
+	Scheduler_conns  *[]string
+	Gapi_credentials *json.RawMessage
+	Gapi_token       *json.RawMessage
 }
 
 type MigratorCfgJson struct {
-	Out_dataDB_type           *string
-	Out_dataDB_host           *string
-	Out_dataDB_port           *string
-	Out_dataDB_name           *string
-	Out_dataDB_user           *string
-	Out_dataDB_password       *string
-	Out_dataDB_encoding       *string
-	Out_dataDB_redis_sentinel *string
-	Out_storDB_type           *string
-	Out_storDB_host           *string
-	Out_storDB_port           *string
-	Out_storDB_name           *string
-	Out_storDB_user           *string
-	Out_storDB_password       *string
-	Users_filters             *[]string
+	Out_dataDB_type     *string
+	Out_dataDB_host     *string
+	Out_dataDB_port     *string
+	Out_dataDB_name     *string
+	Out_dataDB_user     *string
+	Out_dataDB_password *string
+	Out_dataDB_encoding *string
+	Out_storDB_type     *string
+	Out_storDB_host     *string
+	Out_storDB_port     *string
+	Out_storDB_name     *string
+	Out_storDB_user     *string
+	Out_storDB_password *string
+	Users_filters       *[]string
+	Out_dataDB_opts     *DBOptsJson
+	Out_storDB_opts     *DBOptsJson
 }
 
 type FcTemplateJsonCfg struct {
@@ -539,7 +822,6 @@ type FcTemplateJsonCfg struct {
 	New_branch           *bool
 	Timezone             *string
 	Blocker              *bool
-	Break_on_success     *bool
 	Layout               *string
 	Cost_shift_digits    *int
 	Rounding_decimals    *int
@@ -549,7 +831,11 @@ type FcTemplateJsonCfg struct {
 
 // Analyzer service json config section
 type AnalyzerSJsonCfg struct {
-	Enabled *bool
+	Enabled          *bool
+	Db_path          *string
+	Index_type       *string
+	Ttl              *string
+	Cleanup_interval *string
 }
 
 type ApierJsonCfg struct {
@@ -557,4 +843,52 @@ type ApierJsonCfg struct {
 	Caches_conns     *[]string
 	Scheduler_conns  *[]string
 	Attributes_conns *[]string
+	Ees_conns        *[]string
+}
+
+type STIRJsonCfg struct {
+	Allowed_attest      *[]string
+	Payload_maxduration *string
+	Default_attest      *string
+	Publickey_path      *string
+	Privatekey_path     *string
+}
+
+// SIPAgentJsonCfg
+type SIPAgentJsonCfg struct {
+	Enabled              *bool
+	Listen               *string
+	Listen_net           *string
+	Sessions_conns       *[]string
+	Timezone             *string
+	Retransmission_timer *string
+	Request_processors   *[]*ReqProcessorJsnCfg
+}
+
+type ConfigSCfgJson struct {
+	Enabled  *bool
+	Url      *string
+	Root_dir *string
+}
+
+type APIBanJsonCfg struct {
+	Enabled *bool
+	Keys    *[]string
+}
+
+type SentryPeerJsonCfg struct {
+	ClientID     *string `json:"client_id"`
+	ClientSecret *string `json:"client_secret"`
+	TokenUrl     *string `json:"token_url"`
+	IpsUrl       *string `json:"ips_url"`
+	NumbersUrl   *string `json:"numbers_url"`
+	Audience     *string `json:"audience"`
+	GrantType    *string `json:"grant_type"`
+}
+
+type CoreSJsonCfg struct {
+	Caps                *int
+	Caps_strategy       *string
+	Caps_stats_interval *string
+	Shutdown_timeout    *string
 }

@@ -38,7 +38,6 @@ var (
 	tpResCfgPath   string
 	tpResCfg       *config.CGRConfig
 	tpResRPC       *rpc.Client
-	tpResDataDir   = "/usr/share/cgrates"
 	tpRes          *utils.TPResourceProfile
 	tpResDelay     int
 	tpResConfigDIR string //run tests for specific configuration
@@ -80,13 +79,11 @@ func TestTPResIT(t *testing.T) {
 
 func testTPResInitCfg(t *testing.T) {
 	var err error
-	tpResCfgPath = path.Join(tpResDataDir, "conf", "samples", tpResConfigDIR)
+	tpResCfgPath = path.Join(*dataDir, "conf", "samples", tpResConfigDIR)
 	tpResCfg, err = config.NewCGRConfigFromPath(tpResCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpResCfg.DataFolderPath = tpResDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpResCfg)
 	tpResDelay = 1000
 }
 

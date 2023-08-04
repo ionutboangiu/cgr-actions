@@ -29,7 +29,6 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
@@ -49,6 +48,7 @@ var (
 		testAttributeSRPCConn,
 		testAttributeSSetAlsPrf,
 		testAttributeSUpdateAlsPrf,
+		testAttributeSSetAlsPrfWithoutTenant,
 		testAttributeSKillEngine,
 	}
 )
@@ -80,8 +80,6 @@ func testAttributeSInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	alsPrfCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(alsPrfCfg)
 }
 
 func testAttributeSInitDataDb(t *testing.T) {
@@ -114,8 +112,8 @@ func testAttributeSRPCConn(t *testing.T) {
 }
 
 func testAttributeSSetAlsPrf(t *testing.T) {
-	extAlsPrf := &AttributeWithCache{
-		ExternalAttributeProfile: &engine.ExternalAttributeProfile{
+	extAlsPrf := &AttributeWithAPIOpts{
+		APIAttributeProfile: &engine.APIAttributeProfile{
 			Tenant:    "cgrates.org",
 			ID:        "ExternalAttribute",
 			Contexts:  []string{utils.MetaSessionS, utils.MetaCDRs},
@@ -140,7 +138,7 @@ func testAttributeSSetAlsPrf(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 
-	alsPrf := &v1.AttributeWithCache{
+	alsPrf := &engine.AttributeProfileWithAPIOpts{
 		AttributeProfile: &engine.AttributeProfile{
 			Tenant:    "cgrates.org",
 			ID:        "ExternalAttribute",
@@ -153,7 +151,7 @@ func testAttributeSSetAlsPrf(t *testing.T) {
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "Account",
-					Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 				},
 			},
 			Weight: 20,
@@ -162,7 +160,7 @@ func testAttributeSSetAlsPrf(t *testing.T) {
 	alsPrf.Compile()
 	var reply *engine.AttributeProfile
 	if err := attrSRPC.Call(utils.APIerSv1GetAttributeProfile,
-		utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ExternalAttribute"}}, &reply); err != nil {
+		utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ExternalAttribute"}}, &reply); err != nil {
 		t.Fatal(err)
 	}
 	reply.Compile()
@@ -172,8 +170,8 @@ func testAttributeSSetAlsPrf(t *testing.T) {
 }
 
 func testAttributeSUpdateAlsPrf(t *testing.T) {
-	extAlsPrf := &AttributeWithCache{
-		ExternalAttributeProfile: &engine.ExternalAttributeProfile{
+	extAlsPrf := &AttributeWithAPIOpts{
+		APIAttributeProfile: &engine.APIAttributeProfile{
 			Tenant:    "cgrates.org",
 			ID:        "ExternalAttribute",
 			Contexts:  []string{utils.MetaSessionS, utils.MetaCDRs},
@@ -202,7 +200,7 @@ func testAttributeSUpdateAlsPrf(t *testing.T) {
 		t.Error("Unexpected reply returned", result)
 	}
 
-	alsPrf := &v1.AttributeWithCache{
+	alsPrf := &engine.AttributeProfileWithAPIOpts{
 		AttributeProfile: &engine.AttributeProfile{
 			Tenant:    "cgrates.org",
 			ID:        "ExternalAttribute",
@@ -215,11 +213,11 @@ func testAttributeSUpdateAlsPrf(t *testing.T) {
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "Account",
-					Value: config.NewRSRParsersMustCompile("1001", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "Subject",
-					Value: config.NewRSRParsersMustCompile("~*req.Account", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("~*req.Account", utils.InfieldSep),
 				},
 			},
 			Weight: 20,
@@ -229,7 +227,7 @@ func testAttributeSUpdateAlsPrf(t *testing.T) {
 	alsPrf.Compile()
 	var reply *engine.AttributeProfile
 	if err := attrSRPC.Call(utils.APIerSv1GetAttributeProfile,
-		utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ExternalAttribute"}}, &reply); err != nil {
+		utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{Tenant: "cgrates.org", ID: "ExternalAttribute"}}, &reply); err != nil {
 		t.Fatal(err)
 	}
 	sort.Strings(reply.Contexts)
@@ -242,5 +240,62 @@ func testAttributeSUpdateAlsPrf(t *testing.T) {
 func testAttributeSKillEngine(t *testing.T) {
 	if err := engine.KillEngine(100); err != nil {
 		t.Error(err)
+	}
+}
+
+func testAttributeSSetAlsPrfWithoutTenant(t *testing.T) {
+	extAlsPrf := &AttributeWithAPIOpts{
+		APIAttributeProfile: &engine.APIAttributeProfile{
+			ID:        "ExternalAttribute",
+			Contexts:  []string{utils.MetaSessionS, utils.MetaCDRs},
+			FilterIDs: []string{"*string:~*req.Account:1001"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+				ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+			},
+			Attributes: []*engine.ExternalAttribute{
+				{
+					Path:  utils.MetaReq + utils.NestingSep + "Account",
+					Value: "1001",
+				},
+			},
+			Weight: 20,
+		},
+	}
+	var result string
+	if err := attrSRPC.Call(utils.APIerSv2SetAttributeProfile, extAlsPrf, &result); err != nil {
+		t.Error(err)
+	} else if result != utils.OK {
+		t.Error("Unexpected reply returned", result)
+	}
+
+	alsPrf := &engine.AttributeProfileWithAPIOpts{
+		AttributeProfile: &engine.AttributeProfile{
+			Tenant:    "cgrates.org",
+			ID:        "ExternalAttribute",
+			Contexts:  []string{utils.MetaSessionS, utils.MetaCDRs},
+			FilterIDs: []string{"*string:~*req.Account:1001"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+				ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
+			},
+			Attributes: []*engine.Attribute{
+				{
+					Path:  utils.MetaReq + utils.NestingSep + "Account",
+					Value: config.NewRSRParsersMustCompile("1001", utils.InfieldSep),
+				},
+			},
+			Weight: 20,
+		},
+	}
+	alsPrf.Compile()
+	var reply *engine.AttributeProfile
+	if err := attrSRPC.Call(utils.APIerSv1GetAttributeProfile,
+		utils.TenantIDWithAPIOpts{TenantID: &utils.TenantID{ID: "ExternalAttribute"}}, &reply); err != nil {
+		t.Fatal(err)
+	}
+	reply.Compile()
+	if !reflect.DeepEqual(alsPrf.AttributeProfile, reply) {
+		t.Errorf("Expecting : %+v, received: %+v", alsPrf.AttributeProfile, reply)
 	}
 }

@@ -34,19 +34,19 @@ import (
 )
 
 func (ms *MongoStorage) GetTpIds(colName string) (tpids []string, err error) {
-	getTpIDs := func(ctx context.Context, col string, tpMap map[string]struct{}) (map[string]struct{}, error) {
+	getTpIDs := func(ctx context.Context, col string, tpMap utils.StringSet) (utils.StringSet, error) {
 		if strings.HasPrefix(col, "tp_") {
 			result, err := ms.getCol(col).Distinct(ctx, "tpid", bson.D{})
 			if err != nil {
 				return tpMap, err
 			}
 			for _, tpid := range result {
-				tpMap[tpid.(string)] = struct{}{}
+				tpMap.Add(tpid.(string))
 			}
 		}
 		return tpMap, nil
 	}
-	tpidMap := make(map[string]struct{})
+	tpidMap := make(utils.StringSet)
 
 	if colName == "" {
 		if err := ms.query(func(sctx mongo.SessionContext) error {
@@ -75,9 +75,7 @@ func (ms *MongoStorage) GetTpIds(colName string) (tpids []string, err error) {
 			return nil, err
 		}
 	}
-	for tpid := range tpidMap {
-		tpids = append(tpids, tpid)
-	}
+	tpids = tpidMap.AsSlice()
 	return tpids, nil
 }
 
@@ -143,7 +141,7 @@ func (ms *MongoStorage) GetTpTableIds(tpid, table string, distinct utils.TPDisti
 					id += distinctValue.(string)
 				}
 				if i < last {
-					id += utils.CONCATENATED_KEY_SEP
+					id += utils.ConcatenatedKeySep
 				}
 			}
 			distinctIds[id] = true
@@ -209,19 +207,19 @@ func (ms *MongoStorage) GetTPDestinations(tpid, id string) ([]*utils.TPDestinati
 	return results, err
 }
 
-func (ms *MongoStorage) GetTPRates(tpid, id string) ([]*utils.TPRate, error) {
+func (ms *MongoStorage) GetTPRates(tpid, id string) ([]*utils.TPRateRALs, error) {
 	filter := bson.M{"tpid": tpid}
 	if id != "" {
 		filter["id"] = id
 	}
-	var results []*utils.TPRate
+	var results []*utils.TPRateRALs
 	err := ms.query(func(sctx mongo.SessionContext) (err error) {
 		cur, err := ms.getCol(utils.TBLTPRates).Find(sctx, filter)
 		if err != nil {
 			return err
 		}
 		for cur.Next(sctx) {
-			var el utils.TPRate
+			var el utils.TPRateRALs
 			err := cur.Decode(&el)
 			if err != nil {
 				return err
@@ -327,7 +325,7 @@ func (ms *MongoStorage) GetTPRatingProfiles(tp *utils.TPRatingProfile) ([]*utils
 	}
 	var results []*utils.TPRatingProfile
 	err := ms.query(func(sctx mongo.SessionContext) (err error) {
-		cur, err := ms.getCol(utils.TBLTPRateProfiles).Find(sctx, filter)
+		cur, err := ms.getCol(utils.TBLTPRatingProfiles).Find(sctx, filter)
 		if err != nil {
 			return err
 		}
@@ -631,14 +629,14 @@ func (ms *MongoStorage) SetTPDestinations(tpDsts []*utils.TPDestination) (err er
 	})
 }
 
-func (ms *MongoStorage) SetTPRates(tps []*utils.TPRate) error {
+func (ms *MongoStorage) SetTPRates(tps []*utils.TPRateRALs) error {
 	if len(tps) == 0 {
 		return nil
 	}
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				_, err := ms.getCol(utils.TBLTPRates).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID})
 				if err != nil {
@@ -661,7 +659,7 @@ func (ms *MongoStorage) SetTPDestinationRates(tps []*utils.TPDestinationRate) er
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				_, err := ms.getCol(utils.TBLTPDestinationRates).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID})
 				if err != nil {
@@ -684,7 +682,7 @@ func (ms *MongoStorage) SetTPRatingPlans(tps []*utils.TPRatingPlan) error {
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				_, err := ms.getCol(utils.TBLTPRatingPlans).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID})
 				if err != nil {
@@ -706,7 +704,7 @@ func (ms *MongoStorage) SetTPRatingProfiles(tps []*utils.TPRatingProfile) error 
 	}
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			_, err = ms.getCol(utils.TBLTPRateProfiles).UpdateOne(sctx, bson.M{
+			_, err = ms.getCol(utils.TBLTPRatingProfiles).UpdateOne(sctx, bson.M{
 				"tpid":     tp.TPid,
 				"loadid":   tp.LoadId,
 				"tenant":   tp.Tenant,
@@ -728,7 +726,7 @@ func (ms *MongoStorage) SetTPSharedGroups(tps []*utils.TPSharedGroups) error {
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				_, err := ms.getCol(utils.TBLTPSharedGroups).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID})
 				if err != nil {
@@ -751,7 +749,7 @@ func (ms *MongoStorage) SetTPActions(tps []*utils.TPActions) error {
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				if _, err := ms.getCol(utils.TBLTPActions).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID}); err != nil {
 					return err
@@ -772,7 +770,7 @@ func (ms *MongoStorage) SetTPActionPlans(tps []*utils.TPActionPlan) error {
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				if _, err := ms.getCol(utils.TBLTPActionPlans).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID}); err != nil {
 					return err
@@ -793,7 +791,7 @@ func (ms *MongoStorage) SetTPActionTriggers(tps []*utils.TPActionTriggers) error
 	m := make(map[string]bool)
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
 		for _, tp := range tps {
-			if found, _ := m[tp.ID]; !found {
+			if !m[tp.ID] {
 				m[tp.ID] = true
 				if _, err := ms.getCol(utils.TBLTPActionTriggers).DeleteMany(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID}); err != nil {
 					return err
@@ -1023,7 +1021,7 @@ func (ms *MongoStorage) GetCDRs(qryFltr *utils.CDRsFilter, remove bool) ([]*CDR,
 		//CostDetailsLow + "." + AccountLow: bson.M{"$in": qryFltr.RatedAccounts, "$nin": qryFltr.NotRatedAccounts},
 		//CostDetailsLow + "." + SubjectLow: bson.M{"$in": qryFltr.RatedSubjects, "$nin": qryFltr.NotRatedSubjects},
 	}
-	//file, _ := os.CreateTemp(os.TempDir(), "debug")
+	//file, _ := os.TempFile(os.TempDir(), "debug")
 	//file.WriteString(fmt.Sprintf("FILTER: %v\n", utils.ToIJSON(qryFltr)))
 	//file.WriteString(fmt.Sprintf("BEFORE: %v\n", utils.ToIJSON(filters)))
 	ms.cleanEmptyFilters(filters)
@@ -1102,6 +1100,9 @@ func (ms *MongoStorage) GetCDRs(qryFltr *utils.CDRsFilter, remove bool) ([]*CDR,
 		var chgd int64
 		err := ms.query(func(sctx mongo.SessionContext) (err error) {
 			dr, err := ms.getCol(ColCDRs).DeleteMany(sctx, filters)
+			if err != nil {
+				return err
+			}
 			chgd = dr.DeletedCount
 			return err
 		})
@@ -1120,7 +1121,7 @@ func (ms *MongoStorage) GetCDRs(qryFltr *utils.CDRsFilter, remove bool) ([]*CDR,
 
 	if qryFltr.OrderBy != "" {
 		var orderVal string
-		separateVals := strings.Split(qryFltr.OrderBy, utils.INFIELD_SEP)
+		separateVals := strings.Split(qryFltr.OrderBy, utils.InfieldSep)
 		ordVal := 1
 		if len(separateVals) == 2 && separateVals[1] == "desc" {
 			ordVal = -1
@@ -1291,7 +1292,7 @@ func (ms *MongoStorage) SetTPFilters(tpTHs []*utils.TPFilterProfile) (err error)
 	})
 }
 
-func (ms *MongoStorage) GetTPSuppliers(tpid, tenant, id string) ([]*utils.TPSupplierProfile, error) {
+func (ms *MongoStorage) GetTPRoutes(tpid, tenant, id string) ([]*utils.TPRouteProfile, error) {
 	filter := bson.M{"tpid": tpid}
 	if id != "" {
 		filter["id"] = id
@@ -1299,14 +1300,14 @@ func (ms *MongoStorage) GetTPSuppliers(tpid, tenant, id string) ([]*utils.TPSupp
 	if tenant != "" {
 		filter["tenant"] = tenant
 	}
-	var results []*utils.TPSupplierProfile
+	var results []*utils.TPRouteProfile
 	err := ms.query(func(sctx mongo.SessionContext) (err error) {
-		cur, err := ms.getCol(utils.TBLTPSuppliers).Find(sctx, filter)
+		cur, err := ms.getCol(utils.TBLTPRoutes).Find(sctx, filter)
 		if err != nil {
 			return err
 		}
 		for cur.Next(sctx) {
-			var tp utils.TPSupplierProfile
+			var tp utils.TPRouteProfile
 			err := cur.Decode(&tp)
 			if err != nil {
 				return err
@@ -1321,13 +1322,13 @@ func (ms *MongoStorage) GetTPSuppliers(tpid, tenant, id string) ([]*utils.TPSupp
 	return results, err
 }
 
-func (ms *MongoStorage) SetTPSuppliers(tpSPs []*utils.TPSupplierProfile) (err error) {
-	if len(tpSPs) == 0 {
+func (ms *MongoStorage) SetTPRoutes(tpRoutes []*utils.TPRouteProfile) (err error) {
+	if len(tpRoutes) == 0 {
 		return
 	}
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
-		for _, tp := range tpSPs {
-			_, err = ms.getCol(utils.TBLTPSuppliers).UpdateOne(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID},
+		for _, tp := range tpRoutes {
+			_, err = ms.getCol(utils.TBLTPRoutes).UpdateOne(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID},
 				bson.M{"$set": tp},
 				options.Update().SetUpsert(true),
 			)
@@ -1369,12 +1370,12 @@ func (ms *MongoStorage) GetTPAttributes(tpid, tenant, id string) ([]*utils.TPAtt
 	return results, err
 }
 
-func (ms *MongoStorage) SetTPAttributes(tpSPs []*utils.TPAttributeProfile) (err error) {
-	if len(tpSPs) == 0 {
+func (ms *MongoStorage) SetTPAttributes(tpRoutes []*utils.TPAttributeProfile) (err error) {
+	if len(tpRoutes) == 0 {
 		return
 	}
 	return ms.query(func(sctx mongo.SessionContext) (err error) {
-		for _, tp := range tpSPs {
+		for _, tp := range tpRoutes {
 			_, err = ms.getCol(utils.TBLTPAttributes).UpdateOne(sctx, bson.M{"tpid": tp.TPid, "id": tp.ID},
 				bson.M{"$set": tp},
 				options.Update().SetUpsert(true),

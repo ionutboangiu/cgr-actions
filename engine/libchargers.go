@@ -35,6 +35,12 @@ type ChargerProfile struct {
 	Weight             float64
 }
 
+// ChargerProfileWithAPIOpts is used in replicatorV1 for dispatcher
+type ChargerProfileWithAPIOpts struct {
+	*ChargerProfile
+	APIOpts map[string]any
+}
+
 func (cP *ChargerProfile) TenantID() string {
 	return utils.ConcatenatedKey(cP.Tenant, cP.ID)
 }

@@ -129,7 +129,7 @@ func testReloadVerifyDisabledReaders(t *testing.T) {
 
 func testReloadReloadConfigFromPath(t *testing.T) {
 	var reply string
-	if err := reloadRPC.Call(utils.ConfigSv1ReloadConfigFromPath, &config.ConfigReloadWithArgDispatcher{
+	if err := reloadRPC.Call(utils.ConfigSv1ReloadConfig, &config.ReloadArgs{
 		Path:    path.Join(*dataDir, "conf", "samples", "ers_reload", "first_reload"),
 		Section: config.ERsJson,
 	}, &reply); err != nil {
@@ -140,15 +140,21 @@ func testReloadReloadConfigFromPath(t *testing.T) {
 }
 
 func testReloadVerifyFirstReload(t *testing.T) {
-	var reply map[string]interface{}
-	if err := reloadRPC.Call(utils.ConfigSv1GetJSONSection, &config.StringWithArgDispatcher{
+	var reply map[string]any
+	if err := reloadRPC.Call(utils.ConfigSv1GetConfig, &config.SectionWithAPIOpts{
 		Section: config.ERsJson,
 	}, &reply); err != nil {
 		t.Error(err)
-	} else if reply["Enabled"] != true {
-		t.Errorf("Expecting: <true>, received: <%+v>", reply["Enabled"])
-	} else if readers, canConvert := reply["Readers"].([]interface{}); !canConvert {
-		t.Errorf("Cannot cast Readers to slice")
+	} else if mp, can := reply[config.ERsJson].(map[string]any); !can {
+		t.Errorf("expected a map received: %T", reply[config.ERsJson])
+	} else if mp[utils.EnabledCfg] != true {
+		t.Errorf("Expecting: <true>, received: <%+v>", mp[utils.EnabledCfg])
+	} else if readers, canConvert := mp[utils.ReadersCfg].([]any); !canConvert {
+		if readers, canConvert := mp[utils.ReadersCfg].([]map[string]any); !canConvert { // in case of gob
+			t.Errorf("Cannot cast Readers to slice<%T>", mp[utils.ReadersCfg])
+		} else if len(readers) != 3 { // 2 active readers and 1 default
+			t.Errorf("Expecting: <2>, received: <%+v>", len(readers))
+		}
 	} else if len(readers) != 3 { // 2 active readers and 1 default
 		t.Errorf("Expecting: <2>, received: <%+v>", len(readers))
 	}

@@ -30,93 +30,116 @@ func NewCacheSv1(cacheS *engine.CacheS) *CacheSv1 {
 	return &CacheSv1{cacheS: cacheS}
 }
 
-// Exports RPC from CacheS
+// CacheSv1 exports RPC from CacheS
 type CacheSv1 struct {
 	cacheS *engine.CacheS
 }
 
 // GetItemIDs returns the IDs for cacheID with given prefix
-func (chSv1 *CacheSv1) GetItemIDs(args *utils.ArgsGetCacheItemIDsWithArgDispatcher,
+func (chSv1 *CacheSv1) GetItemIDs(args *utils.ArgsGetCacheItemIDsWithAPIOpts,
 	reply *[]string) error {
 	return chSv1.cacheS.V1GetItemIDs(args, reply)
 }
 
 // HasItem verifies the existence of an Item in cache
-func (chSv1 *CacheSv1) HasItem(args *utils.ArgsGetCacheItemWithArgDispatcher,
+func (chSv1 *CacheSv1) HasItem(args *utils.ArgsGetCacheItemWithAPIOpts,
 	reply *bool) error {
 	return chSv1.cacheS.V1HasItem(args, reply)
 }
 
+// GetItem returns an Item from the cache
+func (chSv1 *CacheSv1) GetItem(args *utils.ArgsGetCacheItemWithAPIOpts,
+	reply *any) error {
+	return chSv1.cacheS.V1GetItem(args, reply)
+}
+
+// GetItemWithRemote returns an Item from local or remote cache
+func (chSv1 *CacheSv1) GetItemWithRemote(args *utils.ArgsGetCacheItemWithAPIOpts,
+	reply *any) error {
+	return chSv1.cacheS.V1GetItemWithRemote(args, reply)
+}
+
 // GetItemExpiryTime returns the expiryTime for an item
-func (chSv1 *CacheSv1) GetItemExpiryTime(args *utils.ArgsGetCacheItemWithArgDispatcher,
+func (chSv1 *CacheSv1) GetItemExpiryTime(args *utils.ArgsGetCacheItemWithAPIOpts,
 	reply *time.Time) error {
 	return chSv1.cacheS.V1GetItemExpiryTime(args, reply)
 }
 
 // RemoveItem removes the Item with ID from cache
-func (chSv1 *CacheSv1) RemoveItem(args *utils.ArgsGetCacheItemWithArgDispatcher,
+func (chSv1 *CacheSv1) RemoveItem(args *utils.ArgsGetCacheItemWithAPIOpts,
 	reply *string) error {
 	return chSv1.cacheS.V1RemoveItem(args, reply)
 }
 
+// RemoveItems removes the Items with ID from cache
+func (chSv1 *CacheSv1) RemoveItems(args *utils.AttrReloadCacheWithAPIOpts,
+	reply *string) error {
+	return chSv1.cacheS.V1RemoveItems(args, reply)
+}
+
 // Clear will clear partitions in the cache (nil fol all, empty slice for none)
-func (chSv1 *CacheSv1) Clear(args *utils.AttrCacheIDsWithArgDispatcher,
+func (chSv1 *CacheSv1) Clear(args *utils.AttrCacheIDsWithAPIOpts,
 	reply *string) error {
 	return chSv1.cacheS.V1Clear(args, reply)
 }
 
-// FlushCache wipes out cache for a prefix or completely
-func (chSv1 *CacheSv1) FlushCache(args utils.AttrReloadCacheWithArgDispatcher, reply *string) (err error) {
-	return chSv1.cacheS.V1FlushCache(args, reply)
-}
-
 // GetCacheStats returns CacheStats filtered by cacheIDs
-func (chSv1 *CacheSv1) GetCacheStats(args *utils.AttrCacheIDsWithArgDispatcher,
+func (chSv1 *CacheSv1) GetCacheStats(args *utils.AttrCacheIDsWithAPIOpts,
 	rply *map[string]*ltcache.CacheStats) error {
 	return chSv1.cacheS.V1GetCacheStats(args, rply)
 }
 
 // PrecacheStatus checks status of active precache processes
-func (chSv1 *CacheSv1) PrecacheStatus(args *utils.AttrCacheIDsWithArgDispatcher, rply *map[string]string) error {
+func (chSv1 *CacheSv1) PrecacheStatus(args *utils.AttrCacheIDsWithAPIOpts, rply *map[string]string) error {
 	return chSv1.cacheS.V1PrecacheStatus(args, rply)
 }
 
 // HasGroup checks existence of a group in cache
-func (chSv1 *CacheSv1) HasGroup(args *utils.ArgsGetGroupWithArgDispatcher,
+func (chSv1 *CacheSv1) HasGroup(args *utils.ArgsGetGroupWithAPIOpts,
 	rply *bool) (err error) {
 	return chSv1.cacheS.V1HasGroup(args, rply)
 }
 
 // GetGroupItemIDs returns a list of itemIDs in a cache group
-func (chSv1 *CacheSv1) GetGroupItemIDs(args *utils.ArgsGetGroupWithArgDispatcher,
+func (chSv1 *CacheSv1) GetGroupItemIDs(args *utils.ArgsGetGroupWithAPIOpts,
 	rply *[]string) (err error) {
 	return chSv1.cacheS.V1GetGroupItemIDs(args, rply)
 }
 
 // RemoveGroup will remove a group and all items belonging to it from cache
-func (chSv1 *CacheSv1) RemoveGroup(args *utils.ArgsGetGroupWithArgDispatcher,
+func (chSv1 *CacheSv1) RemoveGroup(args *utils.ArgsGetGroupWithAPIOpts,
 	rply *string) (err error) {
 	return chSv1.cacheS.V1RemoveGroup(args, rply)
 }
 
 // ReloadCache reloads cache from DB for a prefix or completely
-func (chSv1 *CacheSv1) ReloadCache(args utils.AttrReloadCacheWithArgDispatcher, reply *string) (err error) {
+func (chSv1 *CacheSv1) ReloadCache(args *utils.AttrReloadCacheWithAPIOpts, reply *string) (err error) {
 	return chSv1.cacheS.V1ReloadCache(args, reply)
 }
 
 // LoadCache loads cache from DB for a prefix or completely
-func (chSv1 *CacheSv1) LoadCache(args utils.AttrReloadCacheWithArgDispatcher, reply *string) (err error) {
+func (chSv1 *CacheSv1) LoadCache(args *utils.AttrReloadCacheWithAPIOpts, reply *string) (err error) {
 	return chSv1.cacheS.V1LoadCache(args, reply)
 }
 
-// Ping used to detreminate if component is active
-func (chSv1 *CacheSv1) Ping(ign *utils.CGREventWithArgDispatcher, reply *string) error {
+// Ping used to determinate if component is active
+func (chSv1 *CacheSv1) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
 }
 
-// Call implements birpc.ClientConnector interface for internal RPC
+// ReplicateSet replicate an item
+func (chSv1 *CacheSv1) ReplicateSet(args *utils.ArgCacheReplicateSet, reply *string) (err error) {
+	return chSv1.cacheS.V1ReplicateSet(args, reply)
+}
+
+// ReplicateRemove remove an item
+func (chSv1 *CacheSv1) ReplicateRemove(args *utils.ArgCacheReplicateRemove, reply *string) (err error) {
+	return chSv1.cacheS.V1ReplicateRemove(args, reply)
+}
+
+// Call implements rpcclient.ClientConnector interface for internal RPC
 func (chSv1 *CacheSv1) Call(serviceMethod string,
-	args interface{}, reply interface{}) error {
+	args any, reply any) error {
 	return utils.APIerRPCCall(chSv1, serviceMethod, args, reply)
 }

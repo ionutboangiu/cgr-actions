@@ -39,6 +39,7 @@ var (
 	schedRpc     *rpc.Client
 	schedConfDIR string //run tests for specific configuration
 )
+
 var sTestsSchedFiltered = []func(t *testing.T){
 	testSchedLoadConfig,
 	testSchedInitDataDb,
@@ -49,6 +50,7 @@ var sTestsSchedFiltered = []func(t *testing.T){
 	testSchedVeifyAllAccounts,
 	testSchedVeifyAccount1001,
 	testSchedVeifyAccount1002and1003,
+	testSchedExecuteAction,
 	testSchedStopEngine,
 }
 
@@ -150,7 +152,7 @@ func testSchedFromFolder(t *testing.T) {
 	if err := schedRpc.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testSchedVeifyAllAccounts(t *testing.T) {
@@ -165,7 +167,7 @@ func testSchedVeifyAllAccounts(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != 10 {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != 10 {
 		t.Errorf("Expecting: %v, received: %v",
 			10, rply)
 	}
@@ -175,7 +177,7 @@ func testSchedVeifyAllAccounts(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != 10 {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != 10 {
 		t.Errorf("Expecting: %v, received: %v",
 			10, rply)
 	}
@@ -185,7 +187,7 @@ func testSchedVeifyAllAccounts(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != 10 {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != 10 {
 		t.Errorf("Expecting: %v, received: %v",
 			10, rply)
 	}
@@ -202,7 +204,7 @@ func testSchedVeifyAccount1001(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != 10 {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != 10 {
 		t.Errorf("Expecting: %v, received: %v",
 			10, rply)
 	}
@@ -214,7 +216,7 @@ func testSchedVeifyAccount1001(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if lenBal := len(acnt.BalanceMap[utils.MONETARY]); lenBal != 0 {
+	} else if lenBal := len(acnt.BalanceMap[utils.MetaMonetary]); lenBal != 0 {
 		t.Errorf("Expecting: %v, received: %v",
 			0, lenBal)
 	}
@@ -225,7 +227,7 @@ func testSchedVeifyAccount1001(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if lenBal := len(acnt.BalanceMap[utils.MONETARY]); lenBal != 0 {
+	} else if lenBal := len(acnt.BalanceMap[utils.MetaMonetary]); lenBal != 0 {
 		t.Errorf("Expecting: %v, received: %v",
 			0, lenBal)
 	}
@@ -243,7 +245,7 @@ func testSchedVeifyAccount1002and1003(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if lenBal := len(acnt.BalanceMap[utils.MONETARY]); lenBal != 0 {
+	} else if lenBal := len(acnt.BalanceMap[utils.MetaMonetary]); lenBal != 0 {
 		t.Errorf("Expecting: %v, received: %v",
 			0, lenBal)
 	}
@@ -254,7 +256,7 @@ func testSchedVeifyAccount1002and1003(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != 10 {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != 10 {
 		t.Errorf("Expecting: %v, received: %v",
 			10, rply)
 	}
@@ -265,11 +267,63 @@ func testSchedVeifyAccount1002and1003(t *testing.T) {
 	}
 	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if rply := acnt.BalanceMap[utils.MONETARY].GetTotalValue(); rply != 10 {
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != 10 {
 		t.Errorf("Expecting: %v, received: %v",
 			10, rply)
 	}
+}
 
+func testSchedExecuteAction(t *testing.T) {
+	if !(schedConfDIR == "tutinternal" || schedConfDIR == "tutmysql" || schedConfDIR == "tutmongo") {
+		t.SkipNow()
+	}
+	// set a new ActionPlan
+	var reply1 string
+	if err := schedRpc.Call(utils.APIerSv1SetActionPlan, &AttrSetActionPlan{
+		Id: "CustomAP",
+		ActionPlan: []*AttrActionPlan{
+			{
+				ActionsId: "ACT_TOPUP_RST_10",
+				Time:      utils.MetaHourly,
+				Weight:    20.0},
+		},
+	}, &reply1); err != nil {
+		t.Error("Got error on APIerSv1.SetActionPlan: ", err.Error())
+	} else if reply1 != utils.OK {
+		t.Errorf("Unexpected reply returned: %s", reply1)
+	}
+	var reply string
+	if err := schedRpc.Call(utils.APIerSv1SetAccount, utils.AttrSetAccount{
+		Tenant:       "cgrates.org",
+		Account:      "CustomAccount",
+		ActionPlanID: "CustomAP",
+	}, &reply); err != nil {
+		t.Fatal(err)
+	}
+
+	var acnt *engine.Account
+	attrs := &utils.AttrGetAccount{
+		Tenant:  "cgrates.org",
+		Account: "CustomAccount",
+	}
+	expected := 0.0
+	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
+		t.Error(err)
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != expected {
+		t.Errorf("Expecting: %v, received: %v",
+			expected, rply)
+	}
+
+	if err := schedRpc.Call(utils.SchedulerSv1ExecuteActions, &utils.AttrsExecuteActions{ActionPlanID: "CustomAP"}, &reply); err != nil {
+		t.Error(err)
+	}
+	expected = 10.0
+	if err := schedRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
+		t.Error(err)
+	} else if rply := acnt.BalanceMap[utils.MetaMonetary].GetTotalValue(); rply != expected {
+		t.Errorf("Expecting: %v, received: %v",
+			expected, rply)
+	}
 }
 
 func testSchedStopEngine(t *testing.T) {

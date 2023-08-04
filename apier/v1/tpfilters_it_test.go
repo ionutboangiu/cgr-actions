@@ -39,7 +39,6 @@ var (
 	tpFilterCfgPath   string
 	tpFilterCfg       *config.CGRConfig
 	tpFilterRPC       *rpc.Client
-	tpFilterDataDir   = "/usr/share/cgrates"
 	tpFilter          *utils.TPFilterProfile
 	tpFilterDelay     int
 	tpFilterConfigDIR string //run tests for specific configuration
@@ -82,13 +81,11 @@ func TestTPFilterITMySql(t *testing.T) {
 
 func testTPFilterInitCfg(t *testing.T) {
 	var err error
-	tpFilterCfgPath = path.Join(tpFilterDataDir, "conf", "samples", tpFilterConfigDIR)
+	tpFilterCfgPath = path.Join(*dataDir, "conf", "samples", tpFilterConfigDIR)
 	tpFilterCfg, err = config.NewCGRConfigFromPath(tpFilterCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpFilterCfg.DataFolderPath = tpFilterDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpFilterCfg)
 	tpFilterDelay = 1000
 
 }
@@ -133,7 +130,7 @@ func testTPFilterSetTPFilter(t *testing.T) {
 		Filters: []*utils.TPFilter{
 			{
 				Type:    utils.MetaString,
-				Element: "Account",
+				Element: "~*req.Account",
 				Values:  []string{"1001", "1002"},
 			},
 		},
@@ -179,12 +176,12 @@ func testTPFilterUpdateTPFilter(t *testing.T) {
 	tpFilter.Filters = []*utils.TPFilter{
 		{
 			Type:    utils.MetaString,
-			Element: "Account",
+			Element: "~*req.Account",
 			Values:  []string{"1001", "1002"},
 		},
 		{
 			Type:    utils.MetaPrefix,
-			Element: "Destination",
+			Element: "~*req.Destination",
 			Values:  []string{"10", "20"},
 		},
 	}

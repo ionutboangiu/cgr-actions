@@ -22,18 +22,21 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewStatService returns the Stat Service
 func NewStatService(cfg *config.CGRConfig, dm *DataDBService,
 	cacheS *engine.CacheS, filterSChan chan *engine.FilterS,
-	server *utils.Server, internalStatSChan chan birpc.ClientConnector, connMgr *engine.ConnManager) servmanager.Service {
+	server *cores.Server, internalStatSChan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &StatService{
 		connChan:    internalStatSChan,
 		cfg:         cfg,
@@ -42,6 +45,8 @@ func NewStatService(cfg *config.CGRConfig, dm *DataDBService,
 		filterSChan: filterSChan,
 		server:      server,
 		connMgr:     connMgr,
+		anz:         anz,
+		srvDep:      srvDep,
 	}
 }
 
@@ -52,12 +57,14 @@ type StatService struct {
 	dm          *DataDBService
 	cacheS      *engine.CacheS
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 	connMgr     *engine.ConnManager
 
 	sts      *engine.StatService
 	rpc      *v1.StatSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
+	anz      *AnalyzerService
+	srvDep   map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -65,6 +72,7 @@ func (sts *StatService) Start() (err error) {
 	if sts.IsRunning() {
 		return utils.ErrServiceAlreadyRunning
 	}
+	sts.srvDep[utils.DataDB].Add(1)
 
 	<-sts.cacheS.GetPrecacheChannel(utils.CacheStatQueueProfiles)
 	<-sts.cacheS.GetPrecacheChannel(utils.CacheStatQueues)
@@ -78,18 +86,16 @@ func (sts *StatService) Start() (err error) {
 
 	sts.Lock()
 	defer sts.Unlock()
-	sts.sts, err = engine.NewStatService(datadb, sts.cfg, filterS, sts.connMgr)
-	if err != nil {
-		utils.Logger.Crit(fmt.Sprintf("<StatS> Could not init, error: %s", err.Error()))
-		return
-	}
-	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem", utils.CoreS, utils.StatS))
+	sts.sts = engine.NewStatService(datadb, sts.cfg, filterS, sts.connMgr)
+
+	utils.Logger.Info(fmt.Sprintf("<%s> starting <%s> subsystem",
+		utils.CoreS, utils.StatS))
 	sts.sts.StartLoop()
 	sts.rpc = v1.NewStatSv1(sts.sts)
 	if !sts.cfg.DispatcherSCfg().Enabled {
 		sts.server.RpcRegister(sts.rpc)
 	}
-	sts.connChan <- sts.rpc
+	sts.connChan <- sts.anz.GetInternalCodec(sts.rpc, utils.StatS)
 	return
 }
 
@@ -103,11 +109,10 @@ func (sts *StatService) Reload() (err error) {
 
 // Shutdown stops the service
 func (sts *StatService) Shutdown() (err error) {
+	defer sts.srvDep[utils.DataDB].Done()
 	sts.Lock()
 	defer sts.Unlock()
-	if err = sts.sts.Shutdown(); err != nil {
-		return
-	}
+	sts.sts.Shutdown()
 	sts.sts = nil
 	sts.rpc = nil
 	<-sts.connChan

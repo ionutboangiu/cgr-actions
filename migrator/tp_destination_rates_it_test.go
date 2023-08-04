@@ -71,20 +71,18 @@ func testTpDstRtITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpDstRtCfgIn.StorDbCfg().Type,
 		tpDstRtCfgIn.StorDbCfg().Host, tpDstRtCfgIn.StorDbCfg().Port,
 		tpDstRtCfgIn.StorDbCfg().Name, tpDstRtCfgIn.StorDbCfg().User,
-		tpDstRtCfgIn.StorDbCfg().Password, tpDstRtCfgIn.GeneralCfg().DBDataEncoding, tpDstRtCfgIn.StorDbCfg().SSLMode,
-		tpDstRtCfgIn.StorDbCfg().MaxOpenConns, tpDstRtCfgIn.StorDbCfg().MaxIdleConns,
-		tpDstRtCfgIn.StorDbCfg().ConnMaxLifetime, tpDstRtCfgIn.StorDbCfg().StringIndexedFields,
-		tpDstRtCfgIn.StorDbCfg().PrefixIndexedFields, tpDstRtCfgIn.StorDbCfg().Items)
+		tpDstRtCfgIn.StorDbCfg().Password, tpDstRtCfgIn.GeneralCfg().DBDataEncoding,
+		tpDstRtCfgIn.StorDbCfg().StringIndexedFields, tpDstRtCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpDstRtCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpDstRtCfgOut.StorDbCfg().Type,
 		tpDstRtCfgOut.StorDbCfg().Host, tpDstRtCfgOut.StorDbCfg().Port,
 		tpDstRtCfgOut.StorDbCfg().Name, tpDstRtCfgOut.StorDbCfg().User,
-		tpDstRtCfgOut.StorDbCfg().Password, tpDstRtCfgOut.GeneralCfg().DBDataEncoding, tpDstRtCfgIn.StorDbCfg().SSLMode,
-		tpDstRtCfgIn.StorDbCfg().MaxOpenConns, tpDstRtCfgIn.StorDbCfg().MaxIdleConns,
-		tpDstRtCfgIn.StorDbCfg().ConnMaxLifetime, tpDstRtCfgIn.StorDbCfg().StringIndexedFields,
-		tpDstRtCfgIn.StorDbCfg().PrefixIndexedFields, tpDstRtCfgOut.StorDbCfg().Items)
+		tpDstRtCfgOut.StorDbCfg().Password, tpDstRtCfgOut.GeneralCfg().DBDataEncoding,
+		tpDstRtCfgIn.StorDbCfg().StringIndexedFields, tpDstRtCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpDstRtCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -109,7 +107,7 @@ func testTpDstRtITFlush(t *testing.T) {
 func testTpDstRtITPopulate(t *testing.T) {
 	tpDestinationRate = []*utils.TPDestinationRate{
 		{
-			TPid: utils.TEST_SQL,
+			TPid: utils.TestSQL,
 			ID:   "DR_FREESWITCH_USERS",
 			DestinationRates: []*utils.DestinationRate{
 				{
@@ -124,7 +122,7 @@ func testTpDstRtITPopulate(t *testing.T) {
 		t.Error("Error when setting TpDestinationRate ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpDstRtMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpDstRtMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpDestinationRate ", err.Error())
 	}

@@ -22,14 +22,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
 	"strings"
 
 	"github.com/antchfx/xmlquery"
-	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -52,22 +50,22 @@ func newHTTPUrlDP(req *http.Request) (dP utils.DataProvider, err error) {
 	return
 }
 
-// httpUrlDP implements engine.DataProvider, serving as url data decoder
+// httpUrlDP implements utils.DataProvider, serving as url data decoder
 // decoded data is only searched once and cached
 type httpUrlDP struct {
 	req   *http.Request
 	cache utils.MapStorage
 }
 
-// String is part of engine.DataProvider interface
+// String is part of utils.DataProvider interface
 // when called, it will display the already parsed values out of cache
 func (hU *httpUrlDP) String() string {
 	byts, _ := httputil.DumpRequest(hU.req, true)
 	return string(byts)
 }
 
-// FieldAsInterface is part of engine.DataProvider interface
-func (hU *httpUrlDP) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+// FieldAsInterface is part of utils.DataProvider interface
+func (hU *httpUrlDP) FieldAsInterface(fldPath []string) (data any, err error) {
 	if len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -84,19 +82,14 @@ func (hU *httpUrlDP) FieldAsInterface(fldPath []string) (data interface{}, err e
 	return
 }
 
-// FieldAsString is part of engine.DataProvider interface
+// FieldAsString is part of utils.DataProvider interface
 func (hU *httpUrlDP) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
+	var valIface any
 	valIface, err = hU.FieldAsInterface(fldPath)
 	if err != nil {
 		return
 	}
 	return utils.IfaceAsString(valIface), nil
-}
-
-// RemoteHost is part of engine.DataProvider interface
-func (hU *httpUrlDP) RemoteHost() net.Addr {
-	return utils.NewNetAddr("TCP", hU.req.RemoteAddr)
 }
 
 func newHTTPXmlDP(req *http.Request) (dP utils.DataProvider, err error) {
@@ -113,7 +106,7 @@ func newHTTPXmlDP(req *http.Request) (dP utils.DataProvider, err error) {
 	return
 }
 
-// httpXmlDP implements engine.DataProvider, serving as xml data decoder
+// httpXmlDP implements utils.DataProvider, serving as xml data decoder
 // decoded data is only searched once and cached
 type httpXmlDP struct {
 	cache  utils.MapStorage
@@ -121,14 +114,14 @@ type httpXmlDP struct {
 	addr   string
 }
 
-// String is part of engine.DataProvider interface
+// String is part of utils.DataProvider interface
 // when called, it will display the already parsed values out of cache
 func (hU *httpXmlDP) String() string {
 	return hU.xmlDoc.OutputXML(true)
 }
 
-// FieldAsInterface is part of engine.DataProvider interface
-func (hU *httpXmlDP) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+// FieldAsInterface is part of utils.DataProvider interface
+func (hU *httpXmlDP) FieldAsInterface(fldPath []string) (data any, err error) {
 	//if path is missing return here error because if it arrived in xmlquery library will panic
 	if len(fldPath) == 0 {
 		return nil, fmt.Errorf("Empty path")
@@ -140,9 +133,7 @@ func (hU *httpXmlDP) FieldAsInterface(fldPath []string) (data interface{}, err e
 	err = nil // cancel previous err
 	var slctrStr string
 	workPath := make([]string, len(fldPath))
-	for i, val := range fldPath {
-		workPath[i] = val
-	}
+	copy(workPath, fldPath)
 	for i := range workPath {
 		if sIdx := strings.Index(workPath[i], "["); sIdx != -1 {
 			slctrStr = workPath[i][sIdx:]
@@ -172,19 +163,14 @@ func (hU *httpXmlDP) FieldAsInterface(fldPath []string) (data interface{}, err e
 	return
 }
 
-// FieldAsString is part of engine.DataProvider interface
+// FieldAsString is part of utils.DataProvider interface
 func (hU *httpXmlDP) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
+	var valIface any
 	valIface, err = hU.FieldAsInterface(fldPath)
 	if err != nil {
 		return
 	}
 	return utils.IfaceAsString(valIface), nil
-}
-
-// RemoteHost is part of engine.DataProvider interface
-func (hU *httpXmlDP) RemoteHost() net.Addr {
-	return utils.NewNetAddr("TCP", hU.addr)
 }
 
 // httpAgentReplyEncoder will encode  []*engine.NMElement
@@ -216,8 +202,8 @@ type haXMLEncoder struct {
 
 // Encode implements httpAgentReplyEncoder
 func (xE *haXMLEncoder) Encode(nM *utils.OrderedNavigableMap) (err error) {
-	var xmlElmnts []*config.XMLElement
-	if xmlElmnts, err = config.NMAsXMLElements(nM); err != nil {
+	var xmlElmnts []*utils.XMLElement
+	if xmlElmnts, err = utils.NMAsXMLElements(nM); err != nil {
 		return
 	}
 	if len(xmlElmnts) == 0 {
@@ -247,17 +233,12 @@ func (xE *haTextPlainEncoder) Encode(nM *utils.OrderedNavigableMap) (err error) 
 	var str, nmPath string
 	msgFields := make(map[string]string) // work around to NMap issue
 	for el := nM.GetFirstElement(); el != nil; el = el.Next() {
-		val := el.Value
-		var nmIt utils.NMInterface
-		if nmIt, err = nM.Field(val); err != nil {
-			return
-		}
-		nmItem, isNMItems := nmIt.(*config.NMItem)
-		if !isNMItems {
-			return fmt.Errorf("value: %s is not *NMItem", val)
-		}
-		nmPath = strings.Join(nmItem.Path, utils.NestingSep)
-		msgFields[utils.ConcatenatedKey(nmPath, utils.IfaceAsString(nmItem.Data))] = utils.IfaceAsString(nmItem.Data)
+		path := el.Value
+		nmIt, _ := nM.Field(path)
+		path = path[:len(path)-1] // remove the last index
+		nmPath = strings.Join(path, utils.NestingSep)
+		val := nmIt.String()
+		msgFields[utils.ConcatenatedKey(nmPath, val)] = val
 	}
 	for key, val := range msgFields {
 		str += fmt.Sprintf("%s=%s\n", strings.Split(key, utils.InInFieldSep)[0], val)

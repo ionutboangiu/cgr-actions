@@ -32,129 +32,126 @@ import (
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/radigo"
-	"github.com/fiorix/go-diameter/diam"
-	"github.com/fiorix/go-diameter/diam/avp"
-	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/fiorix/go-diameter/v4/diam"
+	"github.com/fiorix/go-diameter/v4/diam/avp"
+	"github.com/fiorix/go-diameter/v4/diam/datatype"
 )
 
 func TestAgReqSetFields(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CGRID, PathItems: utils.PathItems{{Field: utils.CGRID}}}, utils.NewNMData(
-		utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 26, 0, time.UTC).String())))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathItems: utils.PathItems{{Field: utils.AnswerTime}}}, utils.NewNMData(
-		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathItems: utils.PathItems{{Field: utils.RequestType}}}, utils.NewNMData(utils.META_PREPAID))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Usage, PathItems: utils.PathItems{{Field: utils.Usage}}}, utils.NewNMData(time.Duration(3*time.Minute)))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}},
+		utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 26, 0, time.UTC).String()))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.MetaVoice)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, "1001")
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, "1002")
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}},
+		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.MetaPrepaid)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Usage, PathSlice: []string{utils.Usage}}, 3*time.Minute)
 
-	cgrRply := utils.NavigableMap2{
-		utils.CapAttributes: utils.NavigableMap2{
-			"PaypalAccount": utils.NewNMData("cgrates@paypal.com"),
-		},
-		utils.CapMaxUsage: utils.NewNMData(time.Duration(120 * time.Second)),
-		utils.Error:       utils.NewNMData(""),
+	cgrRply := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+		utils.CapAttributes: {Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+			"PaypalAccount": utils.NewLeafNode("cgrates@paypal.com"),
+		}},
+		utils.CapMaxUsage: utils.NewLeafNode(120 * time.Second),
+		utils.Error:       utils.NewLeafNode(""),
+	},
 	}
-	agReq.CGRReply = &cgrRply
+	agReq.CGRReply = cgrRply
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Tenant",
 			Path: utils.MetaRep + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaRep + utils.NestingSep + utils.Account, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
+			Path: utils.MetaRep + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
 		{Tag: "Destination",
 			Path: utils.MetaRep + utils.NestingSep + utils.Destination, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
 
 		{Tag: "RequestedUsageVoice",
 			Path: utils.MetaRep + utils.NestingSep + "RequestedUsage", Type: utils.MetaVariable,
 			Filters: []string{"*string:~*cgreq.ToR:*voice"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgreq.Usage{*duration_seconds}", true, utils.INFIELD_SEP)},
+				"~*cgreq.Usage{*duration_seconds}", utils.InfieldSep)},
 		{Tag: "RequestedUsageData",
 			Path: utils.MetaRep + utils.NestingSep + "RequestedUsage", Type: utils.MetaVariable,
 			Filters: []string{"*string:~*cgreq.ToR:*data"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgreq.Usage{*duration_nanoseconds}", true, utils.INFIELD_SEP)},
+				"~*cgreq.Usage{*duration_nanoseconds}", utils.InfieldSep)},
 		{Tag: "RequestedUsageSMS",
 			Path: utils.MetaRep + utils.NestingSep + "RequestedUsage", Type: utils.MetaVariable,
 			Filters: []string{"*string:~*cgreq.ToR:*sms"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgreq.Usage{*duration_nanoseconds}", true, utils.INFIELD_SEP)},
+				"~*cgreq.Usage{*duration_nanoseconds}", utils.InfieldSep)},
 
 		{Tag: "AttrPaypalAccount",
 			Path: utils.MetaRep + utils.NestingSep + "PaypalAccount", Type: utils.MetaVariable,
-			Filters: []string{"*string:~*cgrep.Error:"},
+			Filters: []string{"*empty:~*cgrep.Error:"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgrep.Attributes.PaypalAccount", true, utils.INFIELD_SEP)},
+				"~*cgrep.Attributes.PaypalAccount", utils.InfieldSep)},
 		{Tag: "MaxUsage",
 			Path: utils.MetaRep + utils.NestingSep + "MaxUsage", Type: utils.MetaVariable,
-			Filters: []string{"*string:~*cgrep.Error:"},
+			Filters: []string{"*empty:~*cgrep.Error:"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgrep.MaxUsage{*duration_seconds}", true, utils.INFIELD_SEP)},
+				"~*cgrep.MaxUsage{*duration_seconds}", utils.InfieldSep)},
 		{Tag: "Error",
 			Path: utils.MetaRep + utils.NestingSep + "Error", Type: utils.MetaVariable,
-			Filters: []string{"*rsr::~*cgrep.Error(!^$)"},
+			Filters: []string{"*rsr:~*cgrep.Error:!^$"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgrep.Error", true, utils.INFIELD_SEP)},
+				"~*cgrep.Error", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
 
 	eMp := utils.NewOrderedNavigableMap()
-	eMp.Set(&utils.FullPath{Path: utils.Tenant, PathItems: utils.PathItems{{Field: utils.Tenant}}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates.org", Path: []string{utils.Tenant},
-			Config: tplFlds[0]}})
-	eMp.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, &utils.NMSlice{
-		&config.NMItem{Data: "1001", Path: []string{utils.Account},
-			Config: tplFlds[1]}})
-	eMp.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, &utils.NMSlice{
-		&config.NMItem{Data: "1002", Path: []string{utils.Destination},
-			Config: tplFlds[2]}})
-	eMp.Set(&utils.FullPath{Path: "RequestedUsage", PathItems: utils.PathItems{{Field: "RequestedUsage"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "180", Path: []string{"RequestedUsage"},
-			Config: tplFlds[3]}})
-	eMp.Set(&utils.FullPath{Path: "PaypalAccount", PathItems: utils.PathItems{{Field: "PaypalAccount"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates@paypal.com", Path: []string{"PaypalAccount"},
-			Config: tplFlds[6]}})
-	eMp.Set(&utils.FullPath{Path: "MaxUsage", PathItems: utils.PathItems{{Field: "MaxUsage"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "120", Path: []string{"MaxUsage"},
-			Config: tplFlds[7]}})
+	eMp.SetAsSlice(&utils.FullPath{Path: utils.Tenant, PathSlice: []string{utils.Tenant}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "RequestedUsage", PathSlice: []string{"RequestedUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "180"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "PaypalAccount", PathSlice: []string{"PaypalAccount"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates@paypal.com"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "MaxUsage", PathSlice: []string{"MaxUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "120"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(agReq.Reply, eMp) {
+		t.Log(utils.ToJSON(eMp.GetOrder()))
+		t.Log(utils.ToJSON(agReq.Reply.GetOrder()))
 		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Reply)
 	}
 }
 
 func TestAgentRequestSetFields(t *testing.T) {
-	req := map[string]interface{}{
-		utils.Account: 1009,
-		utils.Tenant:  "cgrates.org",
+	req := map[string]any{
+		utils.AccountField: 1009,
+		utils.Tenant:       "cgrates.org",
 	}
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	ar := NewAgentRequest(utils.MapStorage(req), nil,
-		nil, nil, config.NewRSRParsersMustCompile("", false, utils.NestingSep),
+		nil, nil, nil, config.NewRSRParsersMustCompile("", utils.NestingSep),
 		"cgrates.org", "", engine.NewFilterS(cfg, nil, dm),
-		utils.MapStorage(req), utils.MapStorage(req))
+		map[string]utils.DataProvider{utils.MetaHdr: utils.MapStorage(req), utils.MetaTrl: utils.MapStorage(req)})
 	input := []*config.FCTemplate{}
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
 	}
-	// tplFld.Type == utils.META_NONE
-	input = []*config.FCTemplate{{Type: utils.META_NONE}}
+	// tplFld.Type == utils.MetaNone
+	input = []*config.FCTemplate{{Type: utils.MetaNone}}
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
 	}
@@ -169,21 +166,21 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.Account", utils.MetaVars),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "Account"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"Account"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
-		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
+		t.Errorf("Expecting NM items<%T>", val)
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	// case utils.MetaCgreq
@@ -192,20 +189,20 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account", utils.MetaCgreq),
 			Tag:   fmt.Sprintf("%s.Account", utils.MetaCgreq),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.CGRRequest.Field(utils.PathItems{{Field: "Account"}}); err != nil {
+	} else if val, err := ar.CGRRequest.FieldAsInterface([]string{"Account"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	// case utils.MetaCgrep
@@ -214,20 +211,20 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account", utils.MetaCgrep),
 			Tag:   fmt.Sprintf("%s.Account", utils.MetaCgrep),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.CGRReply.Field(utils.PathItems{{Field: "Account"}}); err != nil {
+	} else if val, err := ar.CGRReply.FieldAsInterface([]string{"Account"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	// case utils.MetaRep
@@ -236,20 +233,20 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account", utils.MetaRep),
 			Tag:   fmt.Sprintf("%s.Account", utils.MetaRep),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Reply.Field(utils.PathItems{{Field: "Account"}}); err != nil {
+	} else if val, err := ar.Reply.FieldAsInterface([]string{"Account"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	// case utils.MetaDiamreq
@@ -258,41 +255,41 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account", utils.MetaDiamreq),
 			Tag:   fmt.Sprintf("%s.Account", utils.MetaDiamreq),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.diamreq.Field(utils.PathItems{{Field: "Account"}}); err != nil {
+	} else if val, err := ar.diamreq.FieldAsInterface([]string{"Account"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
-	//META_COMPOSED
+	//MetaComposed
 	input = []*config.FCTemplate{
 		{
 			Path:  fmt.Sprintf("%s.AccountID", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.AccountID", utils.MetaVars),
-			Type:  utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Tenant", false, ";"),
+			Type:  utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Tenant", utils.InfieldSep),
 		},
 		{
 			Path:  fmt.Sprintf("%s.AccountID", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.AccountID", utils.MetaVars),
-			Type:  utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile(":", false, ";"),
+			Type:  utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile(":", utils.InfieldSep),
 		},
 		{
 			Path:  fmt.Sprintf("%s.AccountID", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.AccountID", utils.MetaVars),
-			Type:  utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Type:  utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 		},
 	}
 	for _, v := range input {
@@ -301,36 +298,36 @@ func TestAgentRequestSetFields(t *testing.T) {
 
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "AccountID"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"AccountID"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "cgrates.org:1009" {
-		t.Error("Expecting 'cgrates.org:1009', received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "cgrates.org:1009" {
+		t.Error("Expecting 'cgrates.org:1009', received: ", nm[0].Value.Data)
 	}
 
-	// META_CONSTANT
+	// MetaConstant
 	input = []*config.FCTemplate{
 		{
 			Path:  fmt.Sprintf("%s.Account", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.Account", utils.MetaVars),
-			Type:  utils.META_CONSTANT,
-			Value: config.NewRSRParsersMustCompile("2020", false, ";"),
+			Type:  utils.MetaConstant,
+			Value: config.NewRSRParsersMustCompile("2020", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "Account"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"Account"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "2020" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "2020" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	// Filters
@@ -339,21 +336,21 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:    fmt.Sprintf("%s.AccountID", utils.MetaVars),
 			Tag:     fmt.Sprintf("%s.AccountID", utils.MetaVars),
 			Filters: []string{utils.MetaString + ":~" + utils.MetaVars + ".Account:1003"},
-			Type:    utils.META_CONSTANT,
-			Value:   config.NewRSRParsersMustCompile("2021", false, ";"),
+			Type:    utils.MetaConstant,
+			Value:   config.NewRSRParsersMustCompile("2021", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "AccountID"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"AccountID"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item ", utils.ToJSON(nm))
-	} else if (*nm)[0].Interface() != "cgrates.org:1009" {
-		t.Error("Expecting 'cgrates.org:1009', received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "cgrates.org:1009" {
+		t.Error("Expecting 'cgrates.org:1009', received: ", nm[0].Value.Data)
 	}
 
 	input = []*config.FCTemplate{
@@ -361,8 +358,8 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:    fmt.Sprintf("%s.Account", utils.MetaVars),
 			Tag:     fmt.Sprintf("%s.Account", utils.MetaVars),
 			Filters: []string{"Not really a filter"},
-			Type:    utils.META_CONSTANT,
-			Value:   config.NewRSRParsersMustCompile("2021", false, ";"),
+			Type:    utils.MetaConstant,
+			Value:   config.NewRSRParsersMustCompile("2021", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
@@ -376,14 +373,14 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:    fmt.Sprintf("%s.Name", utils.MetaVars),
 			Tag:     fmt.Sprintf("%s.Name", utils.MetaVars),
 			Type:    utils.MetaVariable,
-			Value:   config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", false, ";"),
+			Value:   config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Account", utils.InfieldSep),
 			Blocker: true,
 		},
 		{
 			Path:  fmt.Sprintf("%s.Name", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.Name", utils.MetaVars),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("1005", false, ";"),
+			Value: config.NewRSRParsersMustCompile("1005", utils.InfieldSep),
 		},
 	}
 	for _, v := range input {
@@ -391,14 +388,14 @@ func TestAgentRequestSetFields(t *testing.T) {
 	}
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "Name"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"Name"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	// ErrNotFound
@@ -407,13 +404,13 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Test", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.Test", utils.MetaVars),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Test", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Test", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if _, err := ar.Vars.Field(utils.PathItems{{Field: "Test"}}); err == nil || err != utils.ErrNotFound {
+	} else if _, err := ar.Vars.FieldAsInterface([]string{"Test"}); err == nil || err != utils.ErrNotFound {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
 	}
 	input = []*config.FCTemplate{
@@ -421,7 +418,7 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:      fmt.Sprintf("%s.Test", utils.MetaVars),
 			Tag:       fmt.Sprintf("%s.Test", utils.MetaVars),
 			Type:      utils.MetaVariable,
-			Value:     config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Test", false, ";"),
+			Value:     config.NewRSRParsersMustCompile("~"+utils.MetaReq+".Test", utils.InfieldSep),
 			Mandatory: true,
 		},
 	}
@@ -436,7 +433,7 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:      "wrong",
 			Tag:       "wrong",
 			Type:      utils.MetaVariable,
-			Value:     config.NewRSRParsersMustCompile("~*req.Account", false, ";"),
+			Value:     config.NewRSRParsersMustCompile("~*req.Account", utils.InfieldSep),
 			Mandatory: true,
 		},
 	}
@@ -451,20 +448,20 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account4", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.Account4", utils.MetaVars),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaHdr+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaHdr+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "Account4"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"Account4"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 
 	input = []*config.FCTemplate{
@@ -472,54 +469,54 @@ func TestAgentRequestSetFields(t *testing.T) {
 			Path:  fmt.Sprintf("%s.Account5", utils.MetaVars),
 			Tag:   fmt.Sprintf("%s.Account5", utils.MetaVars),
 			Type:  utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~"+utils.MetaTrl+".Account", false, ";"),
+			Value: config.NewRSRParsersMustCompile("~"+utils.MetaTrl+".Account", utils.InfieldSep),
 		},
 	}
 	input[0].ComputePath()
 	if err := ar.SetFields(input); err != nil {
 		t.Error(err)
-	} else if val, err := ar.Vars.Field(utils.PathItems{{Field: "Account5"}}); err != nil {
+	} else if val, err := ar.Vars.FieldAsInterface([]string{"Account5"}); err != nil {
 		t.Error(err)
-	} else if nm, ok := val.(*utils.NMSlice); !ok {
+	} else if nm, ok := val.([]*utils.DataNode); !ok {
 		t.Error("Expecting NM items")
-	} else if len(*nm) != 1 {
+	} else if len(nm) != 1 {
 		t.Error("Expecting one item")
-	} else if (*nm)[0].Interface() != "1009" {
-		t.Error("Expecting 1009, received: ", (*nm)[0].Interface())
+	} else if nm[0].Value.Data != "1009" {
+		t.Error("Expecting 1009, received: ", nm[0].Value.Data)
 	}
 }
 
 func TestAgReqMaxCost(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CapMaxUsage, PathItems: utils.PathItems{{Field: utils.CapMaxUsage}}}, utils.NewNMData("120s"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CapMaxUsage, PathSlice: []string{utils.CapMaxUsage}}, utils.NewLeafNode("120s"))
 
-	cgrRply := utils.NavigableMap2{
-		utils.CapMaxUsage: utils.NewNMData(time.Duration(120 * time.Second)),
-	}
-	agReq.CGRReply = &cgrRply
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+		utils.CapMaxUsage: utils.NewLeafNode(120 * time.Second),
+	}}
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "MaxUsage",
 			Path: utils.MetaRep + utils.NestingSep + "MaxUsage", Type: utils.MetaVariable,
-			Filters: []string{"*rsr::~*cgrep.MaxUsage(>0s)"},
+			Filters: []string{"*rsr:~*cgrep.MaxUsage:>0s"},
 			Value: config.NewRSRParsersMustCompile(
-				"~*cgrep.MaxUsage{*duration_seconds}", true, utils.INFIELD_SEP)},
+				"~*cgrep.MaxUsage{*duration_seconds}", utils.InfieldSep)},
 	}
 	tplFlds[0].ComputePath()
 	eMp := utils.NewOrderedNavigableMap()
 
-	eMp.Set(&utils.FullPath{Path: "MaxUsage", PathItems: utils.PathItems{{Field: "MaxUsage"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "120", Path: []string{"MaxUsage"},
-			Config: tplFlds[0]}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "MaxUsage", PathSlice: []string{"MaxUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "120"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(agReq.Reply, eMp) {
+		t.Log(utils.ToJSON(eMp.GetOrder()))
+		t.Log(utils.ToJSON(agReq.Reply.GetOrder()))
 		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Reply)
 	}
 }
@@ -536,25 +533,25 @@ func TestAgReqParseFieldDiameter(t *testing.T) {
 		}})
 	//create diameterDataProvider
 	dP := newDADataProvider(nil, m)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "MandatoryFalse",
-			Path: "MandatoryFalse", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", true, utils.INFIELD_SEP),
+			Path: "MandatoryFalse", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", utils.InfieldSep),
 			Mandatory: false},
 		{Tag: "MandatoryTrue",
-			Path: "MandatoryTrue", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", true, utils.INFIELD_SEP),
+			Path: "MandatoryTrue", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", utils.InfieldSep),
 			Mandatory: true},
 		{Tag: "Session-Id", Filters: []string{},
-			Path: "Session-Id", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", true, utils.INFIELD_SEP),
+			Path: "Session-Id", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	for _, v := range tplFlds {
@@ -589,20 +586,20 @@ func TestAgReqParseFieldRadius(t *testing.T) {
 	}
 	//create radiusDataProvider
 	dP := newRADataProvider(pkt)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	tplFlds := []*config.FCTemplate{
 		{Tag: "MandatoryFalse",
-			Path: "MandatoryFalse", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", true, utils.INFIELD_SEP),
+			Path: "MandatoryFalse", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", utils.InfieldSep),
 			Mandatory: false},
 		{Tag: "MandatoryTrue",
-			Path: "MandatoryTrue", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", true, utils.INFIELD_SEP),
+			Path: "MandatoryTrue", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", utils.InfieldSep),
 			Mandatory: true},
 	}
 	for _, v := range tplFlds {
@@ -632,20 +629,20 @@ Host: api.cgrates.org
 	}
 	//create radiusDataProvider
 	dP, _ := newHTTPUrlDP(req)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	tplFlds := []*config.FCTemplate{
 		{Tag: "MandatoryFalse",
-			Path: "MandatoryFalse", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", true, utils.INFIELD_SEP),
+			Path: "MandatoryFalse", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", utils.InfieldSep),
 			Mandatory: false},
 		{Tag: "MandatoryTrue",
-			Path: "MandatoryTrue", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", true, utils.INFIELD_SEP),
+			Path: "MandatoryTrue", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", utils.InfieldSep),
 			Mandatory: true},
 	}
 	expected := ""
@@ -703,21 +700,21 @@ func TestAgReqParseFieldHttpXml(t *testing.T) {
 	}
 	//create radiusDataProvider
 	dP, _ := newHTTPXmlDP(req)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	tplFlds := []*config.FCTemplate{
 		{Tag: "MandatoryFalse",
-			Path: "MandatoryFalse", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", true, utils.INFIELD_SEP),
+			Path: "MandatoryFalse", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryFalse", utils.InfieldSep),
 			Mandatory: false},
 		{Tag: "MandatoryTrue",
-			Path: "MandatoryTrue", Type: utils.META_COMPOSED,
-			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", true, utils.INFIELD_SEP),
+			Path: "MandatoryTrue", Type: utils.MetaComposed,
+			Value:     config.NewRSRParsersMustCompile("~*req.MandatoryTrue", utils.InfieldSep),
 			Mandatory: true},
 	}
 	expected := ""
@@ -733,42 +730,39 @@ func TestAgReqParseFieldHttpXml(t *testing.T) {
 }
 
 func TestAgReqEmptyFilter(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CGRID, PathItems: utils.PathItems{{Field: utils.CGRID}}}, utils.NewNMData(
-		utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 26, 0, time.UTC).String())))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}},
+		utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 26, 0, time.UTC).String()))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Tenant", Filters: []string{},
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 
 		{Tag: "Account", Filters: []string{},
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
 		{Tag: "Destination", Filters: []string{},
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Destination, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := &utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.Tenant}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates.org", Path: []string{utils.Tenant},
-			Config: tplFlds[0]}})
-	eMp.Set(utils.PathItems{{Field: utils.Account}}, &utils.NMSlice{
-		&config.NMItem{Data: "1001", Path: []string{utils.Account},
-			Config: tplFlds[1]}})
-	eMp.Set(utils.PathItems{{Field: utils.Destination}}, &utils.NMSlice{
-		&config.NMItem{Data: "1002", Path: []string{utils.Destination},
-			Config: tplFlds[2]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.Set([]string{utils.Destination}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
@@ -778,24 +772,23 @@ func TestAgReqEmptyFilter(t *testing.T) {
 }
 
 func TestAgReqMetaExponent(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "Value", PathItems: utils.PathItems{{Field: "Value"}}}, utils.NewNMData("2"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "Exponent", PathItems: utils.PathItems{{Field: "Exponent"}}}, utils.NewNMData("2"))
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "Value", PathSlice: []string{"Value"}}, utils.NewLeafNode("2"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "Exponent", PathSlice: []string{"Exponent"}}, utils.NewLeafNode("2"))
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "TestExpo", Filters: []string{},
 			Path: utils.MetaCgrep + utils.NestingSep + "TestExpo", Type: utils.MetaValueExponent,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Value;~*cgreq.Exponent", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Value;~*cgreq.Exponent", utils.InfieldSep)},
 	}
 	tplFlds[0].ComputePath()
-	eMp := &utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: "TestExpo"}}, &utils.NMSlice{
-		&config.NMItem{Data: "200", Path: []string{"TestExpo"},
-			Config: tplFlds[0]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{"TestExpo"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "200"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
@@ -805,38 +798,36 @@ func TestAgReqMetaExponent(t *testing.T) {
 }
 
 func TestAgReqFieldAsNone(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Tenant",
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
-		{Type: utils.META_NONE, Blocker: true},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+		{Type: utils.MetaNone, Blocker: true},
 		{Tag: "Destination",
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Destination, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := &utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.Tenant}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates.org", Path: []string{utils.Tenant},
-			Config: tplFlds[0]}})
-	eMp.Set(utils.PathItems{{Field: utils.Account}}, &utils.NMSlice{
-		&config.NMItem{Data: "1001", Path: []string{utils.Account},
-			Config: tplFlds[1]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(agReq.CGRReply, eMp) {
@@ -845,41 +836,38 @@ func TestAgReqFieldAsNone(t *testing.T) {
 }
 
 func TestAgReqFieldAsNone2(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Tenant",
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
-		{Type: utils.META_NONE},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+		{Type: utils.MetaNone},
 		{Tag: "Destination",
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Destination, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := &utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.Tenant}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates.org", Path: []string{utils.Tenant},
-			Config: tplFlds[0]}})
-	eMp.Set(utils.PathItems{{Field: utils.Account}}, &utils.NMSlice{
-		&config.NMItem{Data: "1001", Path: []string{utils.Account},
-			Config: tplFlds[1]}})
-	eMp.Set(utils.PathItems{{Field: utils.Destination}}, &utils.NMSlice{
-		&config.NMItem{Data: "1002", Path: []string{utils.Destination},
-			Config: tplFlds[3]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.Set([]string{utils.Destination}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(agReq.CGRReply, eMp) {
@@ -888,58 +876,53 @@ func TestAgReqFieldAsNone2(t *testing.T) {
 }
 
 func TestAgReqSetField2(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathItems: utils.PathItems{{Field: utils.AnswerTime}}}, utils.NewNMData(
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
 		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathItems: utils.PathItems{{Field: utils.RequestType}}}, utils.NewNMData(utils.META_PREPAID))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
 
-	agReq.CGRReply = &utils.NavigableMap2{}
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Tenant",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
 		{Tag: "Destination",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Destination, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Destination, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
 		{Tag: "Usage",
 			Path: utils.MetaCgrep + utils.NestingSep + utils.Usage, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("30s", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("30s", utils.InfieldSep)},
 		{Tag: "CalculatedUsage",
 			Path: utils.MetaCgrep + utils.NestingSep + "CalculatedUsage",
-			Type: "*difference", Value: config.NewRSRParsersMustCompile("~*cgreq.AnswerTime;~*cgrep.Usage", true, utils.INFIELD_SEP),
+			Type: "*difference", Value: config.NewRSRParsersMustCompile("~*cgreq.AnswerTime;~*cgrep.Usage", utils.InfieldSep),
 		},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := &utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.Tenant}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates.org", Path: []string{utils.Tenant},
-			Config: tplFlds[0]}})
-	eMp.Set(utils.PathItems{{Field: utils.Account}}, &utils.NMSlice{
-		&config.NMItem{Data: "1001", Path: []string{utils.Account},
-			Config: tplFlds[1]}})
-	eMp.Set(utils.PathItems{{Field: utils.Destination}}, &utils.NMSlice{
-		&config.NMItem{Data: "1002", Path: []string{utils.Destination},
-			Config: tplFlds[2]}})
-	eMp.Set(utils.PathItems{{Field: "Usage"}}, &utils.NMSlice{
-		&config.NMItem{Data: "30s", Path: []string{"Usage"},
-			Config: tplFlds[3]}})
-	eMp.Set(utils.PathItems{{Field: "CalculatedUsage"}}, &utils.NMSlice{
-		&config.NMItem{Data: time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC), Path: []string{"CalculatedUsage"},
-			Config: tplFlds[4]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.Set([]string{utils.Destination}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
+	eMp.Set([]string{"Usage"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "30s"}}})
+	eMp.Set([]string{"CalculatedUsage"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
@@ -949,20 +932,34 @@ func TestAgReqSetField2(t *testing.T) {
 }
 
 func TestAgReqFieldAsInterface(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
 	agReq.CGRRequest = utils.NewOrderedNavigableMap()
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Usage, PathItems: utils.PathItems{{Field: utils.Usage}}}, &utils.NMSlice{&config.NMItem{Data: 3 * time.Minute}})
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, &utils.NMSlice{&config.NMItem{Data: utils.VOICE}})
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{
+		Path:      utils.Usage,
+		PathSlice: []string{utils.Usage},
+	},
+		&utils.DataNode{
+			Type: utils.NMSliceType,
+			Slice: []*utils.DataNode{
+				{
+					Type: utils.NMDataType,
+					Value: &utils.DataLeaf{
+						Data: 3 * time.Minute,
+					},
+				},
+			},
+		})
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, &utils.DataNode{Type: utils.NMSliceType, Slice: []*utils.DataNode{{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: utils.MetaVoice}}}})
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
 
 	path := []string{utils.MetaCgreq, utils.Usage}
-	var expVal interface{}
+	var expVal any
 	expVal = 3 * time.Minute
 	if rply, err := agReq.FieldAsInterface(path); err != nil {
 		t.Error(err)
@@ -971,14 +968,14 @@ func TestAgReqFieldAsInterface(t *testing.T) {
 	}
 
 	path = []string{utils.MetaCgreq, utils.ToR}
-	expVal = utils.VOICE
+	expVal = utils.MetaVoice
 	if rply, err := agReq.FieldAsInterface(path); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(rply, expVal) {
 		t.Errorf("Expected %v , received: %v", utils.ToJSON(expVal), utils.ToJSON(rply))
 	}
 
-	path = []string{utils.MetaCgreq, utils.Account}
+	path = []string{utils.MetaCgreq, utils.AccountField}
 	expVal = "1001"
 	if rply, err := agReq.FieldAsInterface(path); err != nil {
 		t.Error(err)
@@ -993,51 +990,281 @@ func TestAgReqFieldAsInterface(t *testing.T) {
 	} else if !reflect.DeepEqual(rply, expVal) {
 		t.Errorf("Expected %v , received: %v", utils.ToJSON(expVal), utils.ToJSON(rply))
 	}
+
+	path = []string{utils.MetaTenant}
+	expVal = "cgrates.org"
+	if rply, err := agReq.FieldAsInterface(path); err != nil {
+		t.Error()
+	} else if !reflect.DeepEqual(rply, expVal) {
+		t.Errorf("Expected %v , received: %v", utils.ToJSON(expVal), utils.ToJSON(rply))
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathCgrReq(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	aqReq := NewAgentRequest(nil, nil, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+	aqReq.CGRRequest.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}}, utils.NewLeafNode("CGRATES_ID1"))
+	aqReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1002"))
+	aqReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)))
+
+	path := []string{utils.MetaCgreq}
+	expVal := utils.NewOrderedNavigableMap()
+	expVal.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}}, &utils.DataLeaf{Data: "CGRATES_ID1"})
+	expVal.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, &utils.DataLeaf{Data: "1002"})
+	expVal.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, &utils.DataLeaf{Data: time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)})
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expVal, rply) {
+		t.Errorf("Expected %+v, received %+v", expVal, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathVars(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	dN := &utils.DataNode{
+		Type: utils.NMMapType,
+		Map: map[string]*utils.DataNode{
+			"Name": utils.NewLeafNode("1001"),
+			"ExtraFields": {
+				Type: utils.NMMapType,
+				Map: map[string]*utils.DataNode{
+					"Usage": utils.NewLeafNode("20m"),
+				},
+			},
+		},
+	}
+	aqReq := NewAgentRequest(nil, dN, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+
+	path := []string{utils.MetaVars}
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(dN, rply) {
+		t.Errorf("Expected %+v, received %+v", dN, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathCgrReply(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	dN := &utils.DataNode{
+		Type: utils.NMMapType,
+		Map: map[string]*utils.DataNode{
+			"Name": utils.NewLeafNode("1001"),
+			"ExtraFields": {
+				Type: utils.NMMapType,
+				Map: map[string]*utils.DataNode{
+					"Usage": utils.NewLeafNode("20m"),
+				},
+			},
+		},
+	}
+	aqReq := NewAgentRequest(nil, nil, dN, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+
+	path := []string{utils.MetaCgrep}
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(dN, rply) {
+		t.Errorf("Expected %+v, received %+v", dN, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathTmp(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	dN := &utils.DataNode{
+		Type: utils.NMMapType,
+		Map: map[string]*utils.DataNode{
+			"Name": utils.NewLeafNode("1001"),
+			"ExtraFields": {
+				Type: utils.NMMapType,
+				Map: map[string]*utils.DataNode{
+					"Usage": utils.NewLeafNode("20m"),
+				},
+			},
+		},
+	}
+	aqReq := NewAgentRequest(nil, nil, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+	aqReq.tmp = dN
+
+	path := []string{utils.MetaTmp}
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(dN, rply) {
+		t.Errorf("Expected %+v, received %+v", dN, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathReq(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	dP := &utils.MapStorage{
+		utils.CGRID:        "CGRATES_ID1",
+		utils.AccountField: "1002",
+		utils.AnswerTime:   time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC),
+	}
+	aqReq := NewAgentRequest(dP, nil, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+
+	path := []string{utils.MetaReq}
+
+	expVal := &utils.MapStorage{
+		utils.CGRID:        "CGRATES_ID1",
+		utils.AccountField: "1002",
+		utils.AnswerTime:   time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC),
+	}
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expVal, rply) {
+		t.Errorf("Expected %+v, received %+v", expVal, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathDiamReq(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	aqReq := NewAgentRequest(nil, nil, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+	aqReq.diamreq.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}}, utils.NewLeafNode("CGRATES_ID1"))
+	aqReq.diamreq.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1002"))
+	aqReq.diamreq.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)))
+
+	path := []string{utils.MetaDiamreq}
+	expVal := utils.NewOrderedNavigableMap()
+	expVal.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}}, &utils.DataLeaf{Data: "CGRATES_ID1"})
+	expVal.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, &utils.DataLeaf{Data: "1002"})
+	expVal.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, &utils.DataLeaf{Data: time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)})
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expVal, rply) {
+		t.Errorf("Expected %+v, received %+v", expVal, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathReply(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	aqReq := NewAgentRequest(nil, nil, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+	aqReq.Reply.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}}, utils.NewLeafNode("CGRATES_ID1"))
+	aqReq.Reply.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1002"))
+	aqReq.Reply.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)))
+
+	path := []string{utils.MetaRep}
+	expVal := utils.NewOrderedNavigableMap()
+	expVal.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}}, &utils.DataLeaf{Data: "CGRATES_ID1"})
+	expVal.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, &utils.DataLeaf{Data: "1002"})
+	expVal.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, &utils.DataLeaf{Data: time.Date(2013, 12, 30, 14, 59, 31, 0, time.UTC)})
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expVal, rply) {
+		t.Errorf("Expected %+v, received %+v", expVal, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathOpts(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	opts := utils.MapStorage{
+		utils.AccountField: "1002",
+		utils.Usage:        "30m",
+	}
+	aqReq := NewAgentRequest(nil, nil, nil, nil, opts, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+
+	path := []string{utils.MetaOpts}
+	expOpts := utils.MapStorage{
+		utils.AccountField: "1002",
+		utils.Usage:        "30m",
+	}
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expOpts, rply) {
+		t.Errorf("Expected %+v, received %+v", expOpts, rply)
+	}
+}
+
+func TestAgReqFieldAsInterfaceForOneFldPathCfg(t *testing.T) {
+	tmp := config.CgrConfig()
+
+	cfg := config.NewDefaultCGRConfig()
+	config.SetCgrConfig(cfg)
+	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
+		config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	aqReq := NewAgentRequest(nil, nil, nil, nil, nil, nil,
+		"cgrates.org", utils.EmptyString, filterS, nil)
+
+	path := []string{utils.MetaCfg}
+
+	expVal := config.CgrConfig().GetDataProvider()
+	if rply, err := aqReq.FieldAsInterface(path); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expVal, rply) {
+		t.Errorf("Expected %+v \n, received %+v", expVal, rply)
+	}
+
+	config.SetCgrConfig(tmp)
 }
 
 func TestAgReqNewARWithCGRRplyAndRply(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 
 	rply := utils.NewOrderedNavigableMap()
 	rply.Set(&utils.FullPath{
-		Path: "FirstLevel.SecondLevel.Fld1",
-		PathItems: utils.PathItems{
-			{Field: "FirstLevel"},
-			{Field: "SecondLevel"},
-			{Field: "Fld1"},
-		}}, utils.NewNMData("Val1"))
-	cgrRply := &utils.NavigableMap2{
-		utils.CapAttributes: utils.NavigableMap2{
-			"PaypalAccount": utils.NewNMData("cgrates@paypal.com"),
-		},
-		utils.CapMaxUsage: utils.NewNMData(time.Duration(120 * time.Second)),
-		utils.Error:       utils.NewNMData(""),
-	}
+		Path:      "FirstLevel.SecondLevel.Fld1",
+		PathSlice: []string{"FirstLevel", "SecondLevel", "Fld1"}}, utils.NewLeafNode("Val1"))
+	cgrRply := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+		utils.CapAttributes: {Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+			"PaypalAccount": utils.NewLeafNode("cgrates@paypal.com"),
+		}},
+		utils.CapMaxUsage: utils.NewLeafNode(120 * time.Second),
+		utils.Error:       utils.NewLeafNode(""),
+	}}
 
-	agReq := NewAgentRequest(nil, nil, cgrRply, rply, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, cgrRply, rply, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Fld1",
 			Path: utils.MetaCgreq + utils.NestingSep + "Fld1", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*rep.FirstLevel.SecondLevel.Fld1", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*rep.FirstLevel.SecondLevel.Fld1", utils.InfieldSep)},
 		{Tag: "Fld2",
 			Path: utils.MetaCgreq + utils.NestingSep + "Fld2", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgrep.Attributes.PaypalAccount", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgrep.Attributes.PaypalAccount", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
 
 	eMp := utils.NewOrderedNavigableMap()
-	eMp.Set(&utils.FullPath{Path: "Fld1", PathItems: utils.PathItems{{Field: "Fld1"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "Val1", Path: []string{"Fld1"},
-			Config: tplFlds[0]}})
-	eMp.Set(&utils.FullPath{Path: "Fld2", PathItems: utils.PathItems{{Field: "Fld2"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates@paypal.com", Path: []string{"Fld2"},
-			Config: tplFlds[1]}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "Fld1", PathSlice: []string{"Fld1"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "Val1"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "Fld2", PathSlice: []string{"Fld2"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates@paypal.com"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
@@ -1047,30 +1274,26 @@ func TestAgReqNewARWithCGRRplyAndRply(t *testing.T) {
 }
 
 func TestAgReqSetCGRReplyWithError(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 
 	rply := utils.NewOrderedNavigableMap()
 	rply.Set(&utils.FullPath{
-		Path: "FirstLevel.SecondLevel.Fld1",
-		PathItems: utils.PathItems{
-			{Field: "FirstLevel"},
-			{Field: "SecondLevel"},
-			{Field: "Fld1"},
-		}}, utils.NewNMData("Val1"))
-	agReq := NewAgentRequest(nil, nil, nil, rply, nil, "cgrates.org", "", filterS, nil, nil)
+		Path:      "FirstLevel.SecondLevel.Fld1",
+		PathSlice: []string{"FirstLevel", "SecondLevel", "Fld1"}}, utils.NewLeafNode("Val1"))
+	agReq := NewAgentRequest(nil, nil, nil, rply, nil, nil, "cgrates.org", "", filterS, nil)
 
 	agReq.setCGRReply(nil, utils.ErrNotFound)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Fld1",
 			Path: utils.MetaCgreq + utils.NestingSep + "Fld1", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*rep.FirstLevel.SecondLevel.Fld1", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*rep.FirstLevel.SecondLevel.Fld1", utils.InfieldSep)},
 		{Tag: "Fld2",
 			Path: utils.MetaCgreq + utils.NestingSep + "Fld2", Type: utils.MetaVariable,
-			Value:     config.NewRSRParsersMustCompile("~*cgrep.Attributes.PaypalAccount", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("~*cgrep.Attributes.PaypalAccount", utils.InfieldSep),
 			Mandatory: true},
 	}
 	for _, v := range tplFlds {
@@ -1082,62 +1305,58 @@ func TestAgReqSetCGRReplyWithError(t *testing.T) {
 	}
 }
 
-type myEv map[string]utils.NMInterface
+type myEv map[string]*utils.DataNode
 
-func (ev myEv) AsNavigableMap() utils.NavigableMap2 {
-	return utils.NavigableMap2(ev)
+func (ev myEv) AsNavigableMap() map[string]*utils.DataNode {
+	return ev
 }
 
 func TestAgReqSetCGRReplyWithoutError(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 
 	rply := utils.NewOrderedNavigableMap()
 	rply.Set(&utils.FullPath{
-		Path: "FirstLevel.SecondLevel.Fld1",
-		PathItems: utils.PathItems{
-			{Field: "FirstLevel"},
-			{Field: "SecondLevel"},
-			{Field: "Fld1"},
-		}}, utils.NewNMData("Val1"))
+		Path:      "FirstLevel.SecondLevel.Fld1",
+		PathSlice: []string{"FirstLevel", "SecondLevel", "Fld1"}}, utils.NewLeafNode("Val1"))
 
 	myEv := myEv{
-		utils.CapAttributes: utils.NavigableMap2{
-			"PaypalAccount": utils.NewNMData("cgrates@paypal.com"),
-		},
-		utils.CapMaxUsage: utils.NewNMData(time.Duration(120 * time.Second)),
-		utils.Error:       utils.NewNMData(""),
+		utils.CapAttributes: &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+			"PaypalAccount": utils.NewLeafNode("cgrates@paypal.com"),
+		}},
+		utils.CapMaxUsage: utils.NewLeafNode(120 * time.Second),
+		utils.Error:       utils.NewLeafNode(""),
 	}
 
-	agReq := NewAgentRequest(nil, nil, nil, rply,
-		nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, rply, nil,
+		nil, "cgrates.org", "", filterS, nil)
 
 	agReq.setCGRReply(myEv, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Fld1",
 			Path: utils.MetaCgreq + utils.NestingSep + "Fld1", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*rep.FirstLevel.SecondLevel.Fld1", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*rep.FirstLevel.SecondLevel.Fld1", utils.InfieldSep)},
 		{Tag: "Fld2",
 			Path: utils.MetaCgreq + utils.NestingSep + "Fld2", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgrep.Attributes.PaypalAccount", true, utils.INFIELD_SEP)},
+			Value: config.NewRSRParsersMustCompile("~*cgrep.Attributes.PaypalAccount", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
 	eMp := utils.NewOrderedNavigableMap()
-	eMp.Set(&utils.FullPath{Path: "Fld1", PathItems: utils.PathItems{{Field: "Fld1"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "Val1", Path: []string{"Fld1"},
-			Config: tplFlds[0]}})
-	eMp.Set(&utils.FullPath{Path: "Fld2", PathItems: utils.PathItems{{Field: "Fld2"}}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates@paypal.com", Path: []string{"Fld2"},
-			Config: tplFlds[1]}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "Fld1", PathSlice: []string{"Fld1"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "Val1"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "Fld2", PathSlice: []string{"Fld2"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates@paypal.com"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(agReq.CGRRequest, eMp) {
+		t.Log(utils.ToJSON(eMp.GetOrder()))
+		t.Log(utils.ToJSON(agReq.CGRRequest.GetOrder()))
 		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.CGRRequest)
 	}
 }
@@ -1154,30 +1373,30 @@ func TestAgReqParseFieldMetaCCUsage(t *testing.T) {
 		}})
 	//create diameterDataProvider
 	dP := newDADataProvider(nil, m)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "CCUsage", Filters: []string{},
 			Path: "CCUsage", Type: utils.MetaCCUsage,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	tplFlds[0].ComputePath()
 
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
-		err.Error() != `invalid arguments <[{"Rules":"~*req.Session-Id","AllFiltersMatch":true}]> to *cc_usage` {
+		err.Error() != `invalid arguments <[{"Rules":"~*req.Session-Id"}]> to *cc_usage` {
 		t.Error(err)
 	}
 
 	tplFlds = []*config.FCTemplate{
 		{Tag: "CCUsage", Filters: []string{},
 			Path: "CCUsage", Type: utils.MetaCCUsage,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id;12s;12s", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id;12s;12s", utils.InfieldSep),
 			Mandatory: true},
 	}
 	tplFlds[0].ComputePath()
@@ -1189,7 +1408,7 @@ func TestAgReqParseFieldMetaCCUsage(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "CCUsage", Filters: []string{},
 			Path: "CCUsage", Type: utils.MetaCCUsage,
-			Value:     config.NewRSRParsersMustCompile("10;~*req.Session-Id;12s", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("10;~*req.Session-Id;12s", utils.InfieldSep),
 			Mandatory: true},
 	}
 	tplFlds[0].ComputePath()
@@ -1201,7 +1420,7 @@ func TestAgReqParseFieldMetaCCUsage(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "CCUsage", Filters: []string{},
 			Path: "CCUsage", Type: utils.MetaCCUsage,
-			Value:     config.NewRSRParsersMustCompile("10;12s;~*req.Session-Id", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("10;12s;~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	tplFlds[0].ComputePath()
@@ -1213,12 +1432,12 @@ func TestAgReqParseFieldMetaCCUsage(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "CCUsage", Filters: []string{},
 			Path: "CCUsage", Type: utils.MetaCCUsage,
-			Value:     config.NewRSRParsersMustCompile("3;10s;5s", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("3;10s;5s", utils.InfieldSep),
 			Mandatory: true},
 	}
 	tplFlds[0].ComputePath()
 	//5s*2 + 10s
-	expected := time.Duration(20 * time.Second)
+	expected := 20 * time.Second
 	if out, err := agReq.ParseField(tplFlds[0]); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(out, expected) {
@@ -1238,39 +1457,28 @@ func TestAgReqParseFieldMetaUsageDifference(t *testing.T) {
 		}})
 	//create diameterDataProvider
 	dP := newDADataProvider(nil, m)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Usage", Filters: []string{},
-			Path: "Usage", Type: utils.META_USAGE_DIFFERENCE,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", true, utils.INFIELD_SEP),
+			Path: "Usage", Type: utils.MetaUsageDifference,
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
-		err.Error() != `invalid arguments <[{"Rules":"~*req.Session-Id","AllFiltersMatch":true}]> to *usage_difference` {
+		err.Error() != `invalid arguments <[{"Rules":"~*req.Session-Id"}]> to *usage_difference` {
 		t.Error(err)
 	}
 
 	tplFlds = []*config.FCTemplate{
 		{Tag: "Usage", Filters: []string{},
-			Path: "Usage", Type: utils.META_USAGE_DIFFERENCE,
-			Value:     config.NewRSRParsersMustCompile("1560325161;~*req.Session-Id", true, utils.INFIELD_SEP),
-			Mandatory: true},
-	}
-	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
-		err.Error() != `Unsupported time format` {
-		t.Error(err)
-	}
-
-	tplFlds = []*config.FCTemplate{
-		{Tag: "Usage", Filters: []string{},
-			Path: "Usage", Type: utils.META_USAGE_DIFFERENCE,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id;1560325161", true, utils.INFIELD_SEP),
+			Path: "Usage", Type: utils.MetaUsageDifference,
+			Value:     config.NewRSRParsersMustCompile("1560325161;~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
@@ -1280,8 +1488,19 @@ func TestAgReqParseFieldMetaUsageDifference(t *testing.T) {
 
 	tplFlds = []*config.FCTemplate{
 		{Tag: "Usage", Filters: []string{},
-			Path: "Usage", Type: utils.META_USAGE_DIFFERENCE,
-			Value:     config.NewRSRParsersMustCompile("1560325161;1560325151", true, utils.INFIELD_SEP),
+			Path: "Usage", Type: utils.MetaUsageDifference,
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id;1560325161", utils.InfieldSep),
+			Mandatory: true},
+	}
+	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
+		err.Error() != `Unsupported time format` {
+		t.Error(err)
+	}
+
+	tplFlds = []*config.FCTemplate{
+		{Tag: "Usage", Filters: []string{},
+			Path: "Usage", Type: utils.MetaUsageDifference,
+			Value:     config.NewRSRParsersMustCompile("1560325161;1560325151", utils.InfieldSep),
 			Mandatory: true},
 	}
 	expected := "10s"
@@ -1304,17 +1523,17 @@ func TestAgReqParseFieldMetaSum(t *testing.T) {
 		}})
 	//create diameterDataProvider
 	dP := newDADataProvider(nil, m)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Sum", Filters: []string{},
 			Path: "Sum", Type: utils.MetaSum,
-			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
@@ -1325,7 +1544,7 @@ func TestAgReqParseFieldMetaSum(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "Sum", Filters: []string{},
 			Path: "Sum", Type: utils.MetaSum,
-			Value:     config.NewRSRParsersMustCompile("15;15", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("15;15", utils.InfieldSep),
 			Mandatory: true},
 	}
 	expected := int64(30)
@@ -1348,17 +1567,17 @@ func TestAgReqParseFieldMetaDifference(t *testing.T) {
 		}})
 	//create diameterDataProvider
 	dP := newDADataProvider(nil, m)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Diff", Filters: []string{},
 			Path: "Diff", Type: utils.MetaDifference,
-			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
@@ -1369,10 +1588,98 @@ func TestAgReqParseFieldMetaDifference(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "Diff", Filters: []string{},
 			Path: "Diff", Type: utils.MetaDifference,
-			Value:     config.NewRSRParsersMustCompile("15;12;2", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("15;12;2", utils.InfieldSep),
 			Mandatory: true},
 	}
 	expected := int64(1)
+	if out, err := agReq.ParseField(tplFlds[0]); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(out, expected) {
+		t.Errorf("expecting: <%+v>, %T received: <%+v> %T", expected, expected, out, out)
+	}
+}
+
+func TestAgReqParseFieldMetaMultiply(t *testing.T) {
+	//creater diameter message
+	m := diam.NewRequest(diam.CreditControl, 4, nil)
+	m.NewAVP("Session-Id", avp.Mbit, 0, datatype.UTF8String("simuhuawei;1449573472;00002"))
+	m.NewAVP("Subscription-Id", avp.Mbit, 0, &diam.GroupedAVP{
+		AVP: []*diam.AVP{
+			diam.NewAVP(450, avp.Mbit, 0, datatype.Enumerated(2)),              // Subscription-Id-Type
+			diam.NewAVP(444, avp.Mbit, 0, datatype.UTF8String("208708000004")), // Subscription-Id-Data
+			diam.NewAVP(avp.ValueDigits, avp.Mbit, 0, datatype.Integer64(20000)),
+		}})
+	//create diameterDataProvider
+	dP := newDADataProvider(nil, m)
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	//pass the data provider to agent request
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Multiply", Filters: []string{},
+			Path: "Multiply", Type: utils.MetaMultiply,
+			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", utils.InfieldSep),
+			Mandatory: true},
+	}
+	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
+		err.Error() != `strconv.ParseInt: parsing "simuhuawei;1449573472;00002": invalid syntax` {
+		t.Error(err)
+	}
+
+	tplFlds = []*config.FCTemplate{
+		{Tag: "Multiply", Filters: []string{},
+			Path: "Multiply", Type: utils.MetaMultiply,
+			Value:     config.NewRSRParsersMustCompile("15;15", utils.InfieldSep),
+			Mandatory: true},
+	}
+	expected := int64(225)
+	if out, err := agReq.ParseField(tplFlds[0]); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(out, expected) {
+		t.Errorf("expecting: <%+v>, %T received: <%+v> %T", expected, expected, out, out)
+	}
+}
+
+func TestAgReqParseFieldMetaDivide(t *testing.T) {
+	//creater diameter message
+	m := diam.NewRequest(diam.CreditControl, 4, nil)
+	m.NewAVP("Session-Id", avp.Mbit, 0, datatype.UTF8String("simuhuawei;1449573472;00002"))
+	m.NewAVP("Subscription-Id", avp.Mbit, 0, &diam.GroupedAVP{
+		AVP: []*diam.AVP{
+			diam.NewAVP(450, avp.Mbit, 0, datatype.Enumerated(2)),              // Subscription-Id-Type
+			diam.NewAVP(444, avp.Mbit, 0, datatype.UTF8String("208708000004")), // Subscription-Id-Data
+			diam.NewAVP(avp.ValueDigits, avp.Mbit, 0, datatype.Integer64(20000)),
+		}})
+	//create diameterDataProvider
+	dP := newDADataProvider(nil, m)
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	//pass the data provider to agent request
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Divide", Filters: []string{},
+			Path: "Divide", Type: utils.MetaDivide,
+			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", utils.InfieldSep),
+			Mandatory: true},
+	}
+	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
+		err.Error() != `strconv.ParseInt: parsing "simuhuawei;1449573472;00002": invalid syntax` {
+		t.Error(err)
+	}
+
+	tplFlds = []*config.FCTemplate{
+		{Tag: "Divide", Filters: []string{},
+			Path: "Divide", Type: utils.MetaDivide,
+			Value:     config.NewRSRParsersMustCompile("15;3", utils.InfieldSep),
+			Mandatory: true},
+	}
+	expected := int64(5)
 	if out, err := agReq.ParseField(tplFlds[0]); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(out, expected) {
@@ -1392,28 +1699,28 @@ func TestAgReqParseFieldMetaValueExponent(t *testing.T) {
 		}})
 	//create diameterDataProvider
 	dP := newDADataProvider(nil, m)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "ValExp", Filters: []string{},
 			Path: "ValExp", Type: utils.MetaValueExponent,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
-		err.Error() != `invalid arguments <[{"Rules":"~*req.Session-Id","AllFiltersMatch":true}]> to *value_exponent` {
+		err.Error() != `invalid arguments <[{"Rules":"~*req.Session-Id"}]> to *value_exponent` {
 		t.Error(err)
 	}
 
 	tplFlds = []*config.FCTemplate{
 		{Tag: "ValExp", Filters: []string{},
 			Path: "ValExp", Type: utils.MetaValueExponent,
-			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("15;~*req.Session-Id", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
@@ -1424,7 +1731,7 @@ func TestAgReqParseFieldMetaValueExponent(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "ValExp", Filters: []string{},
 			Path: "ValExp", Type: utils.MetaValueExponent,
-			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id;15", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("~*req.Session-Id;15", utils.InfieldSep),
 			Mandatory: true},
 	}
 	if _, err := agReq.ParseField(tplFlds[0]); err == nil ||
@@ -1434,7 +1741,7 @@ func TestAgReqParseFieldMetaValueExponent(t *testing.T) {
 	tplFlds = []*config.FCTemplate{
 		{Tag: "ValExp", Filters: []string{},
 			Path: "ValExp", Type: utils.MetaValueExponent,
-			Value:     config.NewRSRParsersMustCompile("2;3", true, utils.INFIELD_SEP),
+			Value:     config.NewRSRParsersMustCompile("2;3", utils.InfieldSep),
 			Mandatory: true},
 	}
 	expected := "2000"
@@ -1446,37 +1753,37 @@ func TestAgReqParseFieldMetaValueExponent(t *testing.T) {
 }
 
 func TestAgReqOverwrite(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathItems: utils.PathItems{{Field: utils.AnswerTime}}}, utils.NewNMData(
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
 		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathItems: utils.PathItems{{Field: utils.RequestType}}}, utils.NewNMData(utils.META_PREPAID))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
 
-	agReq.CGRReply = &utils.NavigableMap2{}
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile(":", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile(":", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("OverwrittenAccount", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("OverwrittenAccount", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("WithComposed", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("WithComposed", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
@@ -1485,41 +1792,41 @@ func TestAgReqOverwrite(t *testing.T) {
 		t.Error(err)
 	}
 
-	if rcv, err := agReq.CGRReply.Field(utils.PathItems{{Field: utils.Account}}); err != nil {
+	if rcv, err := agReq.CGRReply.FieldAsInterface([]string{utils.AccountField}); err != nil {
 		t.Error(err)
-	} else if sls, canCast := rcv.(*utils.NMSlice); !canCast {
+	} else if sls, canCast := rcv.([]*utils.DataNode); !canCast {
 		t.Errorf("Cannot cast to &utils.NMSlice %+v", rcv)
-	} else if len(*sls) != 1 {
-		t.Errorf("expecting: %+v, \n received: %+v ", 1, len(*sls))
-	} else if (*sls)[0].Interface() != "OverwrittenAccountWithComposed" {
+	} else if len(sls) != 1 {
+		t.Errorf("expecting: %+v, \n received: %+v ", 1, len(sls))
+	} else if (sls)[0].Value.Data != "OverwrittenAccountWithComposed" {
 		t.Errorf("expecting: %+v, \n received: %+v ",
-			"OverwrittenAccountWithComposed", (*sls)[0].Interface())
+			"OverwrittenAccountWithComposed", (sls)[0].Value.Data)
 	}
 }
 
 func TestAgReqGroupType(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 	// populate request, emulating the way will be done in HTTPAgent
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathItems: utils.PathItems{{Field: utils.AnswerTime}}}, utils.NewNMData(
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
 		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathItems: utils.PathItems{{Field: utils.RequestType}}}, utils.NewNMData(utils.META_PREPAID))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
 
-	agReq.CGRReply = &utils.NavigableMap2{}
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.MetaGroup,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaGroup,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account, Type: utils.MetaGroup,
-			Value: config.NewRSRParsersMustCompile("test", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaGroup,
+			Value: config.NewRSRParsersMustCompile("test", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
@@ -1528,74 +1835,321 @@ func TestAgReqGroupType(t *testing.T) {
 		t.Error(err)
 	}
 
-	if rcv, err := agReq.CGRReply.Field(utils.PathItems{{Field: utils.Account}}); err != nil {
+	if rcv, err := agReq.CGRReply.FieldAsInterface([]string{utils.AccountField}); err != nil {
 		t.Error(err)
-	} else if sls, canCast := rcv.(*utils.NMSlice); !canCast {
+	} else if sls, canCast := rcv.([]*utils.DataNode); !canCast {
 		t.Errorf("Cannot cast to &utils.NMSlice %+v", rcv)
-	} else if len(*sls) != 2 {
-		t.Errorf("expecting: %+v, \n received: %+v ", 1, len(*sls))
-	} else if (*sls)[0].Interface() != "cgrates.org" {
-		t.Errorf("expecting: %+v, \n received: %+v ", "cgrates.org", (*sls)[0].Interface())
-	} else if (*sls)[1].Interface() != "test" {
-		t.Errorf("expecting: %+v, \n received: %+v ", "test", (*sls)[1].Interface())
+	} else if len(sls) != 2 {
+		t.Errorf("expecting: %+v, \n received: %+v ", 1, len(sls))
+	} else if (sls)[0].Value.Data != "cgrates.org" {
+		t.Errorf("expecting: %+v, \n received: %+v ", "cgrates.org", (sls)[0].Value.Data)
+	} else if (sls)[1].Value.Data != "test" {
+		t.Errorf("expecting: %+v, \n received: %+v ", "test", (sls)[1].Value.Data)
+	}
+}
+
+func TestAgReqSetFieldsInTmp(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Tenant",
+			Path: utils.MetaTmp + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
+		{Tag: "Account",
+			Path: utils.MetaTmp + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+	}
+	for _, v := range tplFlds {
+		v.ComputePath()
+	}
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+
+	if err := agReq.SetFields(tplFlds); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(agReq.tmp, eMp) {
+		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.tmp)
 	}
 }
 
 func TestAgReqSetFieldsIp2Hex(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "IP", PathItems: utils.PathItems{{Field: "IP"}}}, utils.NewNMData("62.87.114.244"))
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "IP", PathSlice: []string{"IP"}}, utils.NewLeafNode("62.87.114.244"))
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "IP",
-			Path: utils.MetaVars + utils.NestingSep + "IP", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.IP{*ip2hex}", true, utils.INFIELD_SEP)},
+			Path: utils.MetaTmp + utils.NestingSep + "IP", Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.IP{*ip2hex}", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.NodeID}}, utils.NewNMData(config.CgrConfig().GeneralCfg().NodeID))
-	eMp.Set(utils.PathItems{{Field: "IP"}}, &utils.NMSlice{
-		&config.NMItem{Data: "0x3e5772f4", Path: []string{"IP"},
-			Config: tplFlds[0]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{"IP"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "0x3e5772f4"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(agReq.Vars, eMp) {
-		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Vars)
+	} else if !reflect.DeepEqual(agReq.tmp, eMp) {
+		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.tmp)
 	}
 }
 
 func TestAgReqSetFieldsString2Hex(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "CustomField", PathItems: utils.PathItems{{Field: "CustomField"}}}, utils.NewNMData(string([]byte{0x94, 0x71, 0x02, 0x31, 0x01, 0x59})))
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "CustomField", PathSlice: []string{"CustomField"}}, utils.NewLeafNode(string([]byte{0x94, 0x71, 0x02, 0x31, 0x01, 0x59})))
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "CustomField",
-			Path: utils.MetaVars + utils.NestingSep + "CustomField", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.CustomField{*string2hex}", true, utils.INFIELD_SEP)},
+			Path: utils.MetaTmp + utils.NestingSep + "CustomField", Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.CustomField{*string2hex}", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.NodeID}}, utils.NewNMData(config.CgrConfig().GeneralCfg().NodeID))
-	eMp.Set(utils.PathItems{{Field: "CustomField"}}, &utils.NMSlice{
-		&config.NMItem{Data: "0x947102310159", Path: []string{"CustomField"},
-			Config: tplFlds[0]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{"CustomField"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "0x947102310159"}}})
 
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(agReq.Vars, eMp) {
-		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Vars)
+	} else if !reflect.DeepEqual(agReq.tmp, eMp) {
+		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.tmp)
+	}
+}
+
+func TestAgReqSetFieldsWithRemove(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	// populate request, emulating the way will be done in HTTPAgent
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.CGRID, PathSlice: []string{utils.CGRID}},
+		utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 26, 0, time.UTC).String()))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
+		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Usage, PathSlice: []string{utils.Usage}}, utils.NewLeafNode(3*time.Minute))
+
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+		utils.CapAttributes: {Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+			"PaypalAccount": utils.NewLeafNode("cgrates@paypal.com"),
+		}},
+		utils.CapMaxUsage: utils.NewLeafNode(120 * time.Second),
+		utils.Error:       utils.NewLeafNode(""),
+	}}
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Tenant",
+			Path: utils.MetaRep + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
+		{Tag: "Account",
+			Path: utils.MetaRep + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+		{Tag: "Destination",
+			Path: utils.MetaRep + utils.NestingSep + utils.Destination, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
+
+		{Tag: "RequestedUsageVoice",
+			Path: utils.MetaRep + utils.NestingSep + "RequestedUsage", Type: utils.MetaVariable,
+			Filters: []string{"*string:~*cgreq.ToR:*voice"},
+			Value: config.NewRSRParsersMustCompile(
+				"~*cgreq.Usage{*duration_seconds}", utils.InfieldSep)},
+		{Tag: "RequestedUsageData",
+			Path: utils.MetaRep + utils.NestingSep + "RequestedUsage", Type: utils.MetaVariable,
+			Filters: []string{"*string:~*cgreq.ToR:*data"},
+			Value: config.NewRSRParsersMustCompile(
+				"~*cgreq.Usage{*duration_nanoseconds}", utils.InfieldSep)},
+		{Tag: "RequestedUsageSMS",
+			Path: utils.MetaRep + utils.NestingSep + "RequestedUsage", Type: utils.MetaVariable,
+			Filters: []string{"*string:~*cgreq.ToR:*sms"},
+			Value: config.NewRSRParsersMustCompile(
+				"~*cgreq.Usage{*duration_nanoseconds}", utils.InfieldSep)},
+
+		{Tag: "AttrPaypalAccount",
+			Path: utils.MetaRep + utils.NestingSep + "PaypalAccount", Type: utils.MetaVariable,
+			Filters: []string{"*empty:~*cgrep.Error:"},
+			Value: config.NewRSRParsersMustCompile(
+				"~*cgrep.Attributes.PaypalAccount", utils.InfieldSep)},
+		{Tag: "MaxUsage",
+			Path: utils.MetaRep + utils.NestingSep + "MaxUsage", Type: utils.MetaVariable,
+			Filters: []string{"*empty:~*cgrep.Error:"},
+			Value: config.NewRSRParsersMustCompile(
+				"~*cgrep.MaxUsage{*duration_seconds}", utils.InfieldSep)},
+		{Tag: "Error",
+			Path: utils.MetaRep + utils.NestingSep + "Error", Type: utils.MetaVariable,
+			Filters: []string{"*rsr:~*cgrep.Error:!^$"},
+			Value: config.NewRSRParsersMustCompile(
+				"~*cgrep.Error", utils.InfieldSep)},
+	}
+	for _, v := range tplFlds {
+		v.ComputePath()
+	}
+	eMp := utils.NewOrderedNavigableMap()
+	eMp.SetAsSlice(&utils.FullPath{Path: utils.Tenant, PathSlice: []string{utils.Tenant}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "RequestedUsage", PathSlice: []string{"RequestedUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "180"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "PaypalAccount", PathSlice: []string{"PaypalAccount"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates@paypal.com"}}})
+	eMp.SetAsSlice(&utils.FullPath{Path: "MaxUsage", PathSlice: []string{"MaxUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "120"}}})
+
+	if err := agReq.SetFields(tplFlds); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(agReq.Reply, eMp) {
+		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Reply)
+	}
+
+	tplFldsRemove := []*config.FCTemplate{
+		{Tag: "Tenant",
+			Path: utils.MetaRep + utils.NestingSep + utils.Tenant, Type: utils.MetaRemove},
+		{Tag: "Account",
+			Path: utils.MetaRep + utils.NestingSep + utils.AccountField, Type: utils.MetaRemove},
+	}
+	for _, v := range tplFldsRemove {
+		v.ComputePath()
+	}
+	eMpRemove := utils.NewOrderedNavigableMap()
+	eMpRemove.SetAsSlice(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
+	eMpRemove.SetAsSlice(&utils.FullPath{Path: "RequestedUsage", PathSlice: []string{"RequestedUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "180"}}})
+	eMpRemove.SetAsSlice(&utils.FullPath{Path: "PaypalAccount", PathSlice: []string{"PaypalAccount"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates@paypal.com"}}})
+	eMpRemove.SetAsSlice(&utils.FullPath{Path: "MaxUsage", PathSlice: []string{"MaxUsage"}}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "120"}}})
+
+	if err := agReq.SetFields(tplFldsRemove); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(agReq.Reply, eMpRemove) { // when compare ignore orders
+		t.Errorf("expecting: %+v,\n received: %+v", eMpRemove, agReq.Reply)
+	}
+
+	tplFldsRemove = []*config.FCTemplate{
+		{Path: utils.MetaRep, Type: utils.MetaRemoveAll},
+	}
+	tplFldsRemove[0].ComputePath()
+	eMpRemove = utils.NewOrderedNavigableMap()
+	if err := agReq.SetFields(tplFldsRemove); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(agReq.Reply.GetOrder(), eMpRemove.GetOrder()) {
+		t.Errorf("expecting: %+v,\n received: %+v", eMpRemove, agReq.Reply)
+	}
+}
+
+func TestAgReqSetFieldsInCache(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Tenant",
+			Path: utils.MetaUCH + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
+		{Tag: "Account",
+			Path: utils.MetaUCH + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+	}
+	for _, v := range tplFlds {
+		v.ComputePath()
+	}
+	if err := agReq.SetFields(tplFlds); err != nil {
+		t.Error(err)
+	}
+
+	if val, err := agReq.FieldAsInterface([]string{utils.MetaUCH, utils.Tenant}); err != nil {
+		t.Error(err)
+	} else if val != "cgrates.org" {
+		t.Errorf("expecting: %+v, \n received: %+v ", "cgrates.org", utils.ToJSON(val))
+	}
+
+	if val, err := agReq.FieldAsInterface([]string{utils.MetaUCH, utils.AccountField}); err != nil {
+		t.Error(err)
+	} else if val != "1001" {
+		t.Errorf("expecting: %+v, \n received: %+v ", "1001", utils.ToJSON(val))
+	}
+
+	if _, err := agReq.FieldAsInterface([]string{utils.MetaUCH, "Unexist"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
+}
+
+func TestAgReqSetFieldsInCacheWithTimeOut(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+
+	cfg.CacheCfg().Partitions[utils.CacheUCH].TTL = time.Second
+	engine.Cache = engine.NewCacheS(cfg, dm, nil)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Tenant",
+			Path: utils.MetaUCH + utils.NestingSep + utils.Tenant, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
+		{Tag: "Account",
+			Path: utils.MetaUCH + utils.NestingSep + utils.AccountField, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+	}
+	for _, v := range tplFlds {
+		v.ComputePath()
+	}
+	if err := agReq.SetFields(tplFlds); err != nil {
+		t.Error(err)
+	}
+
+	if val, err := agReq.FieldAsInterface([]string{utils.MetaUCH, utils.Tenant}); err != nil {
+		t.Error(err)
+	} else if val != "cgrates.org" {
+		t.Errorf("expecting: %+v, \n received: %+v ", "cgrates.org", utils.ToJSON(val))
+	}
+
+	if val, err := agReq.FieldAsInterface([]string{utils.MetaUCH, utils.AccountField}); err != nil {
+		t.Error(err)
+	} else if val != "1001" {
+		t.Errorf("expecting: %+v, \n received: %+v ", "1001", utils.ToJSON(val))
+	}
+
+	if _, err := agReq.FieldAsInterface([]string{utils.MetaUCH, "Unexist"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
+	// give enough time to Cache to remove ttl the *uch
+	time.Sleep(2 * time.Second)
+	if _, err := agReq.FieldAsInterface([]string{utils.MetaUCH, utils.Tenant}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
+	if _, err := agReq.FieldAsInterface([]string{utils.MetaUCH, utils.AccountField}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
 	}
 }
 
@@ -1644,22 +2198,22 @@ func TestAgReqFiltersInsideField(t *testing.T) {
 			}),
 		}})
 	//create diameterDataProvider
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	//pass the data provider to agent request
-	agReq := NewAgentRequest(newDADataProvider(nil, m), nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(newDADataProvider(nil, m), nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Usage",
 			Path: utils.MetaCgreq + utils.NestingSep + utils.Usage, Type: utils.MetaCCUsage,
 			Value: config.NewRSRParsersMustCompile("~*req.CC-Request-Number;~*req.Used-Service-Unit.CC-Time:s/(.*)/${1}s/;5m",
-				true, utils.INFIELD_SEP)},
+				utils.InfieldSep)},
 		{Tag: "AnswerTime",
 			Path: utils.MetaCgreq + utils.NestingSep + utils.AnswerTime, Type: utils.MetaDifference,
 			Filters: []string{"*gt:~*cgreq.Usage:0s"}, // populate answer time if usage is greater than zero
-			Value:   config.NewRSRParsersMustCompile("~*req.Event-Timestamp;~*cgreq.Usage", true, utils.INFIELD_SEP)},
+			Value:   config.NewRSRParsersMustCompile("~*req.Event-Timestamp;~*cgreq.Usage", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
@@ -1674,58 +2228,164 @@ func TestAgReqFiltersInsideField(t *testing.T) {
 	}
 }
 
+func TestAgReqDynamicPath(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	// populate request, emulating the way will be done in HTTPAgent
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
+		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "Routes.CGR_ROUTE1", PathSlice: []string{"Routes", "CGR_ROUTE1"}}, utils.NewLeafNode(1001))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "Routes.CGR_ROUTE2", PathSlice: []string{"Routes", "CGR_ROUTE2"}}, utils.NewLeafNode(1002))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: "BestRoute", PathSlice: []string{"BestRoute"}}, utils.NewLeafNode("ROUTE1"))
+
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	val1, err := config.NewRSRParsersFromSlice([]string{"~*cgreq.Routes.<CGR_;~*cgreq.BestRoute>"})
+	if err != nil {
+		t.Error(err)
+	}
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Tenant",
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
+		{Tag: "Account",
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
+		{Tag: "Destination",
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Destination, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Destination", utils.InfieldSep)},
+		{Tag: "Usage",
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Usage, Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("30s", utils.InfieldSep)},
+		{Tag: "Route",
+			Path: utils.MetaCgrep + utils.NestingSep + "Route",
+			Type: utils.MetaVariable, Value: val1,
+		},
+		{Tag: "Route2",
+			Path: utils.MetaCgrep + utils.NestingSep + "Route2.<CGR_;~*cgreq.BestRoute>",
+			Type: utils.MetaVariable, Value: config.NewRSRParsersMustCompile("~*cgreq.Routes[CGR_ROUTE2]", utils.InfieldSep),
+		},
+	}
+	for _, v := range tplFlds {
+		v.ComputePath()
+	}
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.Set([]string{utils.Destination}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
+	eMp.Set([]string{"Usage"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "30s"}}})
+	eMp.Set([]string{"Route"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.Set([]string{"Route2", "CGR_ROUTE1"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1002"}}})
+
+	if err := agReq.SetFields(tplFlds); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(agReq.CGRReply, eMp) {
+		t.Errorf("expecting: %+v,\n received: %+v", utils.ToJSON(eMp), utils.ToJSON(agReq.CGRReply))
+	}
+}
+
+func TestAgReqRoundingDecimals(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
+	filterS := engine.NewFilterS(cfg, nil, dm)
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
+	// populate request, emulating the way will be done in HTTPAgent
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
+		time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
+	agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Cost, PathSlice: []string{utils.Cost}}, utils.NewLeafNode(12.12645))
+
+	agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+
+	tplFlds := []*config.FCTemplate{
+		{Tag: "Cost",
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Cost, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Cost{*round:3}", utils.InfieldSep)},
+	}
+	for _, v := range tplFlds {
+		v.ComputePath()
+	}
+	if err := agReq.SetFields(tplFlds); err != nil {
+		t.Error(err)
+	}
+
+	if rcv, err := agReq.CGRReply.FieldAsInterface([]string{utils.Cost}); err != nil {
+		t.Error(err)
+	} else if sls, canCast := rcv.([]*utils.DataNode); !canCast {
+		t.Errorf("Cannot cast to &utils.NMSlice %+v", rcv)
+	} else if len(sls) != 1 {
+		t.Errorf("expecting: %+v, \n received: %+v ", 1, len(sls))
+	} else if (sls)[0].Value.Data != "12.126" {
+		t.Errorf("expecting: %+v, \n received: %+v",
+			"12.126", (sls)[0].Value.Data)
+	}
+}
+
 /*
 $go test -bench=.  -run=^$ -benchtime=10s -count=3
 goos: linux
 goarch: amd64
 pkg: github.com/cgrates/cgrates/agents
-BenchmarkAgReqSetField-16    	 1000000	     11774 ns/op
-BenchmarkAgReqSetField-16    	 1047027	     11839 ns/op
-BenchmarkAgReqSetField-16    	 1000000	     11062 ns/op
+BenchmarkAgReqSetField-16    	  990145	     12012 ns/op
+BenchmarkAgReqSetField-16    	 1000000	     12478 ns/op
+BenchmarkAgReqSetField-16    	  904732	     13250 ns/op
 PASS
-ok  	github.com/cgrates/cgrates/agents	44.940s
+ok  	github.com/cgrates/cgrates/agents	36.788s
 */
 func BenchmarkAgReqSetField(b *testing.B) {
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
 	tplFlds := []*config.FCTemplate{
 		{Tag: "Tenant",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.Tenant, Type: utils.MetaComposed,
+			Value: config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep)},
 		{Tag: "Account",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account + "[0].ID", Type: utils.MetaVariable,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField + "[0].ID", Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgreq.Account", utils.InfieldSep)},
 		{Tag: "Account2",
-			Path: utils.MetaCgrep + utils.NestingSep + utils.Account + "[1].ID", Type: utils.META_CONSTANT,
-			Value: config.NewRSRParsersMustCompile("1003", true, utils.INFIELD_SEP)},
+			Path: utils.MetaCgrep + utils.NestingSep + utils.AccountField + "[1].ID", Type: utils.MetaConstant,
+			Value: config.NewRSRParsersMustCompile("1003", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := &utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.Tenant}}, &utils.NMSlice{
-		&config.NMItem{Data: "cgrates.org", Path: []string{utils.Tenant},
-			Config: tplFlds[0]}})
-	eMp.Set(utils.PathItems{{Field: utils.Account, Index: utils.IntPointer(0)}, {Field: "ID"}}, &utils.NMSlice{
-		&config.NMItem{Data: "1001", Path: []string{utils.Account + "[0]", "ID"},
-			Config: tplFlds[1]}})
-	eMp.Set(utils.PathItems{{Field: utils.Account, Index: utils.IntPointer(1)}, {Field: "ID"}}, &utils.NMSlice{
-		&config.NMItem{Data: "1003", Path: []string{utils.Account + "[1]", "ID"},
-			Config: tplFlds[2]}})
+	eMp := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
+	eMp.Set([]string{utils.Tenant}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "cgrates.org"}}})
+	eMp.Set([]string{utils.AccountField, "0", "ID"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1001"}}})
+	eMp.Set([]string{utils.AccountField, "1", "ID"}, []*utils.DataNode{
+		{Type: utils.NMDataType, Value: &utils.DataLeaf{Data: "1003"}}})
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+		agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 		// populate request, emulating the way will be done in HTTPAgent
-		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathItems: utils.PathItems{{Field: utils.ToR}}}, utils.NewNMData(utils.VOICE))
-		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Account, PathItems: utils.PathItems{{Field: utils.Account}}}, utils.NewNMData("1001"))
-		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathItems: utils.PathItems{{Field: utils.Destination}}}, utils.NewNMData("1002"))
-		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathItems: utils.PathItems{{Field: utils.AnswerTime}}}, utils.NewNMData(
+		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.ToR, PathSlice: []string{utils.ToR}}, utils.NewLeafNode(utils.MetaVoice))
+		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AccountField, PathSlice: []string{utils.AccountField}}, utils.NewLeafNode("1001"))
+		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.Destination, PathSlice: []string{utils.Destination}}, utils.NewLeafNode("1002"))
+		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.AnswerTime, PathSlice: []string{utils.AnswerTime}}, utils.NewLeafNode(
 			time.Date(2013, 12, 30, 15, 0, 1, 0, time.UTC)))
-		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathItems: utils.PathItems{{Field: utils.RequestType}}}, utils.NewNMData(utils.META_PREPAID))
-		agReq.CGRReply = &utils.NavigableMap2{}
+		agReq.CGRRequest.Set(&utils.FullPath{Path: utils.RequestType, PathSlice: []string{utils.RequestType}}, utils.NewLeafNode(utils.MetaPrepaid))
+		agReq.CGRReply = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 
 		if err := agReq.SetFields(tplFlds); err != nil {
 			b.Error(err)
@@ -1735,113 +2395,424 @@ func BenchmarkAgReqSetField(b *testing.B) {
 	}
 }
 
-func TestAgReqSetFieldsSIPCID(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
+func TestNeedsMaxUsage(t *testing.T) {
+	if needsMaxUsage(nil) {
+		t.Error("Expected empty flag to not need maxUsage")
+	}
+
+	if needsMaxUsage(utils.FlagParams{}) {
+		t.Error("Expected empty flag to not need maxUsage")
+	}
+
+	if needsMaxUsage(utils.FlagParams{utils.MetaIDs: {"ID1", "ID2"}}) {
+		t.Error("Expected flag to not need maxUsage")
+	}
+	if !needsMaxUsage(utils.FlagParams{utils.MetaIDs: {"ID1", "ID2"}, utils.MetaInitiate: {}}) {
+		t.Error("Expected flag to need maxUsage")
+	}
+}
+
+func TestAgReqSetFieldsFromCfg(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
 	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "cid", PathItems: utils.PathItems{{Field: "cid"}}}, utils.NewNMData("12345"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "to", PathItems: utils.PathItems{{Field: "to"}}}, utils.NewNMData("1001"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "from", PathItems: utils.PathItems{{Field: "from"}}}, utils.NewNMData("1002"))
+
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	tplFlds := []*config.FCTemplate{
-		{Tag: "OriginID",
-			Path: utils.MetaVars + utils.NestingSep + "OriginID", Type: utils.MetaSIPCID,
-			Value: config.NewRSRParsersMustCompile("~*cgreq.cid;~*cgreq.to;~*cgreq.from", true, utils.INFIELD_SEP)},
+		{Tag: "CfgField",
+			Path: utils.MetaCgreq + utils.NestingSep + "NodeID", Type: utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cfg.general.node_id", utils.InfieldSep)},
 	}
 	for _, v := range tplFlds {
 		v.ComputePath()
 	}
-	eMp := utils.NavigableMap2{}
-	eMp.Set(utils.PathItems{{Field: utils.NodeID}}, utils.NewNMData(config.CgrConfig().GeneralCfg().NodeID))
-	eMp.Set(utils.PathItems{{Field: "OriginID"}}, &utils.NMSlice{
-		&config.NMItem{Data: "12345;1001;1002", Path: []string{"OriginID"},
-			Config: tplFlds[0]}})
-
 	if err := agReq.SetFields(tplFlds); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(agReq.Vars, eMp) {
-		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Vars)
 	}
 
-	agReq = NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "cid", PathItems: utils.PathItems{{Field: "cid"}}}, utils.NewNMData("12345"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "to", PathItems: utils.PathItems{{Field: "to"}}}, utils.NewNMData("1002"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "from", PathItems: utils.PathItems{{Field: "from"}}}, utils.NewNMData("1001"))
-
-	if err := agReq.SetFields(tplFlds); err != nil {
+	if val, err := agReq.FieldAsInterface([]string{utils.MetaCgreq, "NodeID"}); err != nil {
 		t.Error(err)
-	} else if !reflect.DeepEqual(agReq.Vars, eMp) {
-		t.Errorf("expecting: %+v,\n received: %+v", eMp, agReq.Vars)
+	} else if val != config.CgrConfig().GeneralCfg().NodeID {
+		t.Errorf("expecting: %+v, \n received: %+v ", config.CgrConfig().GeneralCfg().NodeID, utils.ToJSON(val))
+	}
+
+}
+
+func TestFieldAsInterface(t *testing.T) {
+	fldPath := []string{utils.MetaOpts, utils.AccountField}
+	ar := &AgentRequest{
+		Request:    nil,
+		Vars:       &utils.DataNode{},
+		CGRRequest: &utils.OrderedNavigableMap{},
+		diamreq:    nil,
+		tmp:        &utils.DataNode{},
+		Opts: utils.MapStorage{
+			utils.AccountField: "Field1",
+		},
+	}
+
+	rcv, err := ar.FieldAsInterface(fldPath)
+	rcvExpect := ar.Opts[utils.AccountField]
+	if err != nil {
+		t.Error(err)
+	} else if rcv != rcvExpect {
+		t.Errorf("Expected %v but received %v", rcvExpect, rcv)
+	}
+
+	//default case
+	fldPath = []string{utils.MetaNone}
+	_, err = ar.FieldAsInterface(fldPath)
+	errExpect := "unsupported field prefix: <*none>"
+	if err == nil || err.Error() != errExpect {
+		t.Errorf("Expected %v but received %v", errExpect, err)
 	}
 }
 
-func TestAgReqParseFieldMetaSIPCIDNotFoundErr(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-
-	tplFld := &config.FCTemplate{
-		Tag:  "OriginID",
-		Path: utils.MetaVars + utils.NestingSep + "OriginID", Type: utils.MetaSIPCID,
-		Value: config.NewRSRParsersMustCompile("~*cgreq.cid;~*cgreq.to;~*cgreq.from", true, utils.INFIELD_SEP),
+func TestAgentRequestParseFieldDateTimeDaily(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*daily", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{
+		Type:     utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*daily", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "",
 	}
-	tplFld.ComputePath()
 
-	if _, err := agReq.ParseField(tplFld); err == nil ||
-		err.Error() != utils.ErrNotFound.Error() {
-		t.Errorf("expected: <%+v>, \nreceived: <%+v>", utils.ErrNotFound, err)
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
 	}
-}
 
-func TestAgReqParseFieldMetaSIPCIDWrongPath(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(utils.MapStorage{
-		"cid": "12345",
-		"123": struct{}{},
-	}, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-
-	tplFld := &config.FCTemplate{
-		Tag:   "OriginID",
-		Path:  utils.MetaVars + utils.NestingSep + "OriginID",
-		Type:  utils.MetaSIPCID,
-		Value: config.NewRSRParsersMustCompile("~*req.cid;~*req.123.a", true, utils.INFIELD_SEP),
+	expected, err := utils.ParseTimeDetectLayout("*daily", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
 	}
-	tplFld.ComputePath()
-
-	if _, err := agReq.ParseField(tplFld); err == nil ||
-		err.Error() != utils.ErrWrongPath.Error() {
-		t.Errorf("expected: <%+v>, \nreceived: <%+v>", utils.ErrWrongPath, err)
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Day(), expected.Day()) {
+		t.Errorf("Expected %v but received %v", finRes.Day(), expected.Day())
 	}
 }
 
-func TestAgReqParseFieldMetaSIPCIDInvalidArgs(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	data := engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
-	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
-
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "cid", PathItems: utils.PathItems{{Field: "cid"}}}, utils.NewNMData("12345"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "to", PathItems: utils.PathItems{{Field: "to"}}}, utils.NewNMData("1002"))
-	agReq.CGRRequest.Set(&utils.FullPath{Path: "from", PathItems: utils.PathItems{{Field: "from"}}}, utils.NewNMData("1001"))
-
-	tplFld := &config.FCTemplate{
-		Tag:  "OriginID",
-		Path: utils.MetaVars + utils.NestingSep + "OriginID", Type: utils.MetaSIPCID,
-		Value: config.NewRSRParsersMustCompile("", true, utils.INFIELD_SEP),
+func TestAgentRequestParseFieldDateTimeTimeZone(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*daily", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*daily", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
 	}
-	tplFld.ComputePath()
 
-	experr := `invalid number of arguments <null> to *sipcid`
-	if _, err := agReq.ParseField(tplFld); err == nil ||
-		err.Error() != experr {
-		t.Errorf("expected: <%+v>, \nreceived: <%+v>", experr, err)
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout("*daily", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Day(), expected.Day()) {
+		t.Errorf("Expected %v but received %v", finRes.Day(), expected.Day())
 	}
 }
+
+func TestAgentRequestParseFieldDateTimeMonthly(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*monthly", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*monthly", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
+	}
+
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout("*monthly", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Month(), expected.Month()) {
+		t.Errorf("Expected %v but received %v", finRes.Month(), expected.Month())
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeMonthlyEstimated(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*monthly_estimated", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*monthly_estimated", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
+	}
+
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout("*monthly_estimated", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Month(), expected.Month()) {
+		t.Errorf("Expected %v but received %v", finRes.Month(), expected.Month())
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeYearly(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*yearly", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*yearly", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
+	}
+
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout("*yearly", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Year(), expected.Year()) {
+		t.Errorf("Expected %v but received %v", finRes.Year(), expected.Year())
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeMetaUnlimited(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile(utils.MetaUnlimited, utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile(utils.MetaUnlimited, utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
+	}
+
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout(utils.MetaUnlimited, utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Day(), expected.Day()) {
+		t.Errorf("Expected %v but received %v", finRes.Day(), expected.Day())
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeEmpty(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
+	}
+
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout("", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Day(), expected.Day()) {
+		t.Errorf("Expected %v but received %v", finRes.Day(), expected.Day())
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeMonthEnd(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*month_endTest", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*month_endTest", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "Local",
+	}
+
+	result, err := AgentReq.ParseField(fctTemp)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+
+	expected, err := utils.ParseTimeDetectLayout("*month_endTest", utils.FirstNonEmpty(fctTemp.Timezone, config.CgrConfig().GeneralCfg().DefaultTimezone))
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	strRes := fmt.Sprintf("%v", result)
+	finRes, err := time.Parse("“Mon Jan _2 15:04:05 2006”", strRes)
+	if err != nil {
+		t.Errorf("Expected %v but received %v", nil, err)
+	}
+	if !reflect.DeepEqual(finRes.Day(), expected.Day()) {
+		t.Errorf("Expected %v but received %v", finRes.Day(), expected.Day())
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeError(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("*month_endTest", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    config.NewRSRParsersMustCompile("*month_endTest", utils.InfieldSep),
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "/",
+	}
+
+	_, err := AgentReq.ParseField(fctTemp)
+	expected := "time: invalid location name"
+	if err == nil || err.Error() != expected {
+		t.Errorf("Expected <%+v> but received <%+v>", expected, err)
+	}
+}
+
+func TestAgentRequestParseFieldDateTimeError2(t *testing.T) {
+	prsr, err := config.NewRSRParsersFromSlice([]string{"2.", "~*req.CGRID<~*opts.Converter>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, prsr, "", "", nil, nil)
+	fctTemp := &config.FCTemplate{Type: utils.MetaDateTime,
+		Value:    prsr,
+		Layout:   "“Mon Jan _2 15:04:05 2006”",
+		Timezone: "/",
+	}
+
+	_, err = AgentReq.ParseField(fctTemp)
+	expected := utils.ErrNotFound
+	if err == nil || err != expected {
+		t.Errorf("Expected <%+v> but received <%+v>", expected, err)
+	}
+}
+
+func TestAgentRequestRemoveAll(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, nil, tntTpl, "", "", nil, nil)
+
+	testCases := []struct {
+		prefix  string
+		isError bool
+	}{
+		{prefix: utils.MetaVars, isError: false},
+		{prefix: utils.MetaCgreq, isError: false},
+		{prefix: utils.MetaCgrep, isError: false},
+		{prefix: utils.MetaRep, isError: false},
+		{prefix: utils.MetaDiamreq, isError: false},
+		{prefix: utils.MetaTmp, isError: false},
+		{prefix: utils.MetaUCH, isError: false},
+		{prefix: utils.MetaOpts, isError: false},
+		{prefix: "unsupported_prefix", isError: true},
+	}
+
+	for _, testCase := range testCases {
+		err := AgentReq.RemoveAll(testCase.prefix)
+		if testCase.isError && err == nil {
+			t.Fatalf("expected an error for prefix: <%s>, but got no error", testCase.prefix)
+		}
+		if !testCase.isError && err != nil {
+			t.Fatalf("expected no error for prefix: <%s>, but got error: %v", testCase.prefix, err)
+		}
+	}
+}
+
+func TestAgentRequestRemove(t *testing.T) {
+	tntTpl := config.NewRSRParsersMustCompile("", utils.InfieldSep)
+	AgentReq := NewAgentRequest(utils.MapStorage{}, nil, nil, nil, utils.MapStorage{utils.AccountField: "Field1"}, tntTpl, "", "", nil, nil)
+	testCases := []struct {
+		fullPath *utils.FullPath
+		isError  bool
+	}{
+		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaVars}, Path: utils.MetaVars + utils.NestingSep + utils.AccountField}, isError: false},
+		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaCgreq}, Path: utils.MetaCgreq + utils.NestingSep + utils.Usage}, isError: false},
+		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaCgrep}}, isError: false},
+		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaRep}, Path: utils.MetaRep + utils.NestingSep + "MaxUsage"}, isError: false},
+		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaDiamreq}, Path: utils.MetaDiamreq + utils.NestingSep + "Destination-Host"}, isError: false},
+		{fullPath: &utils.FullPath{PathSlice: []string{"unsupported_prefix"}}, isError: true},
+	}
+
+	for _, testCase := range testCases {
+		err := AgentReq.Remove(testCase.fullPath)
+		if testCase.isError && err == nil {
+			t.Fatalf("expected an error for fullPath: <%v>, but got no error", testCase.fullPath)
+		}
+		if !testCase.isError && err != nil {
+			t.Fatalf("expected no error for fullPath: <%v>, but got error: %v", testCase.fullPath, err)
+		}
+	}
+}
+
+// func TestAgentRequestAppend(t *testing.T) {
+// 	tntTpl := config.NewRSRParsersMustCompile("", utils.InfieldSep)
+// 	ar := NewAgentRequest(utils.MapStorage{}, &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+// 		utils.MetaAppID: utils.NewLeafNode("appID")}}, nil, nil, utils.MapStorage{utils.AccountField: "Field1"}, tntTpl, "", "", nil, nil)
+// 	testCases := []struct {
+// 		fullPath *utils.FullPath
+// 		val      *utils.DataLeaf
+// 		isError  bool
+// 	}{
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaVars}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaCgreq}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaCgrep}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaRep}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaDiamreq}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaTmp}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaOpts}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{utils.MetaUCH}}, val: &utils.DataLeaf{Data: "test"}, isError: false},
+// 		{fullPath: &utils.FullPath{PathSlice: []string{"unsupported_prefix"}}, val: &utils.DataLeaf{Data: "test"}, isError: true},
+// 	}
+
+// 	for _, testCase := range testCases {
+// 		err := ar.Append(testCase.fullPath, testCase.val)
+// 		if testCase.isError && err == nil {
+// 			t.Fatalf("expected an error for fullPath: <%v>, but got no error", testCase.fullPath)
+// 		}
+// 		if !testCase.isError && err != nil {
+// 			t.Fatalf("expected no error for fullPath: <%v>, but got error: %v", testCase.fullPath, err)
+// 		}
+// 	}
+// }

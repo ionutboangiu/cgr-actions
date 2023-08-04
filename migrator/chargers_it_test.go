@@ -125,25 +125,29 @@ func TestChargersITMoveEncoding2(t *testing.T) {
 }
 
 func testChrgITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(chrgCfgIn.DataDbCfg().DataDbType,
-		chrgCfgIn.DataDbCfg().DataDbHost, chrgCfgIn.DataDbCfg().DataDbPort,
-		chrgCfgIn.DataDbCfg().DataDbName, chrgCfgIn.DataDbCfg().DataDbUser,
-		chrgCfgIn.DataDbCfg().DataDbPass, chrgCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", chrgCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(chrgCfgIn.DataDbCfg().Type,
+		chrgCfgIn.DataDbCfg().Host, chrgCfgIn.DataDbCfg().Port,
+		chrgCfgIn.DataDbCfg().Name, chrgCfgIn.DataDbCfg().User,
+		chrgCfgIn.DataDbCfg().Password, chrgCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), chrgCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(chrgCfgOut.DataDbCfg().DataDbType,
-		chrgCfgOut.DataDbCfg().DataDbHost, chrgCfgOut.DataDbCfg().DataDbPort,
-		chrgCfgOut.DataDbCfg().DataDbName, chrgCfgOut.DataDbCfg().DataDbUser,
-		chrgCfgOut.DataDbCfg().DataDbPass, chrgCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", chrgCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(chrgCfgOut.DataDbCfg().Type,
+		chrgCfgOut.DataDbCfg().Host, chrgCfgOut.DataDbCfg().Port,
+		chrgCfgOut.DataDbCfg().Name, chrgCfgOut.DataDbCfg().User,
+		chrgCfgOut.DataDbCfg().Password, chrgCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), chrgCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	chrgMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(chrgPathIn, chrgPathOut) {
+		chrgMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		chrgMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -156,7 +160,7 @@ func testChrgITFlush(t *testing.T) {
 	if isEmpty, err := chrgMigrator.dmOut.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(chrgMigrator.dmOut.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -167,7 +171,7 @@ func testChrgITFlush(t *testing.T) {
 	if isEmpty, err := chrgMigrator.dmIN.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(chrgMigrator.dmIN.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -207,7 +211,7 @@ func testChrgITMigrateAndMove(t *testing.T) {
 			t.Error(err)
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := chrgMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := chrgMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for Chargers ", err.Error())
 		}
@@ -241,6 +245,8 @@ func testChrgITMigrateAndMove(t *testing.T) {
 		if _, err = chrgMigrator.dmIN.DataManager().GetChargerProfile("cgrates.com",
 			"CHRG_1", false, false, utils.NonTransactional); err == nil || err != utils.ErrNotFound {
 			t.Error(err)
+		} else if chrgMigrator.stats[utils.Chargers] != 2 {
+			t.Errorf("Expected 2, received: %v", chrgMigrator.stats[utils.Chargers])
 		}
 	}
 }

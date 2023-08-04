@@ -29,53 +29,43 @@ import (
 )
 
 func NewLoaderService(dm *engine.DataManager, ldrsCfg []*config.LoaderSCfg,
-	timezone string, exitChan chan bool, filterS *engine.FilterS,
+	timezone string, filterS *engine.FilterS,
 	connMgr *engine.ConnManager) (ldrS *LoaderService) {
 	ldrS = &LoaderService{ldrs: make(map[string]*Loader)}
 	for _, ldrCfg := range ldrsCfg {
-		if !ldrCfg.Enabled {
-			continue
+		if ldrCfg.Enabled {
+			ldrS.ldrs[ldrCfg.ID] = NewLoader(dm, ldrCfg, timezone, filterS, connMgr, ldrCfg.CacheSConns)
 		}
-		ldrS.ldrs[ldrCfg.Id] = NewLoader(dm, ldrCfg, timezone, exitChan, filterS, connMgr, ldrCfg.CacheSConns)
 	}
 	return
 }
 
-// LoaderS is the Loader service handling independent Loaders
+// LoaderService is the Loader service handling independent Loaders
 type LoaderService struct {
 	sync.RWMutex
 	ldrs map[string]*Loader
 }
 
-// IsEnabled returns true if at least one loader is enabled
+// Enabled returns true if at least one loader is enabled
 func (ldrS *LoaderService) Enabled() bool {
-	for _, ldr := range ldrS.ldrs {
-		if ldr.enabled {
-			return true
-		}
-	}
-	return false
+	return len(ldrS.ldrs) != 0
 }
 
-func (ldrS *LoaderService) ListenAndServe(exitChan chan bool) (err error) {
-	ldrExitChan := make(chan struct{})
+func (ldrS *LoaderService) ListenAndServe(stopChan chan struct{}) (err error) {
 	for _, ldr := range ldrS.ldrs {
-		go ldr.ListenAndServe(ldrExitChan)
-	}
-	select { // exit on errors coming from server or any loader
-	case e := <-exitChan:
-		close(ldrExitChan)
-		exitChan <- e // put back for the others listening for shutdown request
-	case <-ldrExitChan:
-		exitChan <- true
+		if err = ldr.ListenAndServe(stopChan); err != nil {
+			utils.Logger.Err(fmt.Sprintf("<%s-%s> error: <%s>", utils.LoaderS, ldr.ldrID, err.Error()))
+			return
+		}
 	}
 	return
 }
 
 type ArgsProcessFolder struct {
-	LoaderID  string
-	ForceLock bool
-	Caching   *string
+	LoaderID    string
+	ForceLock   bool
+	Caching     *string
+	StopOnError bool
 }
 
 func (ldrS *LoaderService) V1Load(args *ArgsProcessFolder,
@@ -92,19 +82,19 @@ func (ldrS *LoaderService) V1Load(args *ArgsProcessFolder,
 	if locked, err := ldr.isFolderLocked(); err != nil {
 		return utils.NewErrServerError(err)
 	} else if locked {
-		if args.ForceLock {
-			if err := ldr.unlockFolder(); err != nil {
-				return utils.NewErrServerError(err)
-			}
+		if !args.ForceLock {
+			return errors.New("ANOTHER_LOADER_RUNNING")
 		}
-		return errors.New("ANOTHER_LOADER_RUNNING")
+		if err := ldr.unlockFolder(); err != nil {
+			return utils.NewErrServerError(err)
+		}
 	}
 	//verify If Caching is present in arguments
 	caching := config.CgrConfig().GeneralCfg().DefaultCaching
 	if args.Caching != nil {
 		caching = *args.Caching
 	}
-	if err := ldr.ProcessFolder(caching, utils.MetaStore); err != nil {
+	if err := ldr.ProcessFolder(caching, utils.MetaStore, args.StopOnError); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*rply = utils.OK
@@ -137,7 +127,7 @@ func (ldrS *LoaderService) V1Remove(args *ArgsProcessFolder,
 	if args.Caching != nil {
 		caching = *args.Caching
 	}
-	if err := ldr.ProcessFolder(caching, utils.MetaRemove); err != nil {
+	if err := ldr.ProcessFolder(caching, utils.MetaRemove, args.StopOnError); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*rply = utils.OK
@@ -146,14 +136,13 @@ func (ldrS *LoaderService) V1Remove(args *ArgsProcessFolder,
 
 // Reload recreates the loaders map thread safe
 func (ldrS *LoaderService) Reload(dm *engine.DataManager, ldrsCfg []*config.LoaderSCfg,
-	timezone string, exitChan chan bool, filterS *engine.FilterS, connMgr *engine.ConnManager) {
+	timezone string, filterS *engine.FilterS, connMgr *engine.ConnManager) {
 	ldrS.Lock()
 	ldrS.ldrs = make(map[string]*Loader)
 	for _, ldrCfg := range ldrsCfg {
-		if !ldrCfg.Enabled {
-			continue
+		if ldrCfg.Enabled {
+			ldrS.ldrs[ldrCfg.ID] = NewLoader(dm, ldrCfg, timezone, filterS, connMgr, ldrCfg.CacheSConns)
 		}
-		ldrS.ldrs[ldrCfg.Id] = NewLoader(dm, ldrCfg, timezone, exitChan, filterS, connMgr, ldrCfg.CacheSConns)
 	}
 	ldrS.Unlock()
 }

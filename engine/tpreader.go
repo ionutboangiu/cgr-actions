@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/structmatcher"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -42,7 +41,7 @@ type TpReader struct {
 	accountActions     map[string]*Account
 	destinations       map[string]*Destination
 	timings            map[string]*utils.TPTiming
-	rates              map[string]*utils.TPRate
+	rates              map[string]*utils.TPRateRALs
 	destinationRates   map[string]*utils.TPDestinationRate
 	ratingPlans        map[string]*RatingPlan
 	ratingProfiles     map[string]*RatingProfile
@@ -51,22 +50,19 @@ type TpReader struct {
 	sqProfiles         map[utils.TenantID]*utils.TPStatProfile
 	thProfiles         map[utils.TenantID]*utils.TPThresholdProfile
 	filters            map[utils.TenantID]*utils.TPFilterProfile
-	sppProfiles        map[utils.TenantID]*utils.TPSupplierProfile
+	routeProfiles      map[utils.TenantID]*utils.TPRouteProfile
 	attributeProfiles  map[utils.TenantID]*utils.TPAttributeProfile
 	chargerProfiles    map[utils.TenantID]*utils.TPChargerProfile
 	dispatcherProfiles map[utils.TenantID]*utils.TPDispatcherProfile
 	dispatcherHosts    map[utils.TenantID]*utils.TPDispatcherHost
-	resources          []*utils.TenantID // IDs of resources which need creation based on resourceProfiles
-	statQueues         []*utils.TenantID // IDs of statQueues which need creation based on statQueueProfiles
-	thresholds         []*utils.TenantID // IDs of thresholds which need creation based on thresholdProfiles
-	revDests,
-	acntActionPlans map[string][]string
-	cacheConns     []string
-	schedulerConns []string
+	acntActionPlans    map[string][]string
+	cacheConns         []string
+	schedulerConns     []string
+	isInternalDB       bool // do not reload cache if we use intarnalDB
 }
 
 func NewTpReader(db DataDB, lr LoadReader, tpid, timezone string,
-	cacheConns, schedulerConns []string) (*TpReader, error) {
+	cacheConns, schedulerConns []string, isInternalDB bool) (*TpReader, error) {
 
 	tpr := &TpReader{
 		tpid:           tpid,
@@ -75,45 +71,12 @@ func NewTpReader(db DataDB, lr LoadReader, tpid, timezone string,
 		lr:             lr,
 		cacheConns:     cacheConns,
 		schedulerConns: schedulerConns,
+		isInternalDB:   isInternalDB,
 	}
 	tpr.Init()
-	//add *any and *asap timing tag (in case of no timings file)
-	tpr.timings[utils.ANY] = &utils.TPTiming{
-		ID:        utils.ANY,
-		Years:     utils.Years{},
-		Months:    utils.Months{},
-		MonthDays: utils.MonthDays{},
-		WeekDays:  utils.WeekDays{},
-		StartTime: "00:00:00",
-		EndTime:   "",
-	}
-	tpr.timings[utils.ASAP] = &utils.TPTiming{
-		ID:        utils.ASAP,
-		Years:     utils.Years{},
-		Months:    utils.Months{},
-		MonthDays: utils.MonthDays{},
-		WeekDays:  utils.WeekDays{},
-		StartTime: utils.ASAP,
-		EndTime:   "",
-	}
-	tpr.timings[utils.MetaEveryMinute] = &utils.TPTiming{
-		ID:        utils.MetaEveryMinute,
-		Years:     utils.Years{},
-		Months:    utils.Months{},
-		MonthDays: utils.MonthDays{},
-		WeekDays:  utils.WeekDays{},
-		StartTime: utils.MetaEveryMinute,
-		EndTime:   "",
-	}
-	tpr.timings[utils.MetaHourly] = &utils.TPTiming{
-		ID:        utils.MetaHourly,
-		Years:     utils.Years{},
-		Months:    utils.Months{},
-		MonthDays: utils.MonthDays{},
-		WeekDays:  utils.WeekDays{},
-		StartTime: utils.MetaHourly,
-		EndTime:   "",
-	}
+	//add default timing tag (in case of no timings file)
+	tpr.addDefaultTimings()
+
 	return tpr, nil
 }
 
@@ -121,7 +84,7 @@ func (tpr *TpReader) Init() {
 	tpr.actions = make(map[string][]*Action)
 	tpr.actionPlans = make(map[string]*ActionPlan)
 	tpr.actionsTriggers = make(map[string]ActionTriggers)
-	tpr.rates = make(map[string]*utils.TPRate)
+	tpr.rates = make(map[string]*utils.TPRateRALs)
 	tpr.destinations = make(map[string]*Destination)
 	tpr.destinationRates = make(map[string]*utils.TPDestinationRate)
 	tpr.timings = make(map[string]*utils.TPTiming)
@@ -132,13 +95,12 @@ func (tpr *TpReader) Init() {
 	tpr.resProfiles = make(map[utils.TenantID]*utils.TPResourceProfile)
 	tpr.sqProfiles = make(map[utils.TenantID]*utils.TPStatProfile)
 	tpr.thProfiles = make(map[utils.TenantID]*utils.TPThresholdProfile)
-	tpr.sppProfiles = make(map[utils.TenantID]*utils.TPSupplierProfile)
+	tpr.routeProfiles = make(map[utils.TenantID]*utils.TPRouteProfile)
 	tpr.attributeProfiles = make(map[utils.TenantID]*utils.TPAttributeProfile)
 	tpr.chargerProfiles = make(map[utils.TenantID]*utils.TPChargerProfile)
 	tpr.dispatcherProfiles = make(map[utils.TenantID]*utils.TPDispatcherProfile)
 	tpr.dispatcherHosts = make(map[utils.TenantID]*utils.TPDispatcherHost)
 	tpr.filters = make(map[utils.TenantID]*utils.TPFilterProfile)
-	tpr.revDests = make(map[string][]string)
 	tpr.acntActionPlans = make(map[string][]string)
 }
 
@@ -156,7 +118,7 @@ func (tpr *TpReader) LoadDestinationsFiltered(tag string) (bool, error) {
 		if err = tpr.dm.SetDestination(dst, transID); err != nil {
 			Cache.RollbackTransaction(transID)
 		}
-		if err = tpr.dm.SetReverseDestination(dst, transID); err != nil {
+		if err = tpr.dm.SetReverseDestination(dst.Id, dst.Prefixes, transID); err != nil {
 			Cache.RollbackTransaction(transID)
 		}
 	}
@@ -171,12 +133,6 @@ func (tpr *TpReader) LoadDestinations() (err error) {
 	}
 	for _, tpDst := range tps {
 		tpr.destinations[tpDst.ID] = NewDestinationFromTPDestination(tpDst)
-		for _, prfx := range tpr.destinations[tpDst.ID].Prefixes {
-			if _, hasIt := tpr.revDests[prfx]; !hasIt {
-				tpr.revDests[prfx] = make([]string, 0)
-			}
-			tpr.revDests[prfx] = append(tpr.revDests[prfx], tpDst.ID)
-		}
 	}
 	return
 }
@@ -186,25 +142,15 @@ func (tpr *TpReader) LoadTimings() (err error) {
 	if err != nil {
 		return err
 	}
-	tpr.timings, err = MapTPTimings(tps)
-	// add *any timing tag
-	tpr.timings[utils.ANY] = &utils.TPTiming{
-		ID:        utils.ANY,
-		Years:     utils.Years{},
-		Months:    utils.Months{},
-		MonthDays: utils.MonthDays{},
-		WeekDays:  utils.WeekDays{},
-		StartTime: "00:00:00",
-		EndTime:   "",
+	var tpTimings map[string]*utils.TPTiming
+	if tpTimings, err = MapTPTimings(tps); err != nil {
+		return
 	}
-	tpr.timings[utils.ASAP] = &utils.TPTiming{
-		ID:        utils.ASAP,
-		Years:     utils.Years{},
-		Months:    utils.Months{},
-		MonthDays: utils.MonthDays{},
-		WeekDays:  utils.WeekDays{},
-		StartTime: utils.ASAP,
-		EndTime:   "",
+	// add default timings
+	tpr.addDefaultTimings()
+	// add timings defined by user
+	for timingID, timing := range tpTimings {
+		tpr.timings[timingID] = timing
 	}
 	return err
 }
@@ -234,12 +180,12 @@ func (tpr *TpReader) LoadDestinationRates() (err error) {
 				return fmt.Errorf("could not find rate for tag %q", dr.RateId)
 			}
 			dr.Rate = rate
-			destinationExists := dr.DestinationId == utils.ANY
+			destinationExists := dr.DestinationId == utils.MetaAny
 			if !destinationExists {
 				_, destinationExists = tpr.destinations[dr.DestinationId]
 			}
 			if !destinationExists && tpr.dm.dataDB != nil {
-				if destinationExists, err = tpr.dm.HasData(utils.DESTINATION_PREFIX, dr.DestinationId, ""); err != nil {
+				if destinationExists, err = tpr.dm.HasData(utils.DestinationPrefix, dr.DestinationId, ""); err != nil {
 					return err
 				}
 			}
@@ -251,7 +197,7 @@ func (tpr *TpReader) LoadDestinationRates() (err error) {
 	return nil
 }
 
-// Returns true, nil in case of load success, false, nil in case of RatingPlan  not found dataStorage
+// LoadRatingPlansFiltered returns true, nil in case of load success, false, nil in case of RatingPlan  not found dataStorage
 func (tpr *TpReader) LoadRatingPlansFiltered(tag string) (bool, error) {
 	mpRpls, err := tpr.lr.GetTPRatingPlans(tpr.tpid, tag, nil)
 	if err != nil {
@@ -270,7 +216,7 @@ func (tpr *TpReader) LoadRatingPlansFiltered(tag string) (bool, error) {
 			if !exists {
 				tptm, err := tpr.lr.GetTPTimings(tpr.tpid, rp.TimingId)
 				if err != nil || len(tptm) == 0 {
-					return false, fmt.Errorf("no timing with id %s: %q", rp.TimingId, err)
+					return false, fmt.Errorf("no timing with id %q: %v", rp.TimingId, err)
 				}
 				tm, err = MapTPTimings(tptm)
 				if err != nil {
@@ -299,36 +245,35 @@ func (tpr *TpReader) LoadRatingPlansFiltered(tag string) (bool, error) {
 
 				drate.Rate = rt[drate.RateId]
 				ratingPlan.AddRateInterval(drate.DestinationId, GetRateInterval(rp, drate))
-				if drate.DestinationId == utils.ANY {
+				if drate.DestinationId == utils.MetaAny {
 					continue // no need of loading the destinations in this case
 				}
+
 				tpDests, err := tpr.lr.GetTPDestinations(tpr.tpid, drate.DestinationId)
 				if err != nil {
-					return false, err
-				}
-				dms := make([]*Destination, len(tpDests))
-				for i, tpDst := range tpDests {
-					dms[i] = NewDestinationFromTPDestination(tpDst)
-				}
-				destsExist := len(dms) != 0
-				if !destsExist && tpr.dm.dataDB != nil {
-					if dbExists, err := tpr.dm.HasData(utils.DESTINATION_PREFIX, drate.DestinationId, ""); err != nil {
+					if err.Error() == utils.ErrNotFound.Error() { // if the destination doesn't exists in stordb check it in dataDB
+						if tpr.dm.dataDB != nil {
+							if dbExists, err := tpr.dm.HasData(utils.DestinationPrefix, drate.DestinationId, ""); err != nil {
+								return false, err
+							} else if dbExists {
+								continue
+							} else if !dbExists { // if the error doesn't exists in datadb return error
+								return false, fmt.Errorf("could not get destination for tag %q", drate.DestinationId)
+							}
+						}
+					} else {
 						return false, err
-					} else if dbExists {
-						destsExist = true
 					}
-					continue
 				}
-				if !destsExist {
-					return false, fmt.Errorf("could not get destination for tag %q", drate.DestinationId)
-				}
-				for _, destination := range dms {
+
+				for _, tpDst := range tpDests {
+					destination := NewDestinationFromTPDestination(tpDst)
 					tpr.dm.SetDestination(destination, utils.NonTransactional)
-					tpr.dm.SetReverseDestination(destination, utils.NonTransactional)
+					tpr.dm.SetReverseDestination(destination.Id, destination.Prefixes, utils.NonTransactional)
 				}
 			}
 		}
-		if err := tpr.dm.SetRatingPlan(ratingPlan, utils.NonTransactional); err != nil {
+		if err := tpr.dm.SetRatingPlan(ratingPlan); err != nil {
 			return false, err
 		}
 	}
@@ -365,34 +310,32 @@ func (tpr *TpReader) LoadRatingPlans() (err error) {
 	return nil
 }
 
-func (tpr *TpReader) LoadRatingProfilesFiltered(qriedRpf *utils.TPRatingProfile) ([]string, error) {
+func (tpr *TpReader) LoadRatingProfilesFiltered(qriedRpf *utils.TPRatingProfile) error {
 	var resultRatingProfile *RatingProfile
 	mpTpRpfs, err := tpr.lr.GetTPRatingProfiles(qriedRpf)
 	if err != nil {
-		return nil, fmt.Errorf("no RateProfile for filter %v, error: %v", qriedRpf, err)
+		return fmt.Errorf("no RatingProfile for filter %v, error: %v", qriedRpf, err)
 	}
 
 	rpfs, err := MapTPRatingProfiles(mpTpRpfs)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	ids := make([]string, 0, len(rpfs))
 	for _, tpRpf := range rpfs {
-		ids = append(ids, tpRpf.KeyId())
 		resultRatingProfile = &RatingProfile{Id: tpRpf.KeyId()}
 		for _, tpRa := range tpRpf.RatingPlanActivations {
 			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
 			if err != nil {
-				return nil, fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
+				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
 			}
 			_, exists := tpr.ratingPlans[tpRa.RatingPlanId]
 			if !exists && tpr.dm.dataDB != nil {
-				if exists, err = tpr.dm.HasData(utils.RATING_PLAN_PREFIX, tpRa.RatingPlanId, ""); err != nil {
-					return nil, err
+				if exists, err = tpr.dm.HasData(utils.RatingPlanPrefix, tpRa.RatingPlanId, ""); err != nil {
+					return err
 				}
 			}
 			if !exists {
-				return nil, fmt.Errorf("could not load rating plans for tag: %q", tpRa.RatingPlanId)
+				return fmt.Errorf("could not load rating plans for tag: %q", tpRa.RatingPlanId)
 			}
 			resultRatingProfile.RatingPlanActivations = append(resultRatingProfile.RatingPlanActivations,
 				&RatingPlanActivation{
@@ -402,11 +345,12 @@ func (tpr *TpReader) LoadRatingProfilesFiltered(qriedRpf *utils.TPRatingProfile)
 						tpRpf.Category, tpRa.FallbackSubjects),
 				})
 		}
-		if err := tpr.dm.SetRatingProfile(resultRatingProfile, utils.NonTransactional); err != nil {
-			return nil, err
+		if err := tpr.dm.SetRatingProfile(resultRatingProfile); err != nil {
+			return err
 		}
+		tpr.ratingProfiles[tpRpf.KeyId()] = resultRatingProfile
 	}
-	return ids, nil
+	return nil
 }
 
 func (tpr *TpReader) LoadRatingProfiles() (err error) {
@@ -427,7 +371,7 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
 			}
 			_, exists := tpr.ratingPlans[tpRa.RatingPlanId]
 			if !exists && tpr.dm.dataDB != nil { // Only query if there is a connection, eg on dry run there is none
-				if exists, err = tpr.dm.HasData(utils.RATING_PLAN_PREFIX, tpRa.RatingPlanId, ""); err != nil {
+				if exists, err = tpr.dm.HasData(utils.RatingPlanPrefix, tpRa.RatingPlanId, ""); err != nil {
 					return err
 				}
 			}
@@ -471,7 +415,7 @@ func (tpr *TpReader) LoadSharedGroupsFiltered(tag string, save bool) (err error)
 	}
 	if save {
 		for _, sg := range tpr.sharedGroups {
-			if err := tpr.dm.SetSharedGroup(sg, utils.NonTransactional); err != nil {
+			if err := tpr.dm.SetSharedGroup(sg); err != nil {
 				return err
 			}
 		}
@@ -494,10 +438,12 @@ func (tpr *TpReader) LoadActions() (err error) {
 		acts := make([]*Action, len(tpacts))
 		for idx, tpact := range tpacts {
 			// check filter field
-			if len(tpact.Filter) > 0 {
-				if _, err := structmatcher.NewStructMatcher(tpact.Filter); err != nil {
-					return fmt.Errorf("error parsing action %s filter field: %v", tag, err)
-				}
+			var fltrs []string
+			if len(tpact.Filters) > 0 {
+				fltrs = strings.Split(tpact.Filters, utils.InfieldSep)
+			}
+			if err = verifyInlineFilterS(fltrs); err != nil {
+				return fmt.Errorf("error parsing action %s filter field: %v", tag, err)
 			}
 			acts[idx] = &Action{
 				Id:               tag,
@@ -505,17 +451,17 @@ func (tpr *TpReader) LoadActions() (err error) {
 				Weight:           tpact.Weight,
 				ExtraParameters:  tpact.ExtraParameters,
 				ExpirationString: tpact.ExpiryTime,
-				Filter:           tpact.Filter,
+				Filters:          fltrs,
 				Balance:          &BalanceFilter{},
 			}
-			if tpact.BalanceId != "" && tpact.BalanceId != utils.ANY {
+			if tpact.BalanceId != "" && tpact.BalanceId != utils.MetaAny {
 				acts[idx].Balance.ID = utils.StringPointer(tpact.BalanceId)
 			}
-			if tpact.BalanceType != "" && tpact.BalanceType != utils.ANY {
+			if tpact.BalanceType != "" && tpact.BalanceType != utils.MetaAny {
 				acts[idx].Balance.Type = utils.StringPointer(tpact.BalanceType)
 			}
 
-			if tpact.Units != "" && tpact.Units != utils.ANY {
+			if tpact.Units != "" && tpact.Units != utils.MetaAny {
 				vf, err := utils.ParseBalanceFilterValue(tpact.BalanceType, tpact.Units)
 				if err != nil {
 					return err
@@ -523,7 +469,7 @@ func (tpr *TpReader) LoadActions() (err error) {
 				acts[idx].Balance.Value = vf
 			}
 
-			if tpact.BalanceWeight != "" && tpact.BalanceWeight != utils.ANY {
+			if tpact.BalanceWeight != "" && tpact.BalanceWeight != utils.MetaAny {
 				u, err := strconv.ParseFloat(tpact.BalanceWeight, 64)
 				if err != nil {
 					return err
@@ -531,30 +477,30 @@ func (tpr *TpReader) LoadActions() (err error) {
 				acts[idx].Balance.Weight = utils.Float64Pointer(u)
 			}
 
-			if tpact.RatingSubject != "" && tpact.RatingSubject != utils.ANY {
+			if tpact.RatingSubject != "" && tpact.RatingSubject != utils.MetaAny {
 				acts[idx].Balance.RatingSubject = utils.StringPointer(tpact.RatingSubject)
 			}
 
-			if tpact.Categories != "" && tpact.Categories != utils.ANY {
+			if tpact.Categories != "" && tpact.Categories != utils.MetaAny {
 				acts[idx].Balance.Categories = utils.StringMapPointer(utils.ParseStringMap(tpact.Categories))
 			}
-			if tpact.DestinationIds != "" && tpact.DestinationIds != utils.ANY {
+			if tpact.DestinationIds != "" && tpact.DestinationIds != utils.MetaAny {
 				acts[idx].Balance.DestinationIDs = utils.StringMapPointer(utils.ParseStringMap(tpact.DestinationIds))
 			}
-			if tpact.SharedGroups != "" && tpact.SharedGroups != utils.ANY {
+			if tpact.SharedGroups != "" && tpact.SharedGroups != utils.MetaAny {
 				acts[idx].Balance.SharedGroups = utils.StringMapPointer(utils.ParseStringMap(tpact.SharedGroups))
 			}
-			if tpact.TimingTags != "" && tpact.TimingTags != utils.ANY {
+			if tpact.TimingTags != "" && tpact.TimingTags != utils.MetaAny {
 				acts[idx].Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(tpact.TimingTags))
 			}
-			if tpact.BalanceBlocker != "" && tpact.BalanceBlocker != utils.ANY {
+			if tpact.BalanceBlocker != "" && tpact.BalanceBlocker != utils.MetaAny {
 				u, err := strconv.ParseBool(tpact.BalanceBlocker)
 				if err != nil {
 					return err
 				}
 				acts[idx].Balance.Blocker = utils.BoolPointer(u)
 			}
-			if tpact.BalanceDisabled != "" && tpact.BalanceDisabled != utils.ANY {
+			if tpact.BalanceDisabled != "" && tpact.BalanceDisabled != utils.MetaAny {
 				u, err := strconv.ParseBool(tpact.BalanceDisabled)
 				if err != nil {
 					return err
@@ -564,17 +510,18 @@ func (tpr *TpReader) LoadActions() (err error) {
 
 			// load action timings from tags
 			if tpact.TimingTags != "" {
-				timingIds := strings.Split(tpact.TimingTags, utils.INFIELD_SEP)
+				timingIds := strings.Split(tpact.TimingTags, utils.InfieldSep)
 				for _, timingID := range timingIds {
 					timing, found := tpr.timings[timingID]
 					if !found {
 						if timing, err = tpr.dm.GetTiming(timingID, false,
 							utils.NonTransactional); err != nil {
-							return fmt.Errorf("error: <%s> querying timing with id: <%q>",
+							return fmt.Errorf("error: %v querying timing with id: %q",
 								err.Error(), timingID)
 						}
 					}
 					acts[idx].Balance.Timings = append(acts[idx].Balance.Timings, &RITiming{
+						ID:        timingID,
 						Years:     timing.Years,
 						Months:    timing.Months,
 						MonthDays: timing.MonthDays,
@@ -596,12 +543,12 @@ func (tpr *TpReader) LoadActionPlans() (err error) {
 		return err
 	}
 	storAps := MapTPActionTimings(tps)
-	for atId, ats := range storAps {
+	for atID, ats := range storAps {
 		for _, at := range ats {
 
 			_, exists := tpr.actions[at.ActionsId]
 			if !exists && tpr.dm.dataDB != nil {
-				if exists, err = tpr.dm.HasData(utils.ACTION_PREFIX, at.ActionsId, ""); err != nil {
+				if exists, err = tpr.dm.HasData(utils.ActionPrefix, at.ActionsId, ""); err != nil {
 					return fmt.Errorf("[ActionPlans] Error querying actions: %q - %s", at.ActionsId, err.Error())
 				}
 			}
@@ -613,9 +560,9 @@ func (tpr *TpReader) LoadActionPlans() (err error) {
 				return fmt.Errorf("[ActionPlans] Could not load the timing for tag: %q", at.TimingId)
 			}
 			var actPln *ActionPlan
-			if actPln, exists = tpr.actionPlans[atId]; !exists {
+			if actPln, exists = tpr.actionPlans[atID]; !exists {
 				actPln = &ActionPlan{
-					Id: atId,
+					Id: atID,
 				}
 			}
 			actPln.ActionTimings = append(actPln.ActionTimings, &ActionTiming{
@@ -623,6 +570,7 @@ func (tpr *TpReader) LoadActionPlans() (err error) {
 				Weight: at.Weight,
 				Timing: &RateInterval{
 					Timing: &RITiming{
+						ID:        at.TimingId,
 						Years:     t.Years,
 						Months:    t.Months,
 						MonthDays: t.MonthDays,
@@ -633,7 +581,7 @@ func (tpr *TpReader) LoadActionPlans() (err error) {
 				ActionsID: at.ActionsId,
 			})
 
-			tpr.actionPlans[atId] = actPln
+			tpr.actionPlans[atID] = actPln
 		}
 	}
 	return nil
@@ -676,52 +624,52 @@ func (tpr *TpReader) LoadActionTriggers() (err error) {
 				Weight:         atr.Weight,
 				ActionsID:      atr.ActionsId,
 			}
-			if atr.BalanceId != "" && atr.BalanceId != utils.ANY {
+			if atr.BalanceId != "" && atr.BalanceId != utils.MetaAny {
 				atrs[idx].Balance.ID = utils.StringPointer(atr.BalanceId)
 			}
 
-			if atr.BalanceType != "" && atr.BalanceType != utils.ANY {
+			if atr.BalanceType != "" && atr.BalanceType != utils.MetaAny {
 				atrs[idx].Balance.Type = utils.StringPointer(atr.BalanceType)
 			}
 
-			if atr.BalanceWeight != "" && atr.BalanceWeight != utils.ANY {
+			if atr.BalanceWeight != "" && atr.BalanceWeight != utils.MetaAny {
 				u, err := strconv.ParseFloat(atr.BalanceWeight, 64)
 				if err != nil {
 					return err
 				}
 				atrs[idx].Balance.Weight = utils.Float64Pointer(u)
 			}
-			if atr.BalanceExpirationDate != "" && atr.BalanceExpirationDate != utils.ANY && atr.ExpirationDate != utils.UNLIMITED {
+			if atr.BalanceExpirationDate != "" && atr.BalanceExpirationDate != utils.MetaAny && atr.ExpirationDate != utils.MetaUnlimited {
 				u, err := utils.ParseTimeDetectLayout(atr.BalanceExpirationDate, tpr.timezone)
 				if err != nil {
 					return err
 				}
 				atrs[idx].Balance.ExpirationDate = utils.TimePointer(u)
 			}
-			if atr.BalanceRatingSubject != "" && atr.BalanceRatingSubject != utils.ANY {
+			if atr.BalanceRatingSubject != "" && atr.BalanceRatingSubject != utils.MetaAny {
 				atrs[idx].Balance.RatingSubject = utils.StringPointer(atr.BalanceRatingSubject)
 			}
 
-			if atr.BalanceCategories != "" && atr.BalanceCategories != utils.ANY {
+			if atr.BalanceCategories != "" && atr.BalanceCategories != utils.MetaAny {
 				atrs[idx].Balance.Categories = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceCategories))
 			}
-			if atr.BalanceDestinationIds != "" && atr.BalanceDestinationIds != utils.ANY {
+			if atr.BalanceDestinationIds != "" && atr.BalanceDestinationIds != utils.MetaAny {
 				atrs[idx].Balance.DestinationIDs = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceDestinationIds))
 			}
-			if atr.BalanceSharedGroups != "" && atr.BalanceSharedGroups != utils.ANY {
+			if atr.BalanceSharedGroups != "" && atr.BalanceSharedGroups != utils.MetaAny {
 				atrs[idx].Balance.SharedGroups = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceSharedGroups))
 			}
-			if atr.BalanceTimingTags != "" && atr.BalanceTimingTags != utils.ANY {
+			if atr.BalanceTimingTags != "" && atr.BalanceTimingTags != utils.MetaAny {
 				atrs[idx].Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceTimingTags))
 			}
-			if atr.BalanceBlocker != "" && atr.BalanceBlocker != utils.ANY {
+			if atr.BalanceBlocker != "" && atr.BalanceBlocker != utils.MetaAny {
 				u, err := strconv.ParseBool(atr.BalanceBlocker)
 				if err != nil {
 					return err
 				}
 				atrs[idx].Balance.Blocker = utils.BoolPointer(u)
 			}
-			if atr.BalanceDisabled != "" && atr.BalanceDisabled != utils.ANY {
+			if atr.BalanceDisabled != "" && atr.BalanceDisabled != utils.MetaAny {
 				u, err := strconv.ParseBool(atr.BalanceDisabled)
 				if err != nil {
 					return err
@@ -760,7 +708,7 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 			if err != nil {
 				return errors.New(err.Error() + " (ActionPlan): " + accountAction.ActionPlanId)
 			} else if len(tpap) == 0 {
-				return fmt.Errorf("no action plan with id <%q>", accountAction.ActionPlanId)
+				return fmt.Errorf("no action plan with id %q", accountAction.ActionPlanId)
 			}
 			aps := MapTPActionTimings(tpap)
 			var actionPlan *ActionPlan
@@ -771,15 +719,15 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 				if actions, err := tpr.lr.GetTPActions(tpr.tpid, at.ActionsId); err != nil {
 					return errors.New(err.Error() + " (Actions): " + at.ActionsId)
 				} else if len(actions) == 0 {
-					return fmt.Errorf("no action with id <%q>", at.ActionsId)
+					return fmt.Errorf("no action with id %q", at.ActionsId)
 				}
 				var t *utils.TPTiming
-				if at.TimingId != utils.ASAP {
+				if at.TimingId != utils.MetaASAP {
 					tptm, err := tpr.lr.GetTPTimings(tpr.tpid, at.TimingId)
 					if err != nil {
 						return errors.New(err.Error() + " (Timing): " + at.TimingId)
 					} else if len(tptm) == 0 {
-						return fmt.Errorf("no timing with id <%q>", at.TimingId)
+						return fmt.Errorf("no timing with id %q", at.TimingId)
 					}
 					tm, err := MapTPTimings(tptm)
 					if err != nil {
@@ -799,6 +747,7 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 					Weight: at.Weight,
 					Timing: &RateInterval{
 						Timing: &RITiming{
+							ID:        at.TimingId,
 							Months:    t.Months,
 							MonthDays: t.MonthDays,
 							WeekDays:  t.WeekDays,
@@ -836,14 +785,9 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 			}
 			var reply string
 			if err := connMgr.Call(tpr.cacheConns, nil,
-				utils.CacheSv1ReloadCache, utils.AttrReloadCacheWithArgDispatcher{
-					TenantArg: utils.TenantArg{
-						Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
-					},
-					AttrReloadCache: utils.AttrReloadCache{
-						ArgsCache: utils.ArgsCache{AccountActionPlanIDs: []string{id},
-							ActionPlanIDs: []string{accountAction.ActionPlanId}},
-					},
+				utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+					AccountActionPlanIDs: []string{id},
+					ActionPlanIDs:        []string{accountAction.ActionPlanId},
 				}, &reply); err != nil {
 				return err
 			}
@@ -881,52 +825,52 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 						Weight:         atr.Weight,
 						ActionsID:      atr.ActionsId,
 					}
-					if atr.BalanceId != "" && atr.BalanceId != utils.ANY {
+					if atr.BalanceId != "" && atr.BalanceId != utils.MetaAny {
 						atrs[idx].Balance.ID = utils.StringPointer(atr.BalanceId)
 					}
 
-					if atr.BalanceType != "" && atr.BalanceType != utils.ANY {
+					if atr.BalanceType != "" && atr.BalanceType != utils.MetaAny {
 						atrs[idx].Balance.Type = utils.StringPointer(atr.BalanceType)
 					}
 
-					if atr.BalanceWeight != "" && atr.BalanceWeight != utils.ANY {
+					if atr.BalanceWeight != "" && atr.BalanceWeight != utils.MetaAny {
 						u, err := strconv.ParseFloat(atr.BalanceWeight, 64)
 						if err != nil {
 							return err
 						}
 						atrs[idx].Balance.Weight = utils.Float64Pointer(u)
 					}
-					if atr.BalanceExpirationDate != "" && atr.BalanceExpirationDate != utils.ANY && atr.ExpirationDate != utils.UNLIMITED {
+					if atr.BalanceExpirationDate != "" && atr.BalanceExpirationDate != utils.MetaAny && atr.ExpirationDate != utils.MetaUnlimited {
 						u, err := utils.ParseTimeDetectLayout(atr.BalanceExpirationDate, tpr.timezone)
 						if err != nil {
 							return err
 						}
 						atrs[idx].Balance.ExpirationDate = utils.TimePointer(u)
 					}
-					if atr.BalanceRatingSubject != "" && atr.BalanceRatingSubject != utils.ANY {
+					if atr.BalanceRatingSubject != "" && atr.BalanceRatingSubject != utils.MetaAny {
 						atrs[idx].Balance.RatingSubject = utils.StringPointer(atr.BalanceRatingSubject)
 					}
 
-					if atr.BalanceCategories != "" && atr.BalanceCategories != utils.ANY {
+					if atr.BalanceCategories != "" && atr.BalanceCategories != utils.MetaAny {
 						atrs[idx].Balance.Categories = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceCategories))
 					}
-					if atr.BalanceDestinationIds != "" && atr.BalanceDestinationIds != utils.ANY {
+					if atr.BalanceDestinationIds != "" && atr.BalanceDestinationIds != utils.MetaAny {
 						atrs[idx].Balance.DestinationIDs = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceDestinationIds))
 					}
-					if atr.BalanceSharedGroups != "" && atr.BalanceSharedGroups != utils.ANY {
+					if atr.BalanceSharedGroups != "" && atr.BalanceSharedGroups != utils.MetaAny {
 						atrs[idx].Balance.SharedGroups = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceSharedGroups))
 					}
-					if atr.BalanceTimingTags != "" && atr.BalanceTimingTags != utils.ANY {
+					if atr.BalanceTimingTags != "" && atr.BalanceTimingTags != utils.MetaAny {
 						atrs[idx].Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceTimingTags))
 					}
-					if atr.BalanceBlocker != "" && atr.BalanceBlocker != utils.ANY {
+					if atr.BalanceBlocker != "" && atr.BalanceBlocker != utils.MetaAny {
 						u, err := strconv.ParseBool(atr.BalanceBlocker)
 						if err != nil {
 							return err
 						}
 						atrs[idx].Balance.Blocker = utils.BoolPointer(u)
 					}
-					if atr.BalanceDisabled != "" && atr.BalanceDisabled != utils.ANY {
+					if atr.BalanceDisabled != "" && atr.BalanceDisabled != utils.MetaAny {
 						u, err := strconv.ParseBool(atr.BalanceDisabled)
 						if err != nil {
 							return err
@@ -942,16 +886,23 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 				actionIDs = append(actionIDs, atr.ActionsID)
 			}
 			// write action triggers
-			err = tpr.dm.SetActionTriggers(accountAction.ActionTriggersId, actionTriggers, utils.NonTransactional)
-			if err != nil {
+			if err = tpr.dm.SetActionTriggers(accountAction.ActionTriggersId,
+				actionTriggers); err != nil {
 				return errors.New(err.Error() + " (SetActionTriggers): " + accountAction.ActionTriggersId)
+			}
+			var reply string
+			if err := connMgr.Call(tpr.cacheConns, nil,
+				utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+					ActionTriggerIDs: []string{accountAction.ActionTriggersId},
+				}, &reply); err != nil {
+				return err
 			}
 		}
 
 		// actions
 		facts := make(map[string][]*Action)
-		for _, actId := range actionIDs {
-			tpas, err := tpr.lr.GetTPActions(tpr.tpid, actId)
+		for _, actID := range actionIDs {
+			tpas, err := tpr.lr.GetTPActions(tpr.tpid, actID)
 			if err != nil {
 				return err
 			}
@@ -960,10 +911,12 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 				acts := make([]*Action, len(tpacts))
 				for idx, tpact := range tpacts {
 					// check filter field
-					if len(tpact.Filter) > 0 {
-						if _, err := structmatcher.NewStructMatcher(tpact.Filter); err != nil {
-							return fmt.Errorf("error parsing action %s filter field: %v", tag, err)
-						}
+					var fltrs []string
+					if len(tpact.Filters) > 0 {
+						fltrs = strings.Split(tpact.Filters, utils.InfieldSep)
+					}
+					if err = verifyInlineFilterS(fltrs); err != nil {
+						return fmt.Errorf("error parsing action %s filter field: %v", tag, err)
 					}
 					acts[idx] = &Action{
 						Id:         tag,
@@ -972,17 +925,17 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 						Weight:           tpact.Weight,
 						ExtraParameters:  tpact.ExtraParameters,
 						ExpirationString: tpact.ExpiryTime,
-						Filter:           tpact.Filter,
+						Filters:          fltrs,
 						Balance:          &BalanceFilter{},
 					}
-					if tpact.BalanceId != "" && tpact.BalanceId != utils.ANY {
+					if tpact.BalanceId != "" && tpact.BalanceId != utils.MetaAny {
 						acts[idx].Balance.ID = utils.StringPointer(tpact.BalanceId)
 					}
-					if tpact.BalanceType != "" && tpact.BalanceType != utils.ANY {
+					if tpact.BalanceType != "" && tpact.BalanceType != utils.MetaAny {
 						acts[idx].Balance.Type = utils.StringPointer(tpact.BalanceType)
 					}
 
-					if tpact.Units != "" && tpact.Units != utils.ANY {
+					if tpact.Units != "" && tpact.Units != utils.MetaAny {
 						vf, err := utils.ParseBalanceFilterValue(tpact.BalanceType, tpact.Units)
 						if err != nil {
 							return err
@@ -990,37 +943,37 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 						acts[idx].Balance.Value = vf
 					}
 
-					if tpact.BalanceWeight != "" && tpact.BalanceWeight != utils.ANY {
+					if tpact.BalanceWeight != "" && tpact.BalanceWeight != utils.MetaAny {
 						u, err := strconv.ParseFloat(tpact.BalanceWeight, 64)
 						if err != nil {
 							return err
 						}
 						acts[idx].Balance.Weight = utils.Float64Pointer(u)
 					}
-					if tpact.RatingSubject != "" && tpact.RatingSubject != utils.ANY {
+					if tpact.RatingSubject != "" && tpact.RatingSubject != utils.MetaAny {
 						acts[idx].Balance.RatingSubject = utils.StringPointer(tpact.RatingSubject)
 					}
 
-					if tpact.Categories != "" && tpact.Categories != utils.ANY {
+					if tpact.Categories != "" && tpact.Categories != utils.MetaAny {
 						acts[idx].Balance.Categories = utils.StringMapPointer(utils.ParseStringMap(tpact.Categories))
 					}
-					if tpact.DestinationIds != "" && tpact.DestinationIds != utils.ANY {
+					if tpact.DestinationIds != "" && tpact.DestinationIds != utils.MetaAny {
 						acts[idx].Balance.DestinationIDs = utils.StringMapPointer(utils.ParseStringMap(tpact.DestinationIds))
 					}
-					if tpact.SharedGroups != "" && tpact.SharedGroups != utils.ANY {
+					if tpact.SharedGroups != "" && tpact.SharedGroups != utils.MetaAny {
 						acts[idx].Balance.SharedGroups = utils.StringMapPointer(utils.ParseStringMap(tpact.SharedGroups))
 					}
-					if tpact.TimingTags != "" && tpact.TimingTags != utils.ANY {
+					if tpact.TimingTags != "" && tpact.TimingTags != utils.MetaAny {
 						acts[idx].Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(tpact.TimingTags))
 					}
-					if tpact.BalanceBlocker != "" && tpact.BalanceBlocker != utils.ANY {
+					if tpact.BalanceBlocker != "" && tpact.BalanceBlocker != utils.MetaAny {
 						u, err := strconv.ParseBool(tpact.BalanceBlocker)
 						if err != nil {
 							return err
 						}
 						acts[idx].Balance.Blocker = utils.BoolPointer(u)
 					}
-					if tpact.BalanceDisabled != "" && tpact.BalanceDisabled != utils.ANY {
+					if tpact.BalanceDisabled != "" && tpact.BalanceDisabled != utils.MetaAny {
 						u, err := strconv.ParseBool(tpact.BalanceDisabled)
 						if err != nil {
 							return err
@@ -1029,10 +982,11 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 					}
 					// load action timings from tags
 					if tpact.TimingTags != "" {
-						timingIds := strings.Split(tpact.TimingTags, utils.INFIELD_SEP)
+						timingIds := strings.Split(tpact.TimingTags, utils.InfieldSep)
 						for _, timingID := range timingIds {
 							if timing, found := tpr.timings[timingID]; found {
 								acts[idx].Balance.Timings = append(acts[idx].Balance.Timings, &RITiming{
+									ID:        timingID,
 									Years:     timing.Years,
 									Months:    timing.Months,
 									MonthDays: timing.MonthDays,
@@ -1051,8 +1005,14 @@ func (tpr *TpReader) LoadAccountActionsFiltered(qriedAA *utils.TPAccountActions)
 		}
 		// write actions
 		for k, as := range facts {
-			err = tpr.dm.SetActions(k, as, utils.NonTransactional)
-			if err != nil {
+			if err = tpr.dm.SetActions(k, as); err != nil {
+				return err
+			}
+			var reply string
+			if err := connMgr.Call(tpr.cacheConns, nil,
+				utils.CacheSv1ReloadCache, &utils.AttrReloadCacheWithAPIOpts{
+					ActionIDs: []string{k},
+				}, &reply); err != nil {
 				return err
 			}
 		}
@@ -1105,7 +1065,19 @@ func (tpr *TpReader) LoadAccountActions() (err error) {
 		if aa.ActionPlanId != "" {
 			actionPlan, exists := tpr.actionPlans[aa.ActionPlanId]
 			if !exists {
-				return fmt.Errorf("could not get action plan for tag %q", aa.ActionPlanId)
+				if tpr.dm.dataDB != nil {
+					if actionPlan, err = tpr.dm.GetActionPlan(aa.ActionPlanId, false, true, utils.NonTransactional); err != nil {
+						if err.Error() == utils.ErrNotFound.Error() {
+							return fmt.Errorf("could not get action plan for tag %q", aa.ActionPlanId)
+						}
+						return err
+					}
+					exists = true
+					tpr.actionPlans[aa.ActionPlanId] = actionPlan
+				}
+				if !exists {
+					return fmt.Errorf("could not get action plan for tag %q", aa.ActionPlanId)
+				}
 			}
 			if actionPlan.AccountIDs == nil {
 				actionPlan.AccountIDs = make(utils.StringMap)
@@ -1128,19 +1100,12 @@ func (tpr *TpReader) LoadResourceProfilesFiltered(tag string) (err error) {
 	}
 	mapRsPfls := make(map[utils.TenantID]*utils.TPResourceProfile)
 	for _, rl := range rls {
-		if err = validateInlineFilters(rl.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(rl.FilterIDs); err != nil {
 			return
 		}
 		mapRsPfls[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
 	}
 	tpr.resProfiles = mapRsPfls
-	for tntID := range mapRsPfls {
-		if has, err := tpr.dm.HasData(utils.ResourcesPrefix, tntID.ID, tntID.Tenant); err != nil {
-			return err
-		} else if !has {
-			tpr.resources = append(tpr.resources, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-	}
 	return nil
 }
 
@@ -1155,19 +1120,12 @@ func (tpr *TpReader) LoadStatsFiltered(tag string) (err error) {
 	}
 	mapSTs := make(map[utils.TenantID]*utils.TPStatProfile)
 	for _, st := range tps {
-		if err = validateInlineFilters(st.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(st.FilterIDs); err != nil {
 			return
 		}
 		mapSTs[utils.TenantID{Tenant: st.Tenant, ID: st.ID}] = st
 	}
 	tpr.sqProfiles = mapSTs
-	for tntID := range mapSTs {
-		if has, err := tpr.dm.HasData(utils.StatQueuePrefix, tntID.ID, tntID.Tenant); err != nil {
-			return err
-		} else if !has {
-			tpr.statQueues = append(tpr.statQueues, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-	}
 	return nil
 }
 
@@ -1182,20 +1140,13 @@ func (tpr *TpReader) LoadThresholdsFiltered(tag string) (err error) {
 	}
 	mapTHs := make(map[utils.TenantID]*utils.TPThresholdProfile)
 	for _, th := range tps {
-		if err = validateInlineFilters(th.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(th.FilterIDs); err != nil {
 			return
 		}
 		mapTHs[utils.TenantID{Tenant: th.Tenant, ID: th.ID}] = th
 	}
 	tpr.thProfiles = mapTHs
-	for tntID := range mapTHs {
-		if has, err := tpr.dm.HasData(utils.ThresholdPrefix, tntID.ID, tntID.Tenant); err != nil {
-			return err
-		} else if !has {
-			tpr.thresholds = append(tpr.thresholds, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-	}
-	return nil
+	return
 }
 
 func (tpr *TpReader) LoadThresholds() error {
@@ -1219,24 +1170,24 @@ func (tpr *TpReader) LoadFilters() error {
 	return tpr.LoadFiltersFiltered("")
 }
 
-func (tpr *TpReader) LoadSupplierProfilesFiltered(tag string) (err error) {
-	rls, err := tpr.lr.GetTPSuppliers(tpr.tpid, "", tag)
+func (tpr *TpReader) LoadRouteProfilesFiltered(tag string) (err error) {
+	rls, err := tpr.lr.GetTPRoutes(tpr.tpid, "", tag)
 	if err != nil {
 		return err
 	}
-	mapRsPfls := make(map[utils.TenantID]*utils.TPSupplierProfile)
+	mapRsPfls := make(map[utils.TenantID]*utils.TPRouteProfile)
 	for _, rl := range rls {
-		if err = validateInlineFilters(rl.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(rl.FilterIDs); err != nil {
 			return
 		}
 		mapRsPfls[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
 	}
-	tpr.sppProfiles = mapRsPfls
+	tpr.routeProfiles = mapRsPfls
 	return nil
 }
 
-func (tpr *TpReader) LoadSupplierProfiles() error {
-	return tpr.LoadSupplierProfilesFiltered("")
+func (tpr *TpReader) LoadRouteProfiles() error {
+	return tpr.LoadRouteProfilesFiltered("")
 }
 
 func (tpr *TpReader) LoadAttributeProfilesFiltered(tag string) (err error) {
@@ -1246,8 +1197,14 @@ func (tpr *TpReader) LoadAttributeProfilesFiltered(tag string) (err error) {
 	}
 	mapAttrPfls := make(map[utils.TenantID]*utils.TPAttributeProfile)
 	for _, attr := range attrs {
-		if err = validateInlineFilters(attr.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(attr.FilterIDs); err != nil {
 			return
+		}
+		for _, at := range attr.Attributes {
+			if at.Path == utils.EmptyString { // we do not suppot empty Path in Attributes
+				err = fmt.Errorf("empty path in AttributeProfile %q", utils.ConcatenatedKey(attr.Tenant, attr.ID))
+				return
+			}
 		}
 		mapAttrPfls[utils.TenantID{Tenant: attr.Tenant, ID: attr.ID}] = attr
 	}
@@ -1266,7 +1223,7 @@ func (tpr *TpReader) LoadChargerProfilesFiltered(tag string) (err error) {
 	}
 	mapChargerProfile := make(map[utils.TenantID]*utils.TPChargerProfile)
 	for _, rl := range rls {
-		if err = validateInlineFilters(rl.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(rl.FilterIDs); err != nil {
 			return
 		}
 		mapChargerProfile[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
@@ -1286,7 +1243,7 @@ func (tpr *TpReader) LoadDispatcherProfilesFiltered(tag string) (err error) {
 	}
 	mapDispatcherProfile := make(map[utils.TenantID]*utils.TPDispatcherProfile)
 	for _, rl := range rls {
-		if err = validateInlineFilters(rl.FilterIDs); err != nil {
+		if err = verifyInlineFilterS(rl.FilterIDs); err != nil {
 			return
 		}
 		mapDispatcherProfile[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
@@ -1362,7 +1319,7 @@ func (tpr *TpReader) LoadAll() (err error) {
 	if err = tpr.LoadThresholds(); err != nil && err.Error() != utils.NotFoundCaps {
 		return
 	}
-	if err = tpr.LoadSupplierProfiles(); err != nil && err.Error() != utils.NotFoundCaps {
+	if err = tpr.LoadRouteProfiles(); err != nil && err.Error() != utils.NotFoundCaps {
 		return
 	}
 	if err = tpr.LoadAttributeProfiles(); err != nil && err.Error() != utils.NotFoundCaps {
@@ -1380,8 +1337,8 @@ func (tpr *TpReader) LoadAll() (err error) {
 	return nil
 }
 
-func (tpr *TpReader) IsValid() bool {
-	valid := true
+func (tpr *TpReader) IsValid() (valid bool) {
+	valid = true
 	for rplTag, rpl := range tpr.ratingPlans {
 		if !rpl.isContinous() {
 			log.Printf("The rating plan %s is not covering all weekdays", rplTag)
@@ -1396,10 +1353,10 @@ func (tpr *TpReader) IsValid() bool {
 			valid = false
 		}
 	}
-	return valid
+	return
 }
 
-func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) {
+func (tpr *TpReader) WriteToDatabase(verbose, disableReverse bool) (err error) {
 	if tpr.dm.dataDB == nil {
 		return errors.New("no database connection")
 	}
@@ -1410,9 +1367,8 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Destinations:")
 	}
 	for _, d := range tpr.destinations {
-		err = tpr.dm.SetDestination(d, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.setDestination(d, disableReverse, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", d.Id, " : ", d.Prefixes)
@@ -1420,21 +1376,14 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 	}
 	if len(tpr.destinations) != 0 {
 		loadIDs[utils.CacheDestinations] = loadID
-	}
-	if len(tpr.revDests) != 0 {
 		loadIDs[utils.CacheReverseDestinations] = loadID
 	}
 	if verbose {
-		log.Print("Reverse Destinations:")
-		for id, vals := range tpr.revDests {
-			log.Printf("\t %s : %+v", id, vals)
-		}
 		log.Print("Rating Plans:")
 	}
 	for _, rp := range tpr.ratingPlans {
-		err = tpr.dm.SetRatingPlan(rp, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.SetRatingPlan(rp); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", rp.Id)
@@ -1447,9 +1396,8 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Rating Profiles:")
 	}
 	for _, rp := range tpr.ratingProfiles {
-		err = tpr.dm.SetRatingProfile(rp, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.SetRatingProfile(rp); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", rp.Id)
@@ -1462,6 +1410,7 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Action Plans:")
 	}
 	for k, ap := range tpr.actionPlans {
+		var hasScheduled bool
 		for _, at := range ap.ActionTimings {
 			if at.IsASAP() {
 				for accID := range ap.AccountIDs {
@@ -1474,7 +1423,7 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 						log.Println("\tTask: ", t)
 					}
 					if err = tpr.dm.DataDB().PushTask(t); err != nil {
-						return err
+						return
 					}
 				}
 				if len(ap.AccountIDs) == 0 {
@@ -1486,14 +1435,18 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 						log.Println("\tTask: ", t)
 					}
 					if err = tpr.dm.DataDB().PushTask(t); err != nil {
-						return err
+						return
 					}
 				}
+			} else {
+				hasScheduled = true
 			}
 		}
-		err = tpr.dm.SetActionPlan(k, ap, false, utils.NonTransactional)
-		if err != nil {
-			return err
+		if !hasScheduled {
+			ap.AccountIDs = utils.StringMap{}
+		}
+		if err = tpr.dm.SetActionPlan(k, ap, false, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -1510,14 +1463,11 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		for id, vals := range tpr.acntActionPlans {
 			log.Printf("\t %s : %+v", id, vals)
 		}
-	}
-	if verbose {
 		log.Print("Action Triggers:")
 	}
 	for k, atrs := range tpr.actionsTriggers {
-		err = tpr.dm.SetActionTriggers(k, atrs, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.SetActionTriggers(k, atrs); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -1530,9 +1480,8 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Shared Groups:")
 	}
 	for k, sg := range tpr.sharedGroups {
-		err = tpr.dm.SetSharedGroup(sg, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.SetSharedGroup(sg); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -1545,9 +1494,8 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Actions:")
 	}
 	for k, as := range tpr.actions {
-		err = tpr.dm.SetActions(k, as, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.SetActions(k, as); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -1560,9 +1508,8 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Account Actions:")
 	}
 	for _, ub := range tpr.accountActions {
-		err = tpr.dm.SetAccount(ub)
-		if err != nil {
-			return err
+		if err = tpr.dm.SetAccount(ub); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", ub.ID)
@@ -1572,12 +1519,12 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("Filters:")
 	}
 	for _, tpTH := range tpr.filters {
-		th, err := APItoFilter(tpTH, tpr.timezone)
-		if err != nil {
-			return err
+		var th *Filter
+		if th, err = APItoFilter(tpTH, tpr.timezone); err != nil {
+			return
 		}
-		if err = tpr.dm.SetFilter(th); err != nil {
-			return err
+		if err = tpr.dm.SetFilter(th, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
@@ -1590,12 +1537,12 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("ResourceProfiles:")
 	}
 	for _, tpRsp := range tpr.resProfiles {
-		rsp, err := APItoResource(tpRsp, tpr.timezone)
-		if err != nil {
-			return err
+		var rsp *ResourceProfile
+		if rsp, err = APItoResource(tpRsp, tpr.timezone); err != nil {
+			return
 		}
 		if err = tpr.dm.SetResourceProfile(rsp, true); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", rsp.TenantID())
@@ -1603,74 +1550,37 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 	}
 	if len(tpr.resProfiles) != 0 {
 		loadIDs[utils.CacheResourceProfiles] = loadID
-	}
-	if verbose {
-		log.Print("Resources:")
-	}
-	for _, rTid := range tpr.resources {
-		if err = tpr.dm.SetResource(&Resource{Tenant: rTid.Tenant, ID: rTid.ID, Usages: make(map[string]*ResourceUsage)}); err != nil {
-			return
-		}
-		if verbose {
-			log.Print("\t", rTid.TenantID())
-		}
-	}
-	if len(tpr.resources) != 0 {
 		loadIDs[utils.CacheResources] = loadID
 	}
 	if verbose {
 		log.Print("StatQueueProfiles:")
 	}
 	for _, tpST := range tpr.sqProfiles {
-		st, err := APItoStats(tpST, tpr.timezone)
-		if err != nil {
-			return err
+		var st *StatQueueProfile
+		if st, err = APItoStats(tpST, tpr.timezone); err != nil {
+			return
 		}
 		if err = tpr.dm.SetStatQueueProfile(st, true); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", st.TenantID())
 		}
 	}
 	if len(tpr.sqProfiles) != 0 {
-		loadIDs[utils.CacheStatQueueProfiles] = loadID
-	}
-	if verbose {
-		log.Print("StatQueues:")
-	}
-	for _, sqTntID := range tpr.statQueues {
-		metrics := make(map[string]StatMetric)
-		for _, metric := range tpr.sqProfiles[utils.TenantID{Tenant: sqTntID.Tenant, ID: sqTntID.ID}].Metrics {
-			if stsMetric, err := NewStatMetric(metric.MetricID,
-				tpr.sqProfiles[utils.TenantID{Tenant: sqTntID.Tenant, ID: sqTntID.ID}].MinItems,
-				metric.FilterIDs); err != nil {
-				return err
-			} else {
-				metrics[metric.MetricID] = stsMetric
-			}
-		}
-		sq := &StatQueue{Tenant: sqTntID.Tenant, ID: sqTntID.ID, SQMetrics: metrics}
-		if err = tpr.dm.SetStatQueue(sq); err != nil {
-			return
-		}
-		if verbose {
-			log.Print("\t", sqTntID.TenantID())
-		}
-	}
-	if len(tpr.statQueues) != 0 {
 		loadIDs[utils.CacheStatQueues] = loadID
+		loadIDs[utils.CacheStatQueueProfiles] = loadID
 	}
 	if verbose {
 		log.Print("ThresholdProfiles:")
 	}
 	for _, tpTH := range tpr.thProfiles {
-		th, err := APItoThresholdProfile(tpTH, tpr.timezone)
-		if err != nil {
-			return err
+		var th *ThresholdProfile
+		if th, err = APItoThresholdProfile(tpTH, tpr.timezone); err != nil {
+			return
 		}
 		if err = tpr.dm.SetThresholdProfile(th, true); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
@@ -1678,49 +1588,36 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 	}
 	if len(tpr.thProfiles) != 0 {
 		loadIDs[utils.CacheThresholdProfiles] = loadID
-	}
-	if verbose {
-		log.Print("Thresholds:")
-	}
-	for _, thd := range tpr.thresholds {
-		if err = tpr.dm.SetThreshold(&Threshold{Tenant: thd.Tenant, ID: thd.ID}); err != nil {
-			return err
-		}
-		if verbose {
-			log.Print("\t", thd.TenantID())
-		}
-	}
-	if len(tpr.thresholds) != 0 {
 		loadIDs[utils.CacheThresholds] = loadID
 	}
 	if verbose {
-		log.Print("SupplierProfiles:")
+		log.Print("RouteProfiles:")
 	}
-	for _, tpTH := range tpr.sppProfiles {
-		th, err := APItoSupplierProfile(tpTH, tpr.timezone)
-		if err != nil {
-			return err
+	for _, tpTH := range tpr.routeProfiles {
+		var th *RouteProfile
+		if th, err = APItoRouteProfile(tpTH, tpr.timezone); err != nil {
+			return
 		}
-		if err = tpr.dm.SetSupplierProfile(th, true); err != nil {
-			return err
+		if err = tpr.dm.SetRouteProfile(th, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
 		}
 	}
-	if len(tpr.sppProfiles) != 0 {
-		loadIDs[utils.CacheSupplierProfiles] = loadID
+	if len(tpr.routeProfiles) != 0 {
+		loadIDs[utils.CacheRouteProfiles] = loadID
 	}
 	if verbose {
 		log.Print("AttributeProfiles:")
 	}
 	for _, tpTH := range tpr.attributeProfiles {
-		th, err := APItoAttributeProfile(tpTH, tpr.timezone)
-		if err != nil {
-			return err
+		var th *AttributeProfile
+		if th, err = APItoAttributeProfile(tpTH, tpr.timezone); err != nil {
+			return
 		}
 		if err = tpr.dm.SetAttributeProfile(th, true); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
@@ -1733,13 +1630,12 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("ChargerProfiles:")
 	}
 	for _, tpTH := range tpr.chargerProfiles {
-
-		th, err := APItoChargerProfile(tpTH, tpr.timezone)
-		if err != nil {
-			return err
+		var th *ChargerProfile
+		if th, err = APItoChargerProfile(tpTH, tpr.timezone); err != nil {
+			return
 		}
 		if err = tpr.dm.SetChargerProfile(th, true); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
@@ -1752,12 +1648,12 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 		log.Print("DispatcherProfiles:")
 	}
 	for _, tpTH := range tpr.dispatcherProfiles {
-		th, err := APItoDispatcherProfile(tpTH, tpr.timezone)
-		if err != nil {
-			return err
+		var th *DispatcherProfile
+		if th, err = APItoDispatcherProfile(tpTH, tpr.timezone); err != nil {
+			return
 		}
 		if err = tpr.dm.SetDispatcherProfile(th, true); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
@@ -1772,7 +1668,7 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 	for _, tpTH := range tpr.dispatcherHosts {
 		th := APItoDispatcherHost(tpTH)
 		if err = tpr.dm.SetDispatcherHost(th); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", th.TenantID())
@@ -1787,7 +1683,7 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 	}
 	for _, t := range tpr.timings {
 		if err = tpr.dm.SetTiming(t); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", t.ID)
@@ -1796,28 +1692,17 @@ func (tpr *TpReader) WriteToDatabase(verbose, disable_reverse bool) (err error) 
 	if len(tpr.timings) != 0 {
 		loadIDs[utils.CacheTimings] = loadID
 	}
-	if !disable_reverse {
-		if len(tpr.destinations) > 0 {
-			if verbose {
-				log.Print("Rebuilding reverse destinations")
-			}
-			if err = tpr.dm.RebuildReverseForPrefix(utils.REVERSE_DESTINATION_PREFIX); err != nil {
-				return err
-			}
-		}
+	if !disableReverse {
 		if len(tpr.acntActionPlans) > 0 {
 			if verbose {
 				log.Print("Rebuilding account action plans")
 			}
 			if err = tpr.dm.RebuildReverseForPrefix(utils.AccountActionPlansPrefix); err != nil {
-				return err
+				return
 			}
 		}
 	}
-	if err = tpr.dm.SetLoadIDs(loadIDs); err != nil {
-		return err
-	}
-	return
+	return tpr.dm.SetLoadIDs(loadIDs)
 }
 
 func (tpr *TpReader) ShowStatistics() {
@@ -1827,7 +1712,7 @@ func (tpr *TpReader) ShowStatistics() {
 	prefixDist := make(map[int]int, 50)
 	prefixCount := 0
 	for _, d := range tpr.destinations {
-		prefixDist[len(d.Prefixes)] += 1
+		prefixDist[len(d.Prefixes)]++
 		prefixCount += len(d.Prefixes)
 	}
 	log.Print("Avg Prefixes: ", prefixCount/destCount)
@@ -1841,7 +1726,7 @@ func (tpr *TpReader) ShowStatistics() {
 	destRatesDist := make(map[int]int, 50)
 	destRatesCount := 0
 	for _, rpl := range tpr.ratingPlans {
-		destRatesDist[len(rpl.DestinationRates)] += 1
+		destRatesDist[len(rpl.DestinationRates)]++
 		destRatesCount += len(rpl.DestinationRates)
 	}
 	log.Print("Avg Destination Rates: ", destRatesCount/rplCount)
@@ -1855,7 +1740,7 @@ func (tpr *TpReader) ShowStatistics() {
 	activDist := make(map[int]int, 50)
 	activCount := 0
 	for _, rpf := range tpr.ratingProfiles {
-		activDist[len(rpf.RatingPlanActivations)] += 1
+		activDist[len(rpf.RatingPlanActivations)]++
 		activCount += len(rpf.RatingPlanActivations)
 	}
 	log.Print("Avg Activations: ", activCount/rpfCount)
@@ -1879,8 +1764,8 @@ func (tpr *TpReader) ShowStatistics() {
 	log.Print("Thresholds: ", len(tpr.thProfiles))
 	// filters
 	log.Print("Filters: ", len(tpr.filters))
-	// Supplier profiles
-	log.Print("SupplierProfiles: ", len(tpr.sppProfiles))
+	// Route profiles
+	log.Print("RouteProfiles: ", len(tpr.routeProfiles))
 	// Attribute profiles
 	log.Print("AttributeProfiles: ", len(tpr.attributeProfiles))
 	// Charger profiles
@@ -1891,10 +1776,10 @@ func (tpr *TpReader) ShowStatistics() {
 	log.Print("DispatcherHosts: ", len(tpr.dispatcherHosts))
 }
 
-// Returns the identities loaded for a specific category, useful for cache reloads
+// GetLoadedIds returns the identities loaded for a specific category, useful for cache reloads
 func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 	switch categ {
-	case utils.DESTINATION_PREFIX:
+	case utils.DestinationPrefix:
 		keys := make([]string, len(tpr.destinations))
 		i := 0
 		for k := range tpr.destinations {
@@ -1902,15 +1787,15 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.REVERSE_DESTINATION_PREFIX:
-		keys := make([]string, len(tpr.revDests))
-		i := 0
-		for k := range tpr.revDests {
-			keys[i] = k
-			i++
+	case utils.ReverseDestinationPrefix:
+		keys := utils.StringSet{}
+		for _, dst := range tpr.destinations {
+			for _, prfx := range dst.Prefixes {
+				keys.Add(prfx)
+			}
 		}
-		return keys, nil
-	case utils.RATING_PLAN_PREFIX:
+		return keys.AsSlice(), nil
+	case utils.RatingPlanPrefix:
 		keys := make([]string, len(tpr.ratingPlans))
 		i := 0
 		for k := range tpr.ratingPlans {
@@ -1918,7 +1803,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.RATING_PROFILE_PREFIX:
+	case utils.RatingProfilePrefix:
 		keys := make([]string, len(tpr.ratingProfiles))
 		i := 0
 		for k := range tpr.ratingProfiles {
@@ -1926,7 +1811,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.ACTION_PREFIX:
+	case utils.ActionPrefix:
 		keys := make([]string, len(tpr.actions))
 		i := 0
 		for k := range tpr.actions {
@@ -1934,7 +1819,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.ACTION_PLAN_PREFIX: // actionPlans
+	case utils.ActionPlanPrefix: // actionPlans
 		keys := make([]string, len(tpr.actionPlans))
 		i := 0
 		for k := range tpr.actionPlans {
@@ -1950,10 +1835,18 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.SHARED_GROUP_PREFIX:
+	case utils.SharedGroupPrefix:
 		keys := make([]string, len(tpr.sharedGroups))
 		i := 0
 		for k := range tpr.sharedGroups {
+			keys[i] = k
+			i++
+		}
+		return keys, nil
+	case utils.TimingsPrefix:
+		keys := make([]string, len(tpr.timings))
+		i := 0
+		for k := range tpr.timings {
 			keys[i] = k
 			i++
 		}
@@ -1966,7 +1859,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.ACTION_TRIGGER_PREFIX:
+	case utils.ActionTriggerPrefix:
 		keys := make([]string, len(tpr.actionsTriggers))
 		i := 0
 		for k := range tpr.actionsTriggers {
@@ -1998,10 +1891,10 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.SupplierProfilePrefix:
-		keys := make([]string, len(tpr.sppProfiles))
+	case utils.RouteProfilePrefix:
+		keys := make([]string, len(tpr.routeProfiles))
 		i := 0
-		for k := range tpr.sppProfiles {
+		for k := range tpr.routeProfiles {
 			keys[i] = k.TenantID()
 			i++
 		}
@@ -2043,31 +1936,20 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 	return nil, errors.New("Unsupported load category")
 }
 
-func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err error) {
+func (tpr *TpReader) RemoveFromDatabase(verbose, disableReverse bool) (err error) {
 	loadID := time.Now().UnixNano()
 	loadIDs := make(map[string]int64)
 	for _, d := range tpr.destinations {
-		err = tpr.dm.RemoveDestination(d.Id, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveDestination(d.Id, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", d.Id, " : ", d.Prefixes)
 		}
 	}
-	if verbose {
-		log.Print("Reverse Destinations:")
-		for id, vals := range tpr.revDests {
-			log.Printf("\t %s : %+v", id, vals)
-		}
-	}
-	if verbose {
-		log.Print("Rating Plans:")
-	}
 	for _, rp := range tpr.ratingPlans {
-		err = tpr.dm.RemoveRatingPlan(rp.Id, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveRatingPlan(rp.Id, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", rp.Id)
@@ -2077,9 +1959,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("Rating Profiles:")
 	}
 	for _, rp := range tpr.ratingProfiles {
-		err = tpr.dm.RemoveRatingProfile(rp.Id, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveRatingProfile(rp.Id); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", rp.Id)
@@ -2089,9 +1970,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("Action Plans:")
 	}
 	for k := range tpr.actionPlans {
-		err = tpr.dm.RemoveActionPlan(k, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveActionPlan(k, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -2102,14 +1982,11 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		for id, vals := range tpr.acntActionPlans {
 			log.Printf("\t %s : %+v", id, vals)
 		}
-	}
-	if verbose {
 		log.Print("Action Triggers:")
 	}
 	for k := range tpr.actionsTriggers {
-		err = tpr.dm.RemoveActionTriggers(k, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveActionTriggers(k, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -2119,9 +1996,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("Shared Groups:")
 	}
 	for k := range tpr.sharedGroups {
-		err = tpr.dm.RemoveSharedGroup(k, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveSharedGroup(k, utils.NonTransactional); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -2131,9 +2007,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("Actions:")
 	}
 	for k := range tpr.actions {
-		err = tpr.dm.RemoveActions(k, utils.NonTransactional)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveActions(k); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", k)
@@ -2143,9 +2018,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("Account Actions:")
 	}
 	for _, ub := range tpr.accountActions {
-		err = tpr.dm.RemoveAccount(ub.ID)
-		if err != nil {
-			return err
+		if err = tpr.dm.RemoveAccount(ub.ID); err != nil {
+			return
 		}
 		if verbose {
 			log.Println("\t", ub.ID)
@@ -2155,75 +2029,41 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("ResourceProfiles:")
 	}
 	for _, tpRsp := range tpr.resProfiles {
-		if err = tpr.dm.RemoveResourceProfile(tpRsp.Tenant, tpRsp.ID, utils.NonTransactional, true); err != nil {
-			return err
+		if err = tpr.dm.RemoveResourceProfile(tpRsp.Tenant, tpRsp.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpRsp.Tenant, tpRsp.ID))
 		}
 	}
 	if verbose {
-		log.Print("Resources:")
-	}
-	for _, rTid := range tpr.resources {
-		if err = tpr.dm.RemoveResource(rTid.Tenant, rTid.ID, utils.NonTransactional); err != nil {
-			return
-		}
-		if verbose {
-			log.Print("\t", rTid.TenantID())
-		}
-	}
-	if verbose {
 		log.Print("StatQueueProfiles:")
 	}
 	for _, tpST := range tpr.sqProfiles {
-		if err = tpr.dm.RemoveStatQueueProfile(tpST.Tenant, tpST.ID, utils.NonTransactional, true); err != nil {
-			return err
+		if err = tpr.dm.RemoveStatQueueProfile(tpST.Tenant, tpST.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpST.Tenant, tpST.ID))
 		}
 	}
 	if verbose {
-		log.Print("StatQueues:")
-	}
-	for _, sqTntID := range tpr.statQueues {
-		if err = tpr.dm.RemoveStatQueue(sqTntID.Tenant, sqTntID.ID, utils.NonTransactional); err != nil {
-			return
-		}
-		if verbose {
-			log.Print("\t", sqTntID.TenantID())
-		}
-	}
-	if verbose {
 		log.Print("ThresholdProfiles:")
 	}
 	for _, tpTH := range tpr.thProfiles {
-		if err = tpr.dm.RemoveThresholdProfile(tpTH.Tenant, tpTH.ID, utils.NonTransactional, true); err != nil {
-			return err
+		if err = tpr.dm.RemoveThresholdProfile(tpTH.Tenant, tpTH.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpTH.Tenant, tpTH.ID))
 		}
 	}
 	if verbose {
-		log.Print("Thresholds:")
+		log.Print("RouteProfiles:")
 	}
-	for _, thd := range tpr.thresholds {
-		if err = tpr.dm.RemoveThreshold(thd.Tenant, thd.ID, utils.NonTransactional); err != nil {
-			return err
-		}
-		if verbose {
-			log.Print("\t", thd.TenantID())
-		}
-	}
-
-	if verbose {
-		log.Print("SupplierProfiles:")
-	}
-	for _, tpSpl := range tpr.sppProfiles {
-		if err = tpr.dm.RemoveSupplierProfile(tpSpl.Tenant, tpSpl.ID, utils.NonTransactional, true); err != nil {
-			return err
+	for _, tpSpl := range tpr.routeProfiles {
+		if err = tpr.dm.RemoveRouteProfile(tpSpl.Tenant, tpSpl.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpSpl.Tenant, tpSpl.ID))
@@ -2234,9 +2074,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("AttributeProfiles:")
 	}
 	for _, tpAttr := range tpr.attributeProfiles {
-		if err = tpr.dm.RemoveAttributeProfile(tpAttr.Tenant, tpAttr.ID,
-			utils.NonTransactional, true); err != nil {
-			return err
+		if err = tpr.dm.RemoveAttributeProfile(tpAttr.Tenant, tpAttr.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpAttr.Tenant, tpAttr.ID))
@@ -2247,9 +2086,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("ChargerProfiles:")
 	}
 	for _, tpChr := range tpr.chargerProfiles {
-		if err = tpr.dm.RemoveChargerProfile(tpChr.Tenant, tpChr.ID,
-			utils.NonTransactional, true); err != nil {
-			return err
+		if err = tpr.dm.RemoveChargerProfile(tpChr.Tenant, tpChr.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpChr.Tenant, tpChr.ID))
@@ -2260,9 +2098,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("DispatcherProfiles:")
 	}
 	for _, tpDsp := range tpr.dispatcherProfiles {
-		if err = tpr.dm.RemoveDispatcherProfile(tpDsp.Tenant, tpDsp.ID,
-			utils.NonTransactional, true); err != nil {
-			return err
+		if err = tpr.dm.RemoveDispatcherProfile(tpDsp.Tenant, tpDsp.ID, true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpDsp.Tenant, tpDsp.ID))
@@ -2272,9 +2109,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("DispatcherHosts:")
 	}
 	for _, tpDsh := range tpr.dispatcherHosts {
-		if err = tpr.dm.RemoveDispatcherHost(tpDsh.Tenant, tpDsh.ID,
-			utils.NonTransactional); err != nil {
-			return err
+		if err = tpr.dm.RemoveDispatcherHost(tpDsh.Tenant, tpDsh.ID); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpDsh.Tenant, tpDsh.ID))
@@ -2286,19 +2122,19 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	}
 	for _, t := range tpr.timings {
 		if err = tpr.dm.RemoveTiming(t.ID, utils.NonTransactional); err != nil {
-			return err
+			return
 		}
 		if verbose {
 			log.Print("\t", t.ID)
 		}
 	}
-	if !disable_reverse {
+	if !disableReverse {
 		if len(tpr.destinations) > 0 {
 			if verbose {
 				log.Print("Removing reverse destinations")
 			}
-			if err = tpr.dm.DataDB().RemoveKeysForPrefix(utils.REVERSE_DESTINATION_PREFIX); err != nil {
-				return err
+			if err = tpr.dm.DataDB().RemoveKeysForPrefix(utils.ReverseDestinationPrefix); err != nil {
+				return
 			}
 		}
 		if len(tpr.acntActionPlans) > 0 {
@@ -2306,7 +2142,7 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 				log.Print("Removing account action plans")
 			}
 			if err = tpr.dm.DataDB().RemoveKeysForPrefix(utils.AccountActionPlansPrefix); err != nil {
-				return err
+				return
 			}
 		}
 	}
@@ -2316,8 +2152,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	}
 	for _, tpFltr := range tpr.filters {
 		if err = tpr.dm.RemoveFilter(tpFltr.Tenant, tpFltr.ID,
-			utils.NonTransactional); err != nil {
-			return err
+			true); err != nil {
+			return
 		}
 		if verbose {
 			log.Print("\t", utils.ConcatenatedKey(tpFltr.Tenant, tpFltr.ID))
@@ -2325,9 +2161,6 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	}
 	if len(tpr.destinations) != 0 {
 		loadIDs[utils.CacheDestinations] = loadID
-		loadIDs[utils.CacheReverseDestinations] = loadID
-	}
-	if len(tpr.revDests) != 0 {
 		loadIDs[utils.CacheReverseDestinations] = loadID
 	}
 	if len(tpr.ratingPlans) != 0 {
@@ -2356,24 +2189,18 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	}
 	if len(tpr.resProfiles) != 0 {
 		loadIDs[utils.CacheResourceProfiles] = loadID
-	}
-	if len(tpr.resources) != 0 {
 		loadIDs[utils.CacheResources] = loadID
 	}
 	if len(tpr.sqProfiles) != 0 {
 		loadIDs[utils.CacheStatQueueProfiles] = loadID
-	}
-	if len(tpr.statQueues) != 0 {
 		loadIDs[utils.CacheStatQueues] = loadID
 	}
 	if len(tpr.thProfiles) != 0 {
 		loadIDs[utils.CacheThresholdProfiles] = loadID
-	}
-	if len(tpr.thresholds) != 0 {
 		loadIDs[utils.CacheThresholds] = loadID
 	}
-	if len(tpr.sppProfiles) != 0 {
-		loadIDs[utils.CacheSupplierProfiles] = loadID
+	if len(tpr.routeProfiles) != 0 {
+		loadIDs[utils.CacheRouteProfiles] = loadID
 	}
 	if len(tpr.attributeProfiles) != 0 {
 		loadIDs[utils.CacheAttributeProfiles] = loadID
@@ -2390,97 +2217,62 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	if len(tpr.timings) != 0 {
 		loadIDs[utils.CacheTimings] = loadID
 	}
-	if err = tpr.dm.SetLoadIDs(loadIDs); err != nil {
-		return err
-	}
-	return
+	return tpr.dm.SetLoadIDs(loadIDs)
 }
 
-func (tpr *TpReader) ReloadCache(caching string, verbose bool, argDispatcher *utils.ArgDispatcher, tenant string) (err error) {
+func (tpr *TpReader) ReloadCache(caching string, verbose bool, opts map[string]any, tenant string) (err error) {
+	if tpr.isInternalDB {
+		return
+	}
 	if len(tpr.cacheConns) == 0 {
 		log.Print("Disabled automatic reload")
 		return
 	}
 	// take IDs for each type
-	dstIds, _ := tpr.GetLoadedIds(utils.DESTINATION_PREFIX)
-	revDstIDs, _ := tpr.GetLoadedIds(utils.REVERSE_DESTINATION_PREFIX)
-	rplIds, _ := tpr.GetLoadedIds(utils.RATING_PLAN_PREFIX)
-	rpfIds, _ := tpr.GetLoadedIds(utils.RATING_PROFILE_PREFIX)
-	actIds, _ := tpr.GetLoadedIds(utils.ACTION_PREFIX)
+	dstIds, _ := tpr.GetLoadedIds(utils.DestinationPrefix)
+	revDstIDs, _ := tpr.GetLoadedIds(utils.ReverseDestinationPrefix)
+	tmgIds, _ := tpr.GetLoadedIds(utils.TimingsPrefix)
+	rplIds, _ := tpr.GetLoadedIds(utils.RatingPlanPrefix)
+	rpfIds, _ := tpr.GetLoadedIds(utils.RatingProfilePrefix)
+	actIds, _ := tpr.GetLoadedIds(utils.ActionPrefix)
 	aapIDs, _ := tpr.GetLoadedIds(utils.AccountActionPlansPrefix)
-	shgIds, _ := tpr.GetLoadedIds(utils.SHARED_GROUP_PREFIX)
+	shgIds, _ := tpr.GetLoadedIds(utils.SharedGroupPrefix)
 	rspIDs, _ := tpr.GetLoadedIds(utils.ResourceProfilesPrefix)
-	resIDs, _ := tpr.GetLoadedIds(utils.ResourcesPrefix)
-	aatIDs, _ := tpr.GetLoadedIds(utils.ACTION_TRIGGER_PREFIX)
-	stqIDs, _ := tpr.GetLoadedIds(utils.StatQueuePrefix)
+	aatIDs, _ := tpr.GetLoadedIds(utils.ActionTriggerPrefix)
 	stqpIDs, _ := tpr.GetLoadedIds(utils.StatQueueProfilePrefix)
-	trsIDs, _ := tpr.GetLoadedIds(utils.ThresholdPrefix)
 	trspfIDs, _ := tpr.GetLoadedIds(utils.ThresholdProfilePrefix)
 	flrIDs, _ := tpr.GetLoadedIds(utils.FilterPrefix)
-	spfIDs, _ := tpr.GetLoadedIds(utils.SupplierProfilePrefix)
+	routeIDs, _ := tpr.GetLoadedIds(utils.RouteProfilePrefix)
 	apfIDs, _ := tpr.GetLoadedIds(utils.AttributeProfilePrefix)
 	chargerIDs, _ := tpr.GetLoadedIds(utils.ChargerProfilePrefix)
 	dppIDs, _ := tpr.GetLoadedIds(utils.DispatcherProfilePrefix)
 	dphIDs, _ := tpr.GetLoadedIds(utils.DispatcherHostPrefix)
-	aps, _ := tpr.GetLoadedIds(utils.ACTION_PLAN_PREFIX)
+	aps, _ := tpr.GetLoadedIds(utils.ActionPlanPrefix)
 
 	//compose Reload Cache argument
-	cacheArgs := utils.AttrReloadCacheWithArgDispatcher{
-		TenantArg: utils.TenantArg{
-			Tenant: tenant,
-		},
-		ArgDispatcher: argDispatcher,
-		AttrReloadCache: utils.AttrReloadCache{
-			ArgsCache: utils.ArgsCache{
-				DestinationIDs:        dstIds,
-				ReverseDestinationIDs: revDstIDs,
-				RatingPlanIDs:         rplIds,
-				RatingProfileIDs:      rpfIds,
-				ActionIDs:             actIds,
-				ActionPlanIDs:         aps,
-				AccountActionPlanIDs:  aapIDs,
-				SharedGroupIDs:        shgIds,
-				ResourceProfileIDs:    rspIDs,
-				ResourceIDs:           resIDs,
-				ActionTriggerIDs:      aatIDs,
-				StatsQueueIDs:         stqIDs,
-				StatsQueueProfileIDs:  stqpIDs,
-				ThresholdIDs:          trsIDs,
-				ThresholdProfileIDs:   trspfIDs,
-				FilterIDs:             flrIDs,
-				SupplierProfileIDs:    spfIDs,
-				AttributeProfileIDs:   apfIDs,
-				ChargerProfileIDs:     chargerIDs,
-				DispatcherProfileIDs:  dppIDs,
-				DispatcherHostIDs:     dphIDs,
-			},
-		},
-	}
-
-	if verbose {
-		log.Print("Reloading cache")
-	}
-	var reply string
-	switch caching {
-	case utils.META_NONE:
-		return
-	case utils.MetaReload:
-		if err = connMgr.Call(tpr.cacheConns, nil, utils.CacheSv1ReloadCache, cacheArgs, &reply); err != nil {
-			return
-		}
-	case utils.MetaLoad:
-		if err = connMgr.Call(tpr.cacheConns, nil, utils.CacheSv1LoadCache, cacheArgs, &reply); err != nil {
-			return
-		}
-	case utils.MetaRemove:
-		if err = connMgr.Call(tpr.cacheConns, nil, utils.CacheSv1FlushCache, cacheArgs, &reply); err != nil {
-			return
-		}
-	case utils.MetaClear:
-		cacheArgs.FlushAll = true
-		if err = connMgr.Call(tpr.cacheConns, nil, utils.CacheSv1FlushCache, cacheArgs, &reply); err != nil {
-			return
-		}
+	cacheArgs := map[string][]string{
+		utils.CacheDestinations:        dstIds,
+		utils.CacheReverseDestinations: revDstIDs,
+		utils.CacheTimings:             tmgIds,
+		utils.CacheRatingPlans:         rplIds,
+		utils.CacheRatingProfiles:      rpfIds,
+		utils.CacheActions:             actIds,
+		utils.CacheActionPlans:         aps,
+		utils.CacheAccountActionPlans:  aapIDs,
+		utils.CacheSharedGroups:        shgIds,
+		utils.CacheResourceProfiles:    rspIDs,
+		utils.CacheResources:           rspIDs,
+		utils.CacheActionTriggers:      aatIDs,
+		utils.CacheStatQueues:          stqpIDs,
+		utils.CacheStatQueueProfiles:   stqpIDs,
+		utils.CacheThresholds:          trspfIDs,
+		utils.CacheThresholdProfiles:   trspfIDs,
+		utils.CacheFilters:             flrIDs,
+		utils.CacheRouteProfiles:       routeIDs,
+		utils.CacheAttributeProfiles:   apfIDs,
+		utils.CacheChargerProfiles:     chargerIDs,
+		utils.CacheDispatcherProfiles:  dppIDs,
+		utils.CacheDispatcherHosts:     dphIDs,
 	}
 
 	// verify if we need to clear indexes
@@ -2488,8 +2280,8 @@ func (tpr *TpReader) ReloadCache(caching string, verbose bool, argDispatcher *ut
 	if len(apfIDs) != 0 {
 		cacheIDs = append(cacheIDs, utils.CacheAttributeFilterIndexes)
 	}
-	if len(spfIDs) != 0 {
-		cacheIDs = append(cacheIDs, utils.CacheSupplierFilterIndexes)
+	if len(routeIDs) != 0 {
+		cacheIDs = append(cacheIDs, utils.CacheRouteFilterIndexes)
 	}
 	if len(trspfIDs) != 0 {
 		cacheIDs = append(cacheIDs, utils.CacheThresholdFilterIndexes)
@@ -2506,45 +2298,196 @@ func (tpr *TpReader) ReloadCache(caching string, verbose bool, argDispatcher *ut
 	if len(dppIDs) != 0 {
 		cacheIDs = append(cacheIDs, utils.CacheDispatcherFilterIndexes)
 	}
+	if len(flrIDs) != 0 {
+		cacheIDs = append(cacheIDs, utils.CacheReverseFilterIndexes)
+	}
+	if err = CallCache(connMgr, tpr.cacheConns, caching, cacheArgs, cacheIDs, opts, verbose, tenant); err != nil {
+		return
+	}
+	//get loadIDs for all types
+	var loadIDs map[string]int64
+	if loadIDs, err = tpr.dm.GetItemLoadIDs(utils.EmptyString, false); err != nil {
+		return
+	}
+	cacheLoadIDs := populateCacheLoadIDs(loadIDs, cacheArgs)
+	for key, val := range cacheLoadIDs {
+		if err = Cache.Set(utils.CacheLoadIDs, key, val, nil,
+			cacheCommit(utils.NonTransactional), utils.NonTransactional); err != nil {
+			return
+		}
+	}
+	return
+}
+
+// CallCache call the cache reload after data load
+func CallCache(connMgr *ConnManager, cacheConns []string, caching string, args map[string][]string, cacheIDs []string, opts map[string]any, verbose bool, tenant string) (err error) {
+	var method, reply string
+	var cacheArgs any = utils.NewAttrReloadCacheWithOptsFromMap(args, tenant, opts)
+	switch caching {
+	case utils.MetaNone:
+		return
+	case utils.MetaReload:
+		method = utils.CacheSv1ReloadCache
+	case utils.MetaLoad:
+		method = utils.CacheSv1LoadCache
+	case utils.MetaRemove:
+		method = utils.CacheSv1RemoveItems
+	case utils.MetaClear:
+		method = utils.CacheSv1Clear
+		cacheArgs = &utils.AttrCacheIDsWithAPIOpts{APIOpts: opts, Tenant: tenant}
+	}
 	if verbose {
-		log.Print("Clearing indexes")
-	}
-	clearArgs := &utils.AttrCacheIDsWithArgDispatcher{
-		TenantArg: utils.TenantArg{
-			Tenant: tenant,
-		},
-		ArgDispatcher: argDispatcher,
-		CacheIDs:      cacheIDs,
-	}
-	if err = connMgr.Call(tpr.cacheConns, nil, utils.CacheSv1Clear, clearArgs, &reply); err != nil {
-		log.Printf("WARNING: Got error on cache clear: %s\n", err.Error())
+		log.Print("Reloading cache")
 	}
 
-	//get loadIDs for all types
-	loadIDs, err := tpr.dm.GetItemLoadIDs(utils.EmptyString, false)
-	if err != nil {
-		return err
+	if err = connMgr.Call(cacheConns, nil, method, cacheArgs, &reply); err != nil {
+		return
 	}
-	cacheLoadIDs := populateCacheLoadIDs(loadIDs, cacheArgs.AttrReloadCache)
-	for key, val := range cacheLoadIDs {
-		Cache.Set(utils.CacheLoadIDs, key, val, nil,
-			cacheCommit(utils.NonTransactional), utils.NonTransactional)
+
+	if len(cacheIDs) != 0 {
+		if verbose {
+			log.Print("Clearing indexes")
+		}
+		if err = connMgr.Call(cacheConns, nil, utils.CacheSv1Clear, &utils.AttrCacheIDsWithAPIOpts{
+			APIOpts:  opts,
+			CacheIDs: cacheIDs,
+			Tenant:   tenant,
+		}, &reply); err != nil {
+			if verbose {
+				log.Printf("WARNING: Got error on cache clear: %s\n", err.Error())
+			}
+		}
 	}
 	return
 }
 
 func (tpr *TpReader) ReloadScheduler(verbose bool) (err error) {
 	var reply string
-	aps, _ := tpr.GetLoadedIds(utils.ACTION_PLAN_PREFIX)
+	aps, _ := tpr.GetLoadedIds(utils.ActionPlanPrefix)
 	// in case we have action plans reload the scheduler
-	if len(aps) != 0 {
-		if verbose {
-			log.Print("Reloading scheduler")
-		}
-		if err = connMgr.Call(tpr.schedulerConns, nil, utils.SchedulerSv1Reload,
-			new(utils.CGREventWithArgDispatcher), &reply); err != nil {
-			log.Printf("WARNING: Got error on scheduler reload: %s\n", err.Error())
-		}
+	if len(aps) == 0 {
+		return
+	}
+	if verbose {
+		log.Print("Reloading scheduler")
+	}
+	if err = connMgr.Call(tpr.schedulerConns, nil, utils.SchedulerSv1Reload,
+		new(utils.CGREvent), &reply); err != nil {
+		log.Printf("WARNING: Got error on scheduler reload: %s\n", err.Error())
 	}
 	return
+}
+
+func (tpr *TpReader) addDefaultTimings() {
+	tpr.timings[utils.MetaAny] = &utils.TPTiming{
+		ID:        utils.MetaAny,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{},
+		WeekDays:  utils.WeekDays{},
+		StartTime: "00:00:00",
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaASAP] = &utils.TPTiming{
+		ID:        utils.MetaASAP,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{},
+		WeekDays:  utils.WeekDays{},
+		StartTime: utils.MetaASAP,
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaEveryMinute] = &utils.TPTiming{
+		ID:        utils.MetaEveryMinute,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{},
+		WeekDays:  utils.WeekDays{},
+		StartTime: utils.ConcatenatedKey(utils.Meta, utils.Meta, strconv.Itoa(time.Now().Second())),
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaHourly] = &utils.TPTiming{
+		ID:        utils.MetaHourly,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{},
+		WeekDays:  utils.WeekDays{},
+		StartTime: utils.ConcatenatedKey(utils.Meta, strconv.Itoa(time.Now().Minute()), strconv.Itoa(time.Now().Second())),
+		EndTime:   "",
+	}
+	startTime := time.Now().Format("15:04:05")
+	tpr.timings[utils.MetaDaily] = &utils.TPTiming{
+		ID:        utils.MetaDaily,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{},
+		WeekDays:  utils.WeekDays{},
+		StartTime: startTime,
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaWeekly] = &utils.TPTiming{
+		ID:        utils.MetaWeekly,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{},
+		WeekDays:  utils.WeekDays{time.Now().Weekday()},
+		StartTime: startTime,
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaMonthly] = &utils.TPTiming{
+		ID:        utils.MetaMonthly,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{time.Now().Day()},
+		WeekDays:  utils.WeekDays{},
+		StartTime: startTime,
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaMonthlyEstimated] = &utils.TPTiming{
+		ID:        utils.MetaMonthlyEstimated,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{time.Now().Day()},
+		WeekDays:  utils.WeekDays{},
+		StartTime: startTime,
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaMonthEnd] = &utils.TPTiming{
+		ID:        utils.MetaMonthEnd,
+		Years:     utils.Years{},
+		Months:    utils.Months{},
+		MonthDays: utils.MonthDays{-1},
+		WeekDays:  utils.WeekDays{},
+		StartTime: startTime,
+		EndTime:   "",
+	}
+	tpr.timings[utils.MetaYearly] = &utils.TPTiming{
+		ID:        utils.MetaYearly,
+		Years:     utils.Years{},
+		Months:    utils.Months{time.Now().Month()},
+		MonthDays: utils.MonthDays{time.Now().Day()},
+		WeekDays:  utils.WeekDays{},
+		StartTime: startTime,
+		EndTime:   "",
+	}
+
+}
+
+func (tpr *TpReader) setDestination(dest *Destination, disableReverse bool, transID string) (err error) {
+	if disableReverse {
+		return tpr.dm.SetDestination(dest, transID)
+	}
+	var oldDest *Destination
+	if oldDest, err = tpr.dm.GetDestination(dest.Id, false, false, transID); err != nil &&
+		err != utils.ErrNotFound {
+		return
+	}
+	if err = tpr.dm.SetDestination(dest, transID); err != nil {
+		return
+	}
+	if err = Cache.Set(utils.CacheDestinations, dest.Id, dest, nil,
+		cacheCommit(transID), transID); err != nil {
+		return
+	}
+	return tpr.dm.UpdateReverseDestination(oldDest, dest, transID)
 }

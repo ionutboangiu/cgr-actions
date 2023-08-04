@@ -144,8 +144,8 @@ func testRPCMethodsAddData(t *testing.T) {
 	var reply string
 	// Add a disable and log action
 	attrsAA := &utils.AttrSetActions{ActionsId: "DISABLE_LOG", Actions: []*utils.TPAction{
-		{Identifier: utils.DISABLE_ACCOUNT},
-		{Identifier: utils.LOG},
+		{Identifier: utils.MetaDisableAccount},
+		{Identifier: utils.MetaLog},
 	}}
 	if err := rpcRpc.Call(utils.APIerSv2SetActions, attrsAA, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
 		t.Error("Got error on APIerSv2.SetActions: ", err.Error())
@@ -154,24 +154,23 @@ func testRPCMethodsAddData(t *testing.T) {
 	}
 	// Add an enable and log action
 	attrsAA2 := &utils.AttrSetActions{ActionsId: "ENABLE_LOG", Actions: []*utils.TPAction{
-		{Identifier: utils.ENABLE_ACCOUNT},
-		{Identifier: utils.LOG},
+		{Identifier: utils.MetaEnableAccount},
+		{Identifier: utils.MetaLog},
 	}}
 	if err := rpcRpc.Call(utils.APIerSv2SetActions, attrsAA2, &reply); err != nil && err.Error() != utils.ErrExists.Error() {
 		t.Error("Got error on APIerSv2.SetActions: ", err.Error())
 	} else if reply != utils.OK {
 		t.Errorf("Calling APIerSv2.SetActions received: %s", reply)
 	}
-	time.Sleep(10 * time.Millisecond)
 
 	//Add a thresholdProfile to disable account
-	tPrfl := &engine.ThresholdWithCache{
+	tPrfl := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_AccDisableAndLog",
 			FilterIDs: []string{"*string:~*req.Account:1001", "*string:~*req.DisableAction:DisableAction"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(1 * time.Second),
+			MinSleep:  time.Second,
 			Weight:    30.0,
 			ActionIDs: []string{"DISABLE_LOG"},
 		},
@@ -182,13 +181,13 @@ func testRPCMethodsAddData(t *testing.T) {
 		t.Error("Unexpected reply returned", reply)
 	}
 	//Add a thresholdProfile to enable account
-	tPrfl2 := &engine.ThresholdWithCache{
+	tPrfl2 := &engine.ThresholdProfileWithAPIOpts{
 		ThresholdProfile: &engine.ThresholdProfile{
 			Tenant:    "cgrates.org",
 			ID:        "THD_AccEnableAndLog",
 			FilterIDs: []string{"*string:~*req.Account:1001", "*string:~*req.EnableAction:EnableAction"},
 			MaxHits:   -1,
-			MinSleep:  time.Duration(1 * time.Second),
+			MinSleep:  time.Second,
 			Weight:    30.0,
 			ActionIDs: []string{"ENABLE_LOG"},
 		},
@@ -207,16 +206,16 @@ func testRPCMethodsAuthorizeSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testRPCMethodsAuthorizeSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testRPCMethodsAuthorizeSession",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:       authUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testRPCMethodsAuthorizeSession",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        authUsage,
 			},
 		},
 	}
@@ -225,20 +224,18 @@ func testRPCMethodsAuthorizeSession(t *testing.T) {
 	if err := rpcRpc.Call(utils.SessionSv1AuthorizeEvent, args, &rplyFirst); err != nil {
 		t.Fatal(err)
 	}
-	if rplyFirst.MaxUsage != authUsage {
+	if rplyFirst.MaxUsage == nil || *rplyFirst.MaxUsage != authUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rplyFirst.MaxUsage)
 	}
 
 	//disable the account
 	var ids []string
-	thEvent := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "DisableAccount",
-			Event: map[string]interface{}{
-				utils.Account:   "1001",
-				"DisableAction": "DisableAction",
-			},
+	thEvent := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "DisableAccount",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"DisableAction":    "DisableAction",
 		},
 	}
 	//process event
@@ -270,7 +267,7 @@ func testRPCMethodsAuthorizeSession(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 
 	//authorize again session (this time we expect to receive an error)
 	if err := rpcRpc.Call(utils.SessionSv1AuthorizeEvent, args, &rply); err == nil || err.Error() != "RALS_ERROR:ACCOUNT_DISABLED" {
@@ -278,12 +275,12 @@ func testRPCMethodsAuthorizeSession(t *testing.T) {
 	}
 
 	//enable the account
-	thEvent.CGREvent = &utils.CGREvent{
+	thEvent = &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "EnableAccount",
-		Event: map[string]interface{}{
-			utils.Account:  "1001",
-			"EnableAction": "EnableAction",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"EnableAction":     "EnableAction",
 		},
 	}
 	//process event
@@ -301,17 +298,17 @@ func testRPCMethodsInitSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testRPCMethodsInitSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testRPCMethodsInitSession",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testRPCMethodsInitSession",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -320,20 +317,18 @@ func testRPCMethodsInitSession(t *testing.T) {
 		args, &rplyFirst); err != nil {
 		t.Error(err)
 	}
-	if rplyFirst.MaxUsage != initUsage {
+	if rplyFirst.MaxUsage == nil || *rplyFirst.MaxUsage != initUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rplyFirst.MaxUsage)
 	}
 
 	//disable the account
 	var ids []string
-	thEvent := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "DisableAccount",
-			Event: map[string]interface{}{
-				utils.Account:   "1001",
-				"DisableAction": "DisableAction",
-			},
+	thEvent := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "DisableAccount",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"DisableAction":    "DisableAction",
 		},
 	}
 	//process event
@@ -365,20 +360,21 @@ func testRPCMethodsInitSession(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 
 	if err := rpcRpc.Call(utils.SessionSv1InitiateSession,
-		args, &rply); err == nil || !(err.Error() == "RALS_ERROR:ACCOUNT_DISABLED" || err.Error() == (utils.ErrExists).Error()) { // ErrExist -> initSession twice
+		args, &rply); err == nil || !(err.Error() == "RALS_ERROR:ACCOUNT_DISABLED" ||
+		err.Error() == utils.ErrExists.Error()) { // ErrExist -> initSession twice
 		t.Error("Unexpected error returned", err)
 	}
 
 	//enable the account
-	thEvent.CGREvent = &utils.CGREvent{
+	thEvent = &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "EnableAccount",
-		Event: map[string]interface{}{
-			utils.Account:  "1001",
-			"EnableAction": "EnableAction",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"EnableAction":     "EnableAction",
 		},
 	}
 	//process event
@@ -396,17 +392,17 @@ func testRPCMethodsUpdateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testRPCMethodsUpdateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testRPCMethodsUpdateSession",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       reqUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testRPCMethodsUpdateSession",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        reqUsage,
 			},
 		},
 	}
@@ -415,20 +411,18 @@ func testRPCMethodsUpdateSession(t *testing.T) {
 		args, &rplyFirst); err != nil {
 		t.Error(err)
 	}
-	if rplyFirst.MaxUsage != reqUsage {
+	if rplyFirst.MaxUsage == nil || *rplyFirst.MaxUsage != reqUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rplyFirst.MaxUsage)
 	}
 
 	//disable the account
 	var ids []string
-	thEvent := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "DisableAccount",
-			Event: map[string]interface{}{
-				utils.Account:   "1001",
-				"DisableAction": "DisableAction",
-			},
+	thEvent := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "DisableAccount",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"DisableAction":    "DisableAction",
 		},
 	}
 	//process event
@@ -460,7 +454,7 @@ func testRPCMethodsUpdateSession(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 
 	if err := rpcRpc.Call(utils.SessionSv1UpdateSession,
 		args, &rply); err == nil || err.Error() != "RALS_ERROR:ACCOUNT_DISABLED" {
@@ -468,12 +462,12 @@ func testRPCMethodsUpdateSession(t *testing.T) {
 	}
 
 	//enable the account
-	thEvent.CGREvent = &utils.CGREvent{
+	thEvent = &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "EnableAccount",
-		Event: map[string]interface{}{
-			utils.Account:  "1001",
-			"EnableAction": "EnableAction",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"EnableAction":     "EnableAction",
 		},
 	}
 	//process event
@@ -490,17 +484,17 @@ func testRPCMethodsTerminateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testRPCMethodsTerminateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testRPCMethodsTerminateSession",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       10 * time.Minute,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testRPCMethodsTerminateSession",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        10 * time.Minute,
 			},
 		},
 	}
@@ -513,7 +507,7 @@ func testRPCMethodsTerminateSession(t *testing.T) {
 	}
 
 	//replace event with empty
-	args.CGREvent.Event = map[string]interface{}{}
+	args.CGREvent.Event = map[string]any{}
 
 	if err := rpcRpc.Call(utils.SessionSv1TerminateSession,
 		args, &rply); err != nil {
@@ -523,7 +517,7 @@ func testRPCMethodsTerminateSession(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 
 	if err := rpcRpc.Call(utils.SessionSv1TerminateSession,
 		args, &rply); err == nil || err.Error() != "MANDATORY_IE_MISSING: [OriginID]" {
@@ -533,22 +527,20 @@ func testRPCMethodsTerminateSession(t *testing.T) {
 }
 
 func testRPCMethodsProcessCDR(t *testing.T) {
-	args := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "testRPCMethodsProcessCDR",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testRPCMethodsProcessCDR",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       10 * time.Minute,
-			},
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "testRPCMethodsProcessCDR",
+		Event: map[string]any{
+			utils.Tenant:       "cgrates.org",
+			utils.ToR:          utils.MetaVoice,
+			utils.OriginID:     "testRPCMethodsProcessCDR",
+			utils.RequestType:  utils.MetaPrepaid,
+			utils.AccountField: "1001",
+			utils.Subject:      "ANY2CNT",
+			utils.Destination:  "1002",
+			utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+			utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+			utils.Usage:        10 * time.Minute,
 		},
 	}
 	var rply string
@@ -561,7 +553,7 @@ func testRPCMethodsProcessCDR(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	//verify the CDR
 	var cdrs []*engine.CDR
-	argsCDR := &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}}
+	argsCDR := &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}}
 	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, argsCDR, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
@@ -585,7 +577,7 @@ func testRPCMethodsProcessCDR(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 
 	//change originID so CGRID be different
 	args.Event[utils.OriginID] = "testRPCMethodsProcessCDR3"
@@ -611,17 +603,17 @@ func testRPCMethodsProcessEvent(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "testRPCMethodsProcessEvent",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testRPCMethodsProcessEvent",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testRPCMethodsProcessEvent",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -629,20 +621,18 @@ func testRPCMethodsProcessEvent(t *testing.T) {
 	if err := rpcRpc.Call(utils.SessionSv1ProcessMessage,
 		args, &rplyFirst); err != nil {
 		t.Error(err)
-	} else if rplyFirst.MaxUsage != initUsage {
+	} else if rplyFirst.MaxUsage == nil || *rplyFirst.MaxUsage != initUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rplyFirst.MaxUsage)
 	}
 
 	//disable the account
 	var ids []string
-	thEvent := &engine.ArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "DisableAccount",
-			Event: map[string]interface{}{
-				utils.Account:   "1001",
-				"DisableAction": "DisableAction",
-			},
+	thEvent := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "DisableAccount",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"DisableAction":    "DisableAction",
 		},
 	}
 	//process event
@@ -675,7 +665,7 @@ func testRPCMethodsProcessEvent(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 
 	if err := rpcRpc.Call(utils.SessionSv1ProcessMessage,
 		args, &rplyFirst); err == nil || err.Error() != "RALS_ERROR:ACCOUNT_DISABLED" {
@@ -683,12 +673,12 @@ func testRPCMethodsProcessEvent(t *testing.T) {
 	}
 
 	//enable the account
-	thEvent.CGREvent = &utils.CGREvent{
+	thEvent = &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "EnableAccount",
-		Event: map[string]interface{}{
-			utils.Account:  "1001",
-			"EnableAction": "EnableAction",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			"EnableAction":     "EnableAction",
 		},
 	}
 	//process event
@@ -700,21 +690,23 @@ func testRPCMethodsProcessEvent(t *testing.T) {
 }
 
 func testRPCMethodsCdrsProcessCDR(t *testing.T) {
-	args := utils.CGREvent{
-		Tenant: "cgrates.org",
-		ID:     "testRPCMethodsCdrsProcessCDR",
-		Event: map[string]interface{}{
-			utils.Tenant:      "cgrates.org",
-			utils.ToR:         utils.VOICE,
-			utils.OriginHost:  "host",
-			utils.OriginID:    "testRPCMethodsCdrsProcessCDR",
-			utils.RequestType: utils.META_PREPAID,
-			utils.Account:     "1001",
-			utils.Subject:     "ANY2CNT",
-			utils.Destination: "1002",
-			utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-			utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-			utils.Usage:       10 * time.Minute,
+	args := &engine.ArgV1ProcessEvent{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testRPCMethodsCdrsProcessCDR",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginHost:   "host",
+				utils.OriginID:     "testRPCMethodsCdrsProcessCDR",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        10 * time.Minute,
+			},
 		},
 	}
 
@@ -724,11 +716,11 @@ func testRPCMethodsCdrsProcessCDR(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(150) * time.Millisecond) // Give time for CDR to be rated
+	time.Sleep(150 * time.Millisecond) // Give time for CDR to be rated
 	//verify the CDR
 	var cdrs []*engine.CDR
-	argsCDR := utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}}
-	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, argsCDR, &cdrs); err != nil {
+	argsCDR := utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}}
+	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, &argsCDR, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -743,14 +735,14 @@ func testRPCMethodsCdrsProcessCDR(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 	//verify the CDR
-	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, argsCDR, &cdrs); err != nil {
+	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, &argsCDR, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 	//change originID so CGRID be different
 	args.Event[utils.OriginID] = "testRPCMethodsProcessCDR4"
 	if err := rpcRpc.Call(utils.CDRsV1ProcessEvent, args, &reply); err != nil {
@@ -758,9 +750,9 @@ func testRPCMethodsCdrsProcessCDR(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(150) * time.Millisecond) // Give time for CDR to be rated
+	time.Sleep(150 * time.Millisecond) // Give time for CDR to be rated
 	//verify the CDR
-	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, argsCDR, &cdrs); err != nil {
+	if err := rpcRpc.Call(utils.CDRsV1GetCDRs, &argsCDR, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 2 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -796,7 +788,7 @@ func testRPCMethodsCdrsStoreSessionCost(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Error("Unexpected reply received: ", reply)
 	}
-	time.Sleep(time.Duration(150) * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 
 	//change originID so CGRID be different
 	args.Cost.CGRID = "testRPCMethodsCdrsStoreSessionCost"
@@ -808,7 +800,7 @@ func testRPCMethodsCdrsStoreSessionCost(t *testing.T) {
 	}
 
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 	//change originID so CGRID be different
 	args.Cost.CGRID = "testRPCMethodsCdrsStoreSessionCost"
 	if err := rpcRpc.Call(utils.CDRsV2StoreSessionCost, args,
@@ -828,7 +820,7 @@ func testRPCMethodsLoadData(t *testing.T) {
 
 func testRPCMethodsResponderDebit(t *testing.T) {
 	tStart := time.Date(2016, 3, 31, 0, 0, 0, 0, time.UTC)
-	cd := &engine.CallDescriptorWithArgDispatcher{
+	cd := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			CgrID:         "testRPCMethodsResponderDebit",
 			Category:      "call",
@@ -837,7 +829,7 @@ func testRPCMethodsResponderDebit(t *testing.T) {
 			Destination:   "+49",
 			DurationIndex: 0,
 			TimeStart:     tStart,
-			TimeEnd:       tStart.Add(time.Duration(15) * time.Second),
+			TimeEnd:       tStart.Add(15 * time.Second),
 		},
 	}
 	var cc engine.CallCost
@@ -851,7 +843,7 @@ func testRPCMethodsResponderDebit(t *testing.T) {
 		t.Errorf("Expecting: %+v, \n received: %+v",
 			15, cc.Cost)
 	}
-	cd2 := &engine.CallDescriptorWithArgDispatcher{
+	cd2 := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			CgrID: "testRPCMethodsResponderDebit",
 		},
@@ -865,7 +857,7 @@ func testRPCMethodsResponderDebit(t *testing.T) {
 			utils.ToJSON(cc), utils.ToJSON(ccCache))
 	}
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 	if err := rpcRpc.Call(utils.ResponderDebit, cd2, &cc); err == nil || err.Error() != "ACCOUNT_NOT_FOUND" {
 		t.Error("Unexpected error returned", err)
 	}
@@ -873,7 +865,7 @@ func testRPCMethodsResponderDebit(t *testing.T) {
 
 func testRPCMethodsResponderMaxDebit(t *testing.T) {
 	tStart := time.Date(2016, 3, 31, 0, 0, 0, 0, time.UTC)
-	cd := &engine.CallDescriptorWithArgDispatcher{
+	cd := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			CgrID:         "testRPCMethodsResponderMaxDebit",
 			Category:      "call",
@@ -883,7 +875,7 @@ func testRPCMethodsResponderMaxDebit(t *testing.T) {
 			Destination:   "+49",
 			DurationIndex: 0,
 			TimeStart:     tStart,
-			TimeEnd:       tStart.Add(time.Duration(15) * time.Second),
+			TimeEnd:       tStart.Add(15 * time.Second),
 		},
 	}
 	var cc engine.CallCost
@@ -897,7 +889,7 @@ func testRPCMethodsResponderMaxDebit(t *testing.T) {
 		t.Errorf("Expecting: %+v, \n received: %+v",
 			0, cc.Cost)
 	}
-	cd2 := &engine.CallDescriptorWithArgDispatcher{
+	cd2 := &engine.CallDescriptorWithAPIOpts{
 		CallDescriptor: &engine.CallDescriptor{
 			CgrID: "testRPCMethodsResponderMaxDebit",
 		},
@@ -911,7 +903,7 @@ func testRPCMethodsResponderMaxDebit(t *testing.T) {
 			utils.ToJSON(cc), utils.ToJSON(ccCache))
 	}
 	//give time to CGRateS to delete the response from cache
-	time.Sleep(1*time.Second + 500*time.Millisecond)
+	time.Sleep(time.Second)
 	if err := rpcRpc.Call(utils.ResponderMaxDebit, cd2, &cc); err == nil || err.Error() != "ACCOUNT_NOT_FOUND" {
 		t.Error("Unexpected error returned", err)
 	}

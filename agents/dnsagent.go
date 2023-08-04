@@ -22,10 +22,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/miekg/dns"
 )
@@ -40,45 +40,67 @@ func NewDNSAgent(cgrCfg *config.CGRConfig, fltrS *engine.FilterS,
 
 // DNSAgent translates DNS requests towards CGRateS infrastructure
 type DNSAgent struct {
+	sync.RWMutex
 	cgrCfg  *config.CGRConfig // loaded CGRateS configuration
 	fltrS   *engine.FilterS   // connection towards FilterS
-	server  *dns.Server
+	servers []*dns.Server
 	connMgr *engine.ConnManager
 }
 
 // initDNSServer instantiates the DNS server
-func (da *DNSAgent) initDNSServer() (err error) {
-	handler := dns.HandlerFunc(func(w dns.ResponseWriter, m *dns.Msg) {
-		go da.handleMessage(w, m)
-	})
-
-	if strings.HasSuffix(da.cgrCfg.DNSAgentCfg().ListenNet, utils.TLSNoCaps) {
-		cert, err := tls.LoadX509KeyPair(da.cgrCfg.TlsCfg().ServerCerificate, da.cgrCfg.TlsCfg().ServerKey)
-		if err != nil {
-			return err
+func (da *DNSAgent) initDNSServer() (_ error) {
+	da.servers = make([]*dns.Server, 0, len(da.cgrCfg.DNSAgentCfg().Listeners))
+	for i := range da.cgrCfg.DNSAgentCfg().Listeners {
+		da.servers = append(da.servers, &dns.Server{
+			Addr: da.cgrCfg.DNSAgentCfg().Listeners[i].Address,
+			Net:  da.cgrCfg.DNSAgentCfg().Listeners[i].Network,
+			Handler: dns.HandlerFunc(func(w dns.ResponseWriter, m *dns.Msg) {
+				go da.handleMessage(w, m)
+			}),
+		})
+		if strings.HasSuffix(da.cgrCfg.DNSAgentCfg().Listeners[i].Network, utils.TLSNoCaps) {
+			cert, err := tls.LoadX509KeyPair(da.cgrCfg.TLSCfg().ServerCerificate, da.cgrCfg.TLSCfg().ServerKey)
+			if err != nil {
+				return err
+			}
+			da.servers[i].Net = "tcp-tls"
+			da.servers[i].TLSConfig = &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			}
 		}
-
-		config := tls.Config{
-			Certificates: []tls.Certificate{cert},
-		}
-
-		da.server = &dns.Server{
-			Addr:      da.cgrCfg.DNSAgentCfg().Listen,
-			Net:       "tcp-tls",
-			TLSConfig: &config,
-			Handler:   handler,
-		}
-	} else {
-		da.server = &dns.Server{Addr: da.cgrCfg.DNSAgentCfg().Listen, Net: da.cgrCfg.DNSAgentCfg().ListenNet, Handler: handler}
 	}
 	return
 }
 
 // ListenAndServe will run the DNS handler doing also the connection to listen address
-func (da *DNSAgent) ListenAndServe() (err error) {
-	utils.Logger.Info(fmt.Sprintf("<%s> start listening on <%s:%s>",
-		utils.DNSAgent, da.cgrCfg.DNSAgentCfg().ListenNet, da.cgrCfg.DNSAgentCfg().Listen))
-	return da.server.ListenAndServe()
+func (da *DNSAgent) ListenAndServe(stopChan chan struct{}) error {
+	errChan := make(chan error)
+	for _, server := range da.servers {
+		utils.Logger.Info(fmt.Sprintf("<%s> start listening on <%s:%s>",
+			utils.DNSAgent, server.Net, server.Addr))
+		go func(srv *dns.Server) {
+			err := srv.ListenAndServe()
+			if err != nil {
+				utils.Logger.Warning(fmt.Sprintf("<%s> error <%v>, on ListenAndServe <%s:%s>",
+					utils.DNSAgent, err, srv.Net, srv.Addr))
+				if strings.Contains(err.Error(), "address already in use") {
+					return
+				}
+				errChan <- err
+			}
+		}(server)
+	}
+
+	select {
+	case <-stopChan:
+		return da.Shutdown()
+	case err := <-errChan:
+		if shtdErr := da.Shutdown(); shtdErr != nil {
+			return shtdErr
+		}
+		return err
+	}
+
 }
 
 // Reload will reinitialize the server
@@ -90,276 +112,93 @@ func (da *DNSAgent) Reload() (err error) {
 // handleMessage is the entry point of all DNS requests
 // requests are reaching here asynchronously
 func (da *DNSAgent) handleMessage(w dns.ResponseWriter, req *dns.Msg) {
-	dnsDP := newDNSDataProvider(req, w)
-	reqVars := make(utils.NavigableMap2)
-	reqVars[QueryType] = utils.NewNMData(dns.TypeToString[req.Question[0].Qtype])
-	rply := new(dns.Msg)
-	rply.SetReply(req)
-	// message preprocesing
-	switch req.Question[0].Qtype {
-	case dns.TypeNAPTR:
-		reqVars[QueryName] = utils.NewNMData(req.Question[0].Name)
-		e164, err := e164FromNAPTR(req.Question[0].Name)
-		if err != nil {
-			utils.Logger.Warning(
-				fmt.Sprintf("<%s> decoding NAPTR query: <%s>, err: %s",
-					utils.DNSAgent, req.Question[0].Name, err.Error()))
+	dnsDP := newDnsDP(req)
+
+	rply := newDnsReply(req)
+	rmtAddr := w.RemoteAddr().String()
+	for _, q := range req.Question {
+		if processed, err := da.handleQuestion(dnsDP, rply, &q, rmtAddr); err != nil ||
+			!processed {
+			rply := newDnsReply(req)
 			rply.Rcode = dns.RcodeServerFailure
 			dnsWriteMsg(w, rply)
 			return
 		}
-		reqVars[E164Address] = utils.NewNMData(e164)
-		reqVars[DomainName] = utils.NewNMData(domainNameFromNAPTR(req.Question[0].Name))
 	}
-	reqVars[utils.RemoteHost] = utils.NewNMData(w.RemoteAddr().String())
-	cgrRplyNM := utils.NavigableMap2{}
-	rplyNM := utils.NewOrderedNavigableMap() // share it among different processors
-	var processed bool
-	var err error
-	for _, reqProcessor := range da.cgrCfg.DNSAgentCfg().RequestProcessors {
-		var lclProcessed bool
-		lclProcessed, err = da.processRequest(
-			reqProcessor,
-			NewAgentRequest(
-				dnsDP, reqVars, &cgrRplyNM, rplyNM,
-				reqProcessor.Tenant,
-				da.cgrCfg.GeneralCfg().DefaultTenant,
-				utils.FirstNonEmpty(da.cgrCfg.DNSAgentCfg().Timezone,
-					da.cgrCfg.GeneralCfg().DefaultTimezone),
-				da.fltrS, nil, nil))
-		if lclProcessed {
-			processed = lclProcessed
-		}
-		if err != nil ||
-			(lclProcessed && !reqProcessor.Flags.GetBool(utils.MetaContinue)) {
-			break
-		}
-	}
-	if err != nil {
-		utils.Logger.Warning(
-			fmt.Sprintf("<%s> error: %s processing message: %s from %s",
-				utils.DNSAgent, err.Error(), req, w.RemoteAddr()))
-		rply.Rcode = dns.RcodeServerFailure
-		dnsWriteMsg(w, rply)
-		return
-	} else if !processed {
-		utils.Logger.Warning(
-			fmt.Sprintf("<%s> no request processor enabled, ignoring message %s from %s",
-				utils.DNSAgent, req, w.RemoteAddr()))
-		rply.Rcode = dns.RcodeServerFailure
-		dnsWriteMsg(w, rply)
-		return
-	}
-	if err = updateDNSMsgFromNM(rply, rplyNM); err != nil {
-		utils.Logger.Warning(
-			fmt.Sprintf("<%s> error: %s updating answer: %s from NM %s",
-				utils.DNSAgent, err.Error(), utils.ToJSON(rply), utils.ToJSON(rplyNM)))
-		rply.Rcode = dns.RcodeServerFailure
-		dnsWriteMsg(w, rply)
-		return
-	}
-	if err = dnsWriteMsg(w, rply); err != nil { // failed sending, most probably content issue
-		rply = new(dns.Msg)
-		rply.SetReply(req)
-		rply.Rcode = dns.RcodeServerFailure
-		dnsWriteMsg(w, rply)
-	}
-}
 
-func (da *DNSAgent) processRequest(reqProcessor *config.RequestProcessor,
-	agReq *AgentRequest) (processed bool, err error) {
-	if pass, err := da.fltrS.Pass(agReq.Tenant,
-		reqProcessor.Filters, agReq); err != nil || !pass {
-		return pass, err
+	if err := dnsWriteMsg(w, rply); err != nil { // failed sending, most probably content issue
+		rply := newDnsReply(req)
+		rply.Rcode = dns.RcodeServerFailure
+		dnsWriteMsg(w, rply)
 	}
-	if err = agReq.SetFields(reqProcessor.RequestFields); err != nil {
-		return
-	}
-	cgrEv := config.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep)
-	var reqType string
-	for _, typ := range []string{
-		utils.MetaDryRun, utils.MetaAuth,
-		utils.MetaInitiate, utils.MetaUpdate,
-		utils.MetaTerminate, utils.MetaMessage,
-		utils.MetaCDRs, utils.MetaEvent, utils.META_NONE} {
-		if reqProcessor.Flags.HasKey(typ) { // request type is identified through flags
-			reqType = typ
-			break
-		}
-	}
-	cgrArgs := cgrEv.ExtractArgs(reqProcessor.Flags.HasKey(utils.MetaDispatchers),
-		reqType == utils.MetaAuth || reqType == utils.MetaMessage || reqType == utils.MetaEvent)
-	if reqProcessor.Flags.HasKey(utils.MetaLog) {
-		utils.Logger.Info(
-			fmt.Sprintf("<%s> LOG, processorID: <%s>, message: %s",
-				utils.DNSAgent, reqProcessor.ID, agReq.Request.String()))
-	}
-	switch reqType {
-	default:
-		return false, fmt.Errorf("unknown request type: <%s>", reqType)
-	case utils.META_NONE: // do nothing on CGRateS side
-	case utils.MetaDryRun:
-		utils.Logger.Info(
-			fmt.Sprintf("<%s> DRY_RUN, processorID: %s, CGREvent: %s",
-				utils.DNSAgent, reqProcessor.ID, utils.ToJSON(cgrEv)))
-	case utils.MetaAuth:
-		authArgs := sessions.NewV1AuthorizeArgs(
-			reqProcessor.Flags.HasKey(utils.MetaAttributes),
-			reqProcessor.Flags.ParamsSlice(utils.MetaAttributes),
-			reqProcessor.Flags.HasKey(utils.MetaThresholds),
-			reqProcessor.Flags.ParamsSlice(utils.MetaThresholds),
-			reqProcessor.Flags.HasKey(utils.MetaStats),
-			reqProcessor.Flags.ParamsSlice(utils.MetaStats),
-			reqProcessor.Flags.HasKey(utils.MetaResources),
-			reqProcessor.Flags.HasKey(utils.MetaAccounts),
-			reqProcessor.Flags.HasKey(utils.MetaSuppliers),
-			reqProcessor.Flags.HasKey(utils.MetaSuppliersIgnoreErrors),
-			reqProcessor.Flags.HasKey(utils.MetaSuppliersEventCost),
-			cgrEv, cgrArgs.ArgDispatcher, *cgrArgs.SupplierPaginator,
-			reqProcessor.Flags.HasKey(utils.MetaFD),
-			reqProcessor.Flags.ParamValue(utils.MetaSuppliersMaxCost),
-		)
-		rply := new(sessions.V1AuthorizeReply)
-		err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1AuthorizeEvent,
-			authArgs, rply)
-		rply.SetMaxUsageNeeded(authArgs.GetMaxUsage)
-		if err = agReq.setCGRReply(rply, err); err != nil {
-			return
-		}
-	case utils.MetaInitiate:
-		initArgs := sessions.NewV1InitSessionArgs(
-			reqProcessor.Flags.HasKey(utils.MetaAttributes),
-			reqProcessor.Flags.ParamsSlice(utils.MetaAttributes),
-			reqProcessor.Flags.HasKey(utils.MetaThresholds),
-			reqProcessor.Flags.ParamsSlice(utils.MetaThresholds),
-			reqProcessor.Flags.HasKey(utils.MetaStats),
-			reqProcessor.Flags.ParamsSlice(utils.MetaStats),
-			reqProcessor.Flags.HasKey(utils.MetaResources),
-			reqProcessor.Flags.HasKey(utils.MetaAccounts),
-			cgrEv, cgrArgs.ArgDispatcher,
-			reqProcessor.Flags.HasKey(utils.MetaFD))
-		rply := new(sessions.V1InitSessionReply)
-		err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1InitiateSession,
-			initArgs, rply)
-		rply.SetMaxUsageNeeded(initArgs.InitSession)
-		if err = agReq.setCGRReply(rply, err); err != nil {
-			return
-		}
-	case utils.MetaUpdate:
-		updateArgs := sessions.NewV1UpdateSessionArgs(
-			reqProcessor.Flags.HasKey(utils.MetaAttributes),
-			reqProcessor.Flags.ParamsSlice(utils.MetaAttributes),
-			reqProcessor.Flags.HasKey(utils.MetaAccounts),
-			cgrEv, cgrArgs.ArgDispatcher,
-			reqProcessor.Flags.HasKey(utils.MetaFD))
-		rply := new(sessions.V1UpdateSessionReply)
-		err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1UpdateSession,
-			updateArgs, rply)
-		rply.SetMaxUsageNeeded(updateArgs.UpdateSession)
-		if err = agReq.setCGRReply(rply, err); err != nil {
-			return
-		}
-	case utils.MetaTerminate:
-		terminateArgs := sessions.NewV1TerminateSessionArgs(
-			reqProcessor.Flags.HasKey(utils.MetaAccounts),
-			reqProcessor.Flags.HasKey(utils.MetaResources),
-			reqProcessor.Flags.HasKey(utils.MetaThresholds),
-			reqProcessor.Flags.ParamsSlice(utils.MetaThresholds),
-			reqProcessor.Flags.HasKey(utils.MetaStats),
-			reqProcessor.Flags.ParamsSlice(utils.MetaStats),
-			cgrEv, cgrArgs.ArgDispatcher,
-			reqProcessor.Flags.HasKey(utils.MetaFD))
-		rply := utils.StringPointer("")
-		err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1TerminateSession,
-			terminateArgs, rply)
-		if err = agReq.setCGRReply(nil, err); err != nil {
-			return
-		}
-	case utils.MetaMessage:
-		evArgs := sessions.NewV1ProcessMessageArgs(
-			reqProcessor.Flags.HasKey(utils.MetaAttributes),
-			reqProcessor.Flags.ParamsSlice(utils.MetaAttributes),
-			reqProcessor.Flags.HasKey(utils.MetaThresholds),
-			reqProcessor.Flags.ParamsSlice(utils.MetaThresholds),
-			reqProcessor.Flags.HasKey(utils.MetaStats),
-			reqProcessor.Flags.ParamsSlice(utils.MetaStats),
-			reqProcessor.Flags.HasKey(utils.MetaResources),
-			reqProcessor.Flags.HasKey(utils.MetaAccounts),
-			reqProcessor.Flags.HasKey(utils.MetaSuppliers),
-			reqProcessor.Flags.HasKey(utils.MetaSuppliersIgnoreErrors),
-			reqProcessor.Flags.HasKey(utils.MetaSuppliersEventCost),
-			cgrEv, cgrArgs.ArgDispatcher, *cgrArgs.SupplierPaginator,
-			reqProcessor.Flags.HasKey(utils.MetaFD),
-			reqProcessor.Flags.ParamValue(utils.MetaSuppliersMaxCost),
-		)
-		rply := new(sessions.V1ProcessMessageReply) // need it so rpcclient can clone
-		err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1ProcessMessage,
-			evArgs, rply)
-		if utils.ErrHasPrefix(err, utils.RalsErrorPrfx) {
-			cgrEv.Event[utils.Usage] = 0 // avoid further debits
-		} else if evArgs.Debit {
-			cgrEv.Event[utils.Usage] = rply.MaxUsage // make sure the CDR reflects the debit
-		}
-		rply.SetMaxUsageNeeded(evArgs.Debit)
-		if err = agReq.setCGRReply(rply, err); err != nil {
-			return
-		}
-	case utils.MetaEvent:
-		evArgs := &sessions.V1ProcessEventArgs{
-			Flags:         reqProcessor.Flags.SliceFlags(),
-			CGREvent:      cgrEv,
-			ArgDispatcher: cgrArgs.ArgDispatcher,
-			Paginator:     *cgrArgs.SupplierPaginator,
-		}
-		rply := new(sessions.V1ProcessEventReply)
-		err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1ProcessEvent,
-			evArgs, rply)
-		needMaxUsage := needsMaxUsage(reqProcessor.Flags.ParamsSlice(utils.MetaRALs))
-		if utils.ErrHasPrefix(err, utils.RalsErrorPrfx) {
-			cgrEv.Event[utils.Usage] = 0 // avoid further debits
-		} else if needMaxUsage {
-			cgrEv.Event[utils.Usage] = rply.MaxUsage // make sure the CDR reflects the debit
-		}
-		rply.SetMaxUsageNeeded(needMaxUsage)
-		if err = agReq.setCGRReply(rply, err); err != nil {
-			return
-		}
-	case utils.MetaCDRs: // allow CDR processing
-	}
-	// separate request so we can capture the Terminate/Event also here
-	if reqProcessor.Flags.HasKey(utils.MetaCDRs) &&
-		!reqProcessor.Flags.HasKey(utils.MetaDryRun) {
-		rplyCDRs := utils.StringPointer("")
-		if err = da.connMgr.Call(da.cgrCfg.DNSAgentCfg().SessionSConns, nil,
-			utils.SessionSv1ProcessCDR,
-			&utils.CGREventWithArgDispatcher{CGREvent: cgrEv,
-				ArgDispatcher: cgrArgs.ArgDispatcher}, &rplyCDRs); err != nil {
-			agReq.CGRReply.Set(utils.PathItems{{Field: utils.Error}}, utils.NewNMData(err.Error()))
-		}
-	}
-	if err := agReq.SetFields(reqProcessor.ReplyFields); err != nil {
-		return false, err
-	}
-	if reqProcessor.Flags.HasKey(utils.MetaLog) {
-		utils.Logger.Info(
-			fmt.Sprintf("<%s> LOG, reply: %s",
-				utils.DNSAgent, agReq.Reply))
-	}
-	if reqType == utils.MetaDryRun {
-		utils.Logger.Info(
-			fmt.Sprintf("<%s> DRY_RUN, reply: %s",
-				utils.DNSAgent, agReq.Reply))
-	}
-	return true, nil
 }
 
 // Shutdown stops the DNS server
 func (da *DNSAgent) Shutdown() error {
-	return da.server.Shutdown()
+	var err error
+	for _, server := range da.servers {
+		shtdErr := server.Shutdown()
+		if shtdErr == nil {
+			continue
+		}
+		utils.Logger.Warning(fmt.Sprintf("<%s> error <%v>, on Shutdown <%s:%s>",
+			utils.DNSAgent, shtdErr, server.Net, server.Addr))
+		if shtdErr.Error() != "dns: server not started" {
+			err = shtdErr
+		}
+	}
+	return err
+}
+
+// handleMessage is the entry point of all DNS requests
+// requests are reaching here asynchronously
+func (da *DNSAgent) handleQuestion(dnsDP utils.DataProvider, rply *dns.Msg, q *dns.Question, rmtAddr string) (processed bool, err error) {
+	reqVars := &utils.DataNode{
+		Type: utils.NMMapType,
+		Map: map[string]*utils.DataNode{
+			utils.DNSQueryType: utils.NewLeafNode(dns.TypeToString[q.Qtype]),
+			utils.DNSQueryName: utils.NewLeafNode(q.Name),
+			utils.RemoteHost:   utils.NewLeafNode(rmtAddr),
+		},
+	}
+	// message preprocesing
+	cgrRplyNM := &utils.DataNode{Type: utils.NMMapType, Map: make(map[string]*utils.DataNode)}
+	rplyNM := utils.NewOrderedNavigableMap() // share it among different processors
+	opts := utils.MapStorage{}
+	for _, reqProcessor := range da.cgrCfg.DNSAgentCfg().RequestProcessors {
+		var lclProcessed bool
+		if lclProcessed, err = processRequest(
+			reqProcessor,
+			NewAgentRequest(
+				dnsDP, reqVars, cgrRplyNM, rplyNM,
+				opts, reqProcessor.Tenant,
+				da.cgrCfg.GeneralCfg().DefaultTenant,
+				utils.FirstNonEmpty(da.cgrCfg.DNSAgentCfg().Timezone,
+					da.cgrCfg.GeneralCfg().DefaultTimezone),
+				da.fltrS, nil),
+			utils.DNSAgent, da.connMgr,
+			da.cgrCfg.DNSAgentCfg().SessionSConns,
+			nil, da.fltrS); err != nil {
+			utils.Logger.Warning(
+				fmt.Sprintf("<%s> error: %s processing message: %s from %s",
+					utils.DNSAgent, err.Error(), dnsDP, rmtAddr))
+			return
+		}
+		processed = processed || lclProcessed
+		if lclProcessed && !reqProcessor.Flags.GetBool(utils.MetaContinue) {
+			break
+		}
+	}
+	if !processed {
+		utils.Logger.Warning(
+			fmt.Sprintf("<%s> no request processor enabled, ignoring message %s from %s",
+				utils.DNSAgent, dnsDP, rmtAddr))
+		return
+	}
+	if err = updateDNSMsgFromNM(rply, rplyNM, q.Qtype, q.Name); err != nil {
+		utils.Logger.Warning(
+			fmt.Sprintf("<%s> error: %s updating answer: %s from NM %s",
+				utils.DNSAgent, err.Error(), utils.ToJSON(rply), utils.ToJSON(rplyNM)))
+	}
+	return
 }

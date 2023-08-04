@@ -1,22 +1,42 @@
 ---
 - hosts: all
   tasks:
-  - name: Install RabbitMQ
-    import_role:
-      name: ../roles/install_rabbitmq
+    - name: Install RabbitMQ
+      import_role:
+        name: ../roles/install_rabbitmq
 
-  - name: Install Kafka
-    import_role:
-      name: ../roles/install_kafka
+    - name: Install NATS
+      import_role:
+        name: ../roles/nats
 
-  - name: Install MongoDB
-    import_role:
-      name: ../roles/install_mongodb
+    - name: Install ElasticSearch
+      import_role:
+        name: ../roles/elasticsearch
+      vars:
+        auto_create_index: ".monitoring*,.watches,.triggered_watches,.watcher-history*,.ml*,cdrs"
 
-  - name: Install Go
-    import_role:
-      name: ../roles/install_go
+    # # Trying for now to overwrite the auto_create_index defaults.
+    # # In case of failure, we will be using the commented task below:
+    # - name: Create 'cdrs' index in Elasticsearch for CGRateS integration tests
+    #   command: 'curl -X PUT "localhost:9200/cdrs?pretty"'
+    #   ignore_errors: yes
 
-  - name: Install and configure CGRateS
-    import_role:
-      name: ../roles/install_cgrates
+    - name: Install Kafka
+      import_role:
+        name: ../roles/kafka
+
+    - name: Install MongoDB
+      import_role:
+        name: ../roles/install_mongodb
+
+    - name: Install PostgreSQL
+      import_role:
+        name: ../roles/postgresql
+
+    - name: Install Go
+      import_role:
+        name: ../roles/go
+
+    - name: Install and configure CGRateS
+      import_role:
+        name: ../roles/install_cgrates

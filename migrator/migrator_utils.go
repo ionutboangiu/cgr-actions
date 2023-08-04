@@ -19,67 +19,97 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package migrator
 
 import (
-	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
+var (
+	SUPPLIER = "Supplier"
+)
+
 func NewMigratorDataDB(db_type, host, port, name, user, pass,
-	marshaler string, cacheCfg config.CacheCfg, sentinelName string,
-	itemsCacheCfg map[string]*config.ItemOpt) (db MigratorDataDB, err error) {
-	dbCon, err := engine.NewDataDBConn(db_type,
-		host, port, name, user, pass, marshaler,
-		sentinelName, itemsCacheCfg)
-	if err != nil {
-		return nil, err
+	marshaler string, cacheCfg *config.CacheCfg,
+	opts *config.DataDBOpts, itmsCfg map[string]*config.ItemOpt) (db MigratorDataDB, err error) {
+	var dbCon engine.DataDB
+	if dbCon, err = engine.NewDataDBConn(db_type, host,
+		port, name, user, pass, marshaler, opts, nil); err != nil {
+		return
 	}
 	dm := engine.NewDataManager(dbCon, cacheCfg, nil)
-	var d MigratorDataDB
 	switch db_type {
 	case utils.MetaRedis:
-		d = newRedisMigrator(dm)
+		db = newRedisMigrator(dm)
 	case utils.MetaMongo:
-		d = newMongoMigrator(dm)
-		db = d.(MigratorDataDB)
+		db = newMongoMigrator(dm)
 	case utils.MetaInternal:
-		d = newInternalMigrator(dm)
-		db = d.(MigratorDataDB)
+		db = newInternalMigrator(dm)
 	default:
-		err = errors.New(fmt.Sprintf("Unknown db '%s' valid options are '%s' or '%s or '%s'",
-			db_type, utils.MetaRedis, utils.MetaMongo, utils.MetaInternal))
+		err = fmt.Errorf("unknown db '%s' valid options are '%s' or '%s or '%s'",
+			db_type, utils.MetaRedis, utils.MetaMongo, utils.MetaInternal)
 	}
-	return d, nil
+	return
 }
 
-func NewMigratorStorDB(db_type, host, port, name, user, pass, marshaler, sslmode string,
-	maxConn, maxIdleConn, connMaxLifetime int, stringIndexedFields, prefixIndexedFields []string,
-	itemsCacheCfg map[string]*config.ItemOpt) (db MigratorStorDB, err error) {
-	var d MigratorStorDB
-	storDb, err := engine.NewStorDBConn(db_type, host, port, name, user,
-		pass, marshaler, sslmode, maxConn, maxIdleConn, connMaxLifetime,
-		stringIndexedFields, prefixIndexedFields, itemsCacheCfg)
-	if err != nil {
-		return nil, err
+func NewMigratorStorDB(db_type, host, port, name, user, pass, marshaler string,
+	stringIndexedFields, prefixIndexedFields []string,
+	opts *config.StorDBOpts, itmsCfg map[string]*config.ItemOpt) (db MigratorStorDB, err error) {
+	var storDb engine.StorDB
+	if storDb, err = engine.NewStorDBConn(db_type, host, port, name, user,
+		pass, marshaler, stringIndexedFields, prefixIndexedFields, opts, itmsCfg); err != nil {
+		return
 	}
 	switch db_type {
 	case utils.MetaMongo:
-		d = newMongoStorDBMigrator(storDb)
-		db = d.(MigratorStorDB)
+		db = newMongoStorDBMigrator(storDb)
 	case utils.MetaMySQL:
-		d = newMigratorSQL(storDb)
-		db = d.(MigratorStorDB)
+		db = newMigratorSQL(storDb)
 	case utils.MetaPostgres:
-		d = newMigratorSQL(storDb)
-		db = d.(MigratorStorDB)
+		db = newMigratorSQL(storDb)
 	case utils.MetaInternal:
-		d = newInternalStorDBMigrator(storDb)
-		db = d.(MigratorStorDB)
+		db = newInternalStorDBMigrator(storDb)
 	default:
-		err = errors.New(fmt.Sprintf("Unknown db '%s' valid options are [%s, %s, %s, %s]",
-			db_type, utils.MetaMySQL, utils.MetaMongo, utils.MetaPostgres, utils.MetaInternal))
+		err = fmt.Errorf("Unknown db '%s' valid options are [%s, %s, %s, %s]",
+			db_type, utils.MetaMySQL, utils.MetaMongo, utils.MetaPostgres, utils.MetaInternal)
 	}
-	return d, nil
+	return
+}
+func (m *Migrator) getVersions(str string) (vrs engine.Versions, err error) {
+	if str == utils.CDRs || str == utils.SessionSCosts || strings.HasPrefix(str, "Tp") {
+		vrs, err = m.storDBIn.StorDB().GetVersions(utils.EmptyString)
+	} else {
+		vrs, err = m.dmIN.DataManager().DataDB().GetVersions(utils.EmptyString)
+	}
+	if err != nil {
+		return nil, utils.NewCGRError(utils.Migrator,
+			utils.ServerErrorCaps,
+			err.Error(),
+			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
+	} else if len(vrs) == 0 {
+		return nil, utils.NewCGRError(utils.Migrator,
+			utils.MandatoryIEMissingCaps,
+			utils.UndefinedVersion,
+			"version number is not defined for "+str)
+	}
+	return
+}
+
+func (m *Migrator) setVersions(str string) (err error) {
+	if str == utils.CDRs || str == utils.SessionSCosts || strings.HasPrefix(str, "Tp") {
+		vrs := engine.Versions{str: engine.CurrentStorDBVersions()[str]}
+		err = m.storDBOut.StorDB().SetVersions(vrs, false)
+	} else {
+		vrs := engine.Versions{str: engine.CurrentDataDBVersions()[str]}
+		err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false)
+	}
+	if err != nil {
+		err = utils.NewCGRError(utils.Migrator,
+			utils.ServerErrorCaps,
+			err.Error(),
+			fmt.Sprintf("error: <%s> when updating %s version into StorDB", err.Error(), str))
+	}
+	return
 }

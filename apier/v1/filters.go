@@ -25,29 +25,39 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-type FilterWithCache struct {
-	*engine.Filter
-	Cache *string
-}
-
 // SetFilter add a new Filter
-func (APIerSv1 *APIerSv1) SetFilter(arg *FilterWithCache, reply *string) error {
-	if missing := utils.MissingStructFields(arg.Filter, []string{"Tenant", "ID"}); len(missing) != 0 {
+func (apierSv1 *APIerSv1) SetFilter(arg *engine.FilterWithAPIOpts, reply *string) (err error) {
+	if missing := utils.MissingStructFields(arg.Filter, []string{utils.ID}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := APIerSv1.DataManager.SetFilter(arg.Filter); err != nil {
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	tntID := arg.TenantID()
+	argC := map[string][]string{utils.CacheFilters: {tntID}}
+	if fltr, err := apierSv1.DataManager.GetFilter(arg.Filter.Tenant, arg.Filter.ID, true, false, utils.NonTransactional); err != nil {
+		if err != utils.ErrNotFound {
+			return utils.APIErrorHandler(err)
+		}
+	} else if argC, err = composeCacheArgsForFilter(apierSv1.DataManager, fltr, fltr.Tenant, tntID, argC); err != nil {
+		return utils.APIErrorHandler(err)
+	}
+	if err := apierSv1.DataManager.SetFilter(arg.Filter, true); err != nil {
+		return utils.APIErrorHandler(err)
+	}
+
+	if argC, err = composeCacheArgsForFilter(apierSv1.DataManager, arg.Filter, arg.Filter.Tenant, tntID, argC); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//generate a loadID for CacheFilters and store it in database
-	if err := APIerSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheFilters: time.Now().UnixNano()}); err != nil {
+	if err := apierSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheFilters: time.Now().UnixNano()}); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//handle caching for Filter
-	argCache := utils.ArgsGetCacheItem{
-		CacheID: utils.CacheFilters,
-		ItemID:  arg.TenantID(),
-	}
-	if err := APIerSv1.CallCache(arg.Tenant, GetCacheOpt(arg.Cache), argCache); err != nil {
+	if err := callCacheForFilter(apierSv1.ConnMgr, apierSv1.Config.ApierCfg().CachesConns,
+		utils.IfaceAsString(arg.APIOpts[utils.CacheOpt]),
+		apierSv1.Config.GeneralCfg().DefaultCaching,
+		arg.Tenant, argC, arg.APIOpts); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
@@ -55,11 +65,15 @@ func (APIerSv1 *APIerSv1) SetFilter(arg *FilterWithCache, reply *string) error {
 }
 
 // GetFilter returns a Filter
-func (APIerSv1 *APIerSv1) GetFilter(arg utils.TenantID, reply *engine.Filter) error {
-	if missing := utils.MissingStructFields(&arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
+func (apierSv1 *APIerSv1) GetFilter(arg *utils.TenantID, reply *engine.Filter) error {
+	if missing := utils.MissingStructFields(arg, []string{utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if fltr, err := engine.GetFilter(APIerSv1.DataManager, arg.Tenant, arg.ID, true, true, utils.NonTransactional); err != nil {
+	tnt := arg.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if fltr, err := apierSv1.DataManager.GetFilter(tnt, arg.ID, true, true, utils.NonTransactional); err != nil {
 		return utils.APIErrorHandler(err)
 	} else {
 		*reply = *fltr
@@ -68,12 +82,13 @@ func (APIerSv1 *APIerSv1) GetFilter(arg utils.TenantID, reply *engine.Filter) er
 }
 
 // GetFilterIDs returns list of Filter IDs registered for a tenant
-func (APIerSv1 *APIerSv1) GetFilterIDs(args utils.TenantArgWithPaginator, fltrIDs *[]string) error {
-	if missing := utils.MissingStructFields(&args, []string{utils.Tenant}); len(missing) != 0 { //Params missing
-		return utils.NewErrMandatoryIeMissing(missing...)
+func (apierSv1 *APIerSv1) GetFilterIDs(args *utils.PaginatorWithTenant, fltrIDs *[]string) error {
+	tnt := args.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
 	}
-	prfx := utils.FilterPrefix + args.Tenant + ":"
-	keys, err := APIerSv1.DataManager.DataDB().GetKeysForPrefix(prfx)
+	prfx := utils.FilterPrefix + tnt + utils.ConcatenatedKeySep
+	keys, err := apierSv1.DataManager.DataDB().GetKeysForPrefix(prfx)
 	if err != nil {
 		return err
 	}
@@ -89,23 +104,26 @@ func (APIerSv1 *APIerSv1) GetFilterIDs(args utils.TenantArgWithPaginator, fltrID
 }
 
 // RemoveFilter  remove a specific filter
-func (APIerSv1 *APIerSv1) RemoveFilter(arg utils.TenantIDWithCache, reply *string) error {
-	if missing := utils.MissingStructFields(&arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
+func (apierSv1 *APIerSv1) RemoveFilter(arg *utils.TenantIDWithAPIOpts, reply *string) error {
+	if missing := utils.MissingStructFields(arg, []string{utils.ID}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := APIerSv1.DataManager.RemoveFilter(arg.Tenant, arg.ID, utils.NonTransactional); err != nil {
+	tnt := arg.Tenant
+	if tnt == utils.EmptyString {
+		tnt = apierSv1.Config.GeneralCfg().DefaultTenant
+	}
+	if err := apierSv1.DataManager.RemoveFilter(tnt, arg.ID, true); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//generate a loadID for CacheFilters and store it in database
-	if err := APIerSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheFilters: time.Now().UnixNano()}); err != nil {
+	if err := apierSv1.DataManager.SetLoadIDs(map[string]int64{utils.CacheFilters: time.Now().UnixNano()}); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//handle caching for Filter
-	argCache := utils.ArgsGetCacheItem{
-		CacheID: utils.CacheFilters,
-		ItemID:  arg.TenantID(),
-	}
-	if err := APIerSv1.CallCache(arg.Tenant, GetCacheOpt(arg.Cache), argCache); err != nil {
+	if err := callCacheForFilter(apierSv1.ConnMgr, apierSv1.Config.ApierCfg().CachesConns,
+		utils.IfaceAsString(arg.APIOpts[utils.CacheOpt]),
+		apierSv1.Config.GeneralCfg().DefaultCaching,
+		arg.Tenant, map[string][]string{utils.CacheFilters: {utils.ConcatenatedKey(tnt, arg.ID)}}, arg.APIOpts); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK

@@ -19,126 +19,118 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package dispatchers
 
 import (
+	"time"
+
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
-func (dS *DispatcherService) ResourceSv1Ping(args *utils.CGREventWithArgDispatcher, rpl *string) (err error) {
-	if args == nil || (args.CGREvent == nil && args.ArgDispatcher == nil) {
-		args = utils.NewCGREventWithArgDispatcher()
-	} else if args.CGREvent == nil {
-		args.CGREvent = new(utils.CGREvent)
+func (dS *DispatcherService) ResourceSv1Ping(args *utils.CGREvent, rpl *string) (err error) {
+	if args == nil {
+		args = new(utils.CGREvent)
 	}
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.ResourceSv1Ping, args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+		if err = dS.authorize(utils.ResourceSv1Ping, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaResources, routeID,
-		utils.ResourceSv1Ping, args, rpl)
+	return dS.Dispatch(args, utils.MetaResources, utils.ResourceSv1Ping, args, rpl)
 }
 
-func (dS *DispatcherService) ResourceSv1GetResourcesForEvent(args utils.ArgRSv1ResourceUsage,
+func (dS *DispatcherService) ResourceSv1GetResourcesForEvent(args *utils.CGREvent,
 	reply *engine.Resources) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.CGREvent != nil && args.CGREvent.Tenant != utils.EmptyString {
-		tnt = args.CGREvent.Tenant
+	if args != nil && args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ResourceSv1GetResourcesForEvent, tnt,
-			args.APIKey, args.CGREvent.Time); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
-
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaResources, routeID,
-		utils.ResourceSv1GetResourcesForEvent, args, reply)
+	return dS.Dispatch(args, utils.MetaResources, utils.ResourceSv1GetResourcesForEvent, args, reply)
 }
 
-func (dS *DispatcherService) ResourceSv1AuthorizeResources(args utils.ArgRSv1ResourceUsage,
+func (dS *DispatcherService) ResourceSv1AuthorizeResources(args *utils.CGREvent,
 	reply *string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.CGREvent != nil && args.CGREvent.Tenant != utils.EmptyString {
-		tnt = args.CGREvent.Tenant
+	if args != nil && args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ResourceSv1AuthorizeResources, tnt,
-			args.APIKey, args.CGREvent.Time); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
-
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaResources, routeID,
-		utils.ResourceSv1AuthorizeResources, args, reply)
+	return dS.Dispatch(args, utils.MetaResources, utils.ResourceSv1AuthorizeResources, args, reply)
 }
 
-func (dS *DispatcherService) ResourceSv1AllocateResources(args utils.ArgRSv1ResourceUsage,
+func (dS *DispatcherService) ResourceSv1AllocateResources(args *utils.CGREvent,
 	reply *string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.CGREvent != nil && args.CGREvent.Tenant != utils.EmptyString {
-		tnt = args.CGREvent.Tenant
+	if args != nil && args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ResourceSv1AllocateResources, tnt,
-			args.APIKey, args.CGREvent.Time); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
-
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaResources, routeID,
-		utils.ResourceSv1AllocateResources, args, reply)
+	return dS.Dispatch(args, utils.MetaResources, utils.ResourceSv1AllocateResources, args, reply)
 }
 
-func (dS *DispatcherService) ResourceSv1ReleaseResources(args utils.ArgRSv1ResourceUsage,
+func (dS *DispatcherService) ResourceSv1ReleaseResources(args *utils.CGREvent,
 	reply *string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.CGREvent != nil && args.CGREvent.Tenant != utils.EmptyString {
-		tnt = args.CGREvent.Tenant
+	if args != nil && args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ResourceSv1ReleaseResources, tnt,
-			args.APIKey, args.CGREvent.Time); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
+	}
+	return dS.Dispatch(args, utils.MetaResources, utils.ResourceSv1ReleaseResources, args, reply)
+}
 
+func (dS *DispatcherService) ResourceSv1GetResource(args *utils.TenantIDWithAPIOpts, reply *engine.Resource) (err error) {
+	tnt := dS.cfg.GeneralCfg().DefaultTenant
+	if args.TenantID != nil && args.TenantID.Tenant != utils.EmptyString {
+		tnt = args.TenantID.Tenant
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
+	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
+		if err = dS.authorize(utils.ResourceSv1GetResource, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
+			return
+		}
 	}
-	return dS.Dispatch(args.CGREvent, utils.MetaResources, routeID,
-		utils.ResourceSv1ReleaseResources, args, reply)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		ID:      args.ID,
+		APIOpts: args.APIOpts,
+	}, utils.MetaResources, utils.ResourceSv1GetResource, args, reply)
+}
+
+func (dS *DispatcherService) ResourceSv1GetResourceWithConfig(args *utils.TenantIDWithAPIOpts, reply *engine.ResourceWithConfig) (err error) {
+	tnt := dS.cfg.GeneralCfg().DefaultTenant
+	if args.TenantID != nil && args.TenantID.Tenant != utils.EmptyString {
+		tnt = args.TenantID.Tenant
+	}
+	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
+		if err = dS.authorize(utils.ResourceSv1GetResourceWithConfig, tnt,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
+			return
+		}
+	}
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		ID:      args.ID,
+		APIOpts: args.APIOpts,
+	}, utils.MetaResources, utils.ResourceSv1GetResourceWithConfig, args, reply)
 }

@@ -19,8 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package migrator
 
 import (
-	"fmt"
-
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -41,20 +39,19 @@ func (m *Migrator) migrateCurrentTPfilters() (err error) {
 			if err != nil {
 				return err
 			}
-			if fltrs != nil {
-				if m.dryRun != true {
-					if err := m.storDBOut.StorDB().SetTPFilters(fltrs); err != nil {
-						return err
-					}
-					for _, fltr := range fltrs {
-						if err := m.storDBIn.StorDB().RemTpData(utils.TBLTPFilters,
-							fltr.TPid, map[string]string{"tenant": fltr.Tenant, "id": fltr.ID}); err != nil {
-							return err
-						}
-					}
-					m.stats[utils.TpFilters] += 1
+			if fltrs == nil || m.dryRun {
+				continue
+			}
+			if err := m.storDBOut.StorDB().SetTPFilters(fltrs); err != nil {
+				return err
+			}
+			for _, fltr := range fltrs {
+				if err := m.storDBIn.StorDB().RemTpData(utils.TBLTPFilters,
+					fltr.TPid, map[string]string{"tenant": fltr.Tenant, "id": fltr.ID}); err != nil {
+					return err
 				}
 			}
+			m.stats[utils.TpFilters]++
 		}
 	}
 	return
@@ -63,17 +60,8 @@ func (m *Migrator) migrateCurrentTPfilters() (err error) {
 func (m *Migrator) migrateTPfilters() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentStorDBVersions()
-	vrs, err = m.storDBOut.StorDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.TpFilters); err != nil {
+		return
 	}
 	switch vrs[utils.TpFilters] {
 	case current[utils.TpFilters]:

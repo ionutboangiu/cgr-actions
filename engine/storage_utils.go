@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
-
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -33,24 +32,27 @@ import (
 
 // NewDataDBConn creates a DataDB connection
 func NewDataDBConn(dbType, host, port, name, user,
-	pass, marshaler, sentinelName string,
-	itemsCacheCfg map[string]*config.ItemOpt) (d DataDB, err error) {
+	pass, marshaler string, opts *config.DataDBOpts,
+	itmsCfg map[string]*config.ItemOpt) (d DataDB, err error) {
 	switch dbType {
 	case utils.MetaRedis:
 		var dbNo int
 		dbNo, err = strconv.Atoi(name)
 		if err != nil {
 			utils.Logger.Crit("Redis db name must be an integer!")
-			return nil, err
+			return
 		}
-		if port != "" && strings.Index(host, ":") == -1 {
+		if port != "" && !strings.Contains(host, ":") {
 			host += ":" + port
 		}
-		d, err = NewRedisStorage(host, dbNo, pass, marshaler, utils.REDIS_MAX_CONNS, sentinelName)
+		d, err = NewRedisStorage(host, dbNo, user, pass, marshaler, opts.RedisMaxConns, opts.RedisConnectAttempts,
+			opts.RedisSentinel, opts.RedisCluster, opts.RedisClusterSync, opts.RedisClusterOndownDelay,
+			opts.RedisConnectTimeout, opts.RedisReadTimeout, opts.RedisWriteTimeout, opts.RedisTLS,
+			opts.RedisClientCertificate, opts.RedisClientKey, opts.RedisCACertificate)
 	case utils.MetaMongo:
-		d, err = NewMongoStorage(host, port, name, user, pass, marshaler, utils.DataDB, nil, true)
+		d, err = NewMongoStorage(host, port, name, user, pass, marshaler, utils.DataDB, nil, opts.MongoQueryTimeout)
 	case utils.MetaInternal:
-		d = NewInternalDB(nil, nil, true, itemsCacheCfg)
+		d = NewInternalDB(nil, nil, true, itmsCfg)
 	default:
 		err = fmt.Errorf("unsupported db_type <%s>", dbType)
 	}
@@ -58,19 +60,20 @@ func NewDataDBConn(dbType, host, port, name, user,
 }
 
 // NewStorDBConn returns a StorDB(implements Storage interface) based on dbType
-func NewStorDBConn(dbType, host, port, name, user, pass, marshaler, sslmode string,
-	maxConn, maxIdleConn, connMaxLifetime int,
+func NewStorDBConn(dbType, host, port, name, user, pass, marshaler string,
 	stringIndexedFields, prefixIndexedFields []string,
-	itemsCacheCfg map[string]*config.ItemOpt) (db StorDB, err error) {
+	opts *config.StorDBOpts, itmsCfg map[string]*config.ItemOpt) (db StorDB, err error) {
 	switch dbType {
 	case utils.MetaMongo:
-		db, err = NewMongoStorage(host, port, name, user, pass, marshaler, utils.StorDB, stringIndexedFields, false)
+		db, err = NewMongoStorage(host, port, name, user, pass, marshaler, utils.StorDB, stringIndexedFields, opts.MongoQueryTimeout)
 	case utils.MetaPostgres:
-		db, err = NewPostgresStorage(host, port, name, user, pass, sslmode, maxConn, maxIdleConn, connMaxLifetime)
+		db, err = NewPostgresStorage(host, port, name, user, pass, opts.PgSSLMode,
+			opts.SQLMaxOpenConns, opts.SQLMaxIdleConns, opts.SQLConnMaxLifetime)
 	case utils.MetaMySQL:
-		db, err = NewMySQLStorage(host, port, name, user, pass, maxConn, maxIdleConn, connMaxLifetime)
+		db, err = NewMySQLStorage(host, port, name, user, pass, opts.SQLMaxOpenConns, opts.SQLMaxIdleConns,
+			opts.SQLConnMaxLifetime, opts.MySQLLocation, opts.MySQLDSNParams)
 	case utils.MetaInternal:
-		db = NewInternalDB(stringIndexedFields, prefixIndexedFields, false, itemsCacheCfg)
+		db = NewInternalDB(stringIndexedFields, prefixIndexedFields, false, itmsCfg)
 	default:
 		err = fmt.Errorf("unknown db '%s' valid options are [%s, %s, %s, %s]",
 			dbType, utils.MetaMySQL, utils.MetaMongo, utils.MetaPostgres, utils.MetaInternal)
@@ -92,15 +95,15 @@ type SMCost struct {
 type AttrCDRSStoreSMCost struct {
 	Cost           *SMCost
 	CheckDuplicate bool
-	*utils.ArgDispatcher
-	*utils.TenantArg
+	APIOpts        map[string]any
+	Tenant         string
 }
 
 type ArgsV2CDRSStoreSMCost struct {
 	Cost           *V2SMCost
 	CheckDuplicate bool
-	*utils.ArgDispatcher
-	*utils.TenantArg
+	APIOpts        map[string]any
+	Tenant         string
 }
 
 type V2SMCost struct {

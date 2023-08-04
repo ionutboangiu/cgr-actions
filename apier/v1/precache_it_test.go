@@ -22,6 +22,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
+	"flag"
 	"net/rpc"
 	"path"
 	"reflect"
@@ -38,8 +39,10 @@ var (
 	precacheCfgPath   string
 	precacheCfg       *config.CGRConfig
 	precacheRPC       *rpc.Client
-	precacheDataDir   = "/usr/share/cgrates"
 	precacheConfigDIR string //run tests for specific configuration
+
+	// use this flag to test the APIBan implementation for precache
+	apiBan = flag.Bool("apiban", true, "used to control if we run the apiban tests")
 
 	sTestsPrecache = []func(t *testing.T){
 		testPrecacheInitCfg,
@@ -55,6 +58,8 @@ var (
 	}
 )
 
+// this tests may fail because of apiban limit( 5 requests per 2 minutes for an APIKey)
+// if needed add more APIKeys
 func TestPrecacheIT(t *testing.T) {
 	switch *dbType {
 	case utils.MetaInternal:
@@ -68,6 +73,9 @@ func TestPrecacheIT(t *testing.T) {
 	default:
 		t.Fatal("Unknown Database type")
 	}
+	if *apiBan {
+		precacheConfigDIR += "_apiban"
+	}
 	for _, stest := range sTestsPrecache {
 		t.Run(precacheConfigDIR, stest)
 	}
@@ -75,13 +83,11 @@ func TestPrecacheIT(t *testing.T) {
 
 func testPrecacheInitCfg(t *testing.T) {
 	var err error
-	precacheCfgPath = path.Join(precacheDataDir, "conf", "samples", "precache", precacheConfigDIR)
+	precacheCfgPath = path.Join(*dataDir, "conf", "samples", "precache", precacheConfigDIR)
 	precacheCfg, err = config.NewCGRConfigFromPath(precacheCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	precacheCfg.DataFolderPath = precacheDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(precacheCfg)
 }
 
 func testPrecacheResetDataDB(t *testing.T) {
@@ -117,7 +123,7 @@ func testPrecacheGetItemIDs(t *testing.T) {
 
 func testPrecacheGetCacheStatsBeforeLoad(t *testing.T) {
 	var reply *map[string]*ltcache.CacheStats
-	args := &utils.AttrCacheIDsWithArgDispatcher{
+	args := &utils.AttrCacheIDsWithAPIOpts{
 		CacheIDs: []string{},
 	}
 	dfltStats := engine.GetDefaultEmptyCacheStats()
@@ -125,7 +131,7 @@ func testPrecacheGetCacheStatsBeforeLoad(t *testing.T) {
 	if err := precacheRPC.Call(utils.CacheSv1GetCacheStats, args, &reply); err != nil {
 		t.Error(err.Error())
 	} else if !reflect.DeepEqual(reply, expectedStats) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(expectedStats), utils.ToJSON(reply))
+		t.Errorf("Expecting : %+v,\n received: %+v", utils.ToJSON(expectedStats), utils.ToJSON(reply))
 	}
 }
 
@@ -135,7 +141,7 @@ func testPrecacheFromFolder(t *testing.T) {
 	if err := precacheRPC.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testPrecacheRestartEngine(t *testing.T) {
@@ -147,179 +153,86 @@ func testPrecacheRestartEngine(t *testing.T) {
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
+	time.Sleep(3*time.Second + 800*time.Millisecond) // let the *apiban cache to be populated
 }
 
 func testPrecacheGetCacheStatsAfterRestart(t *testing.T) {
 	var reply *map[string]*ltcache.CacheStats
-	args := &utils.AttrCacheIDsWithArgDispatcher{
+	args := &utils.AttrCacheIDsWithAPIOpts{
 		CacheIDs: []string{},
 	}
 	expectedStats := &map[string]*ltcache.CacheStats{
-		utils.MetaDefault: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheAccountActionPlans: {
-			Items:  5,
-			Groups: 0,
-		},
-		utils.CacheActionPlans: {
-			Items:  4,
-			Groups: 0,
-		},
-		utils.CacheActionTriggers: {
-			Items:  1,
-			Groups: 0,
-		},
-		utils.CacheActions: {
-			Items:  9,
-			Groups: 0,
-		},
+		utils.MetaDefault:             {},
+		utils.CacheAccountActionPlans: {},
+		utils.CacheActionPlans:        {Items: 4},
+		utils.CacheActionTriggers:     {Items: 1},
+		utils.CacheActions:            {Items: 9},
 		utils.CacheAttributeFilterIndexes: {
 			Items:  2,
-			Groups: 0,
+			Groups: 2,
 		},
-		utils.CacheAttributeProfiles: {
-			Items:  1,
-			Groups: 0,
-		},
-		utils.CacheChargerFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheChargerProfiles: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDispatcherFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDispatcherProfiles: {
-			Items:  6,
-			Groups: 0,
-		},
-		utils.CacheDispatcherHosts: {
-			Items:  1,
-			Groups: 0,
-		},
-		utils.CacheDispatcherRoutes: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDestinations: {
-			Items:  5,
-			Groups: 0,
-		},
-		utils.CacheEventResources: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheFilters: {
-			Items:  15,
-			Groups: 0,
-		},
-		utils.CacheRatingPlans: {
-			Items:  4,
-			Groups: 0,
-		},
-		utils.CacheRatingProfiles: {
-			Items:  5,
-			Groups: 0,
-		},
+		utils.CacheAttributeProfiles:       {Items: 1},
+		utils.CacheChargerFilterIndexes:    {},
+		utils.CacheChargerProfiles:         {},
+		utils.CacheDispatcherFilterIndexes: {},
+		utils.CacheDispatcherProfiles:      {Items: 6},
+		utils.CacheDispatcherHosts:         {Items: 1},
+		utils.CacheDispatcherRoutes:        {},
+		utils.CacheDispatcherLoads:         {},
+		utils.CacheDestinations:            {Items: 5},
+		utils.CacheDispatchers:             {},
+		utils.CacheEventResources:          {},
+		utils.CacheFilters:                 {Items: 15},
+		utils.CacheRatingPlans:             {Items: 4},
+		utils.CacheRatingProfiles:          {Items: 5},
 		utils.CacheResourceFilterIndexes: {
 			Items:  6,
-			Groups: 0,
+			Groups: 1,
 		},
-		utils.CacheResourceProfiles: {
-			Items:  3,
-			Groups: 0,
-		},
-		utils.CacheResources: {
-			Items:  3,
-			Groups: 0,
-		},
-		utils.CacheReverseDestinations: {
-			Items:  7,
-			Groups: 0,
-		},
-		utils.CacheRPCResponses: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheSharedGroups: {
-			Items:  1,
-			Groups: 0,
-		},
+		utils.CacheResourceProfiles:    {Items: 3},
+		utils.CacheResources:           {Items: 3},
+		utils.CacheReverseDestinations: {Items: 7},
+		utils.CacheRPCResponses:        {},
+		utils.CacheSharedGroups:        {Items: 1},
 		utils.CacheStatFilterIndexes: {
 			Items:  2,
-			Groups: 0,
+			Groups: 1,
 		},
-		utils.CacheStatQueueProfiles: {
-			Items:  1,
-			Groups: 0,
-		},
-		utils.CacheStatQueues: {
-			Items:  1,
-			Groups: 0,
-		},
-		utils.CacheSupplierFilterIndexes: {
+		utils.CacheStatQueueProfiles: {Items: 1},
+		utils.CacheStatQueues:        {Items: 1},
+		utils.CacheSTIR:              {},
+		utils.CacheCapsEvents:        {},
+		utils.CacheEventCharges:      {},
+		utils.CacheRouteFilterIndexes: {
 			Items:  6,
-			Groups: 0,
+			Groups: 1,
 		},
-		utils.CacheSupplierProfiles: {
-			Items:  3,
-			Groups: 0,
-		},
+		utils.CacheRouteProfiles: {Items: 3},
 		utils.CacheThresholdFilterIndexes: {
 			Items:  10,
-			Groups: 0,
+			Groups: 1,
 		},
-		utils.CacheThresholdProfiles: {
-			Items:  7,
-			Groups: 0,
-		},
-		utils.CacheThresholds: {
-			Items:  7,
-			Groups: 0,
-		},
-		utils.CacheTimings: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheDiameterMessages: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheClosedSessions: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheLoadIDs: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRPCConnections: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheCDRIDs: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheRatingProfilesTmp: {
-			Items:  0,
-			Groups: 0,
-		},
-		utils.CacheReverseFilterIndexes: {
-			Items:  0,
-			Groups: 0,
-		},
+		utils.CacheThresholdProfiles:    {Items: 7},
+		utils.CacheThresholds:           {Items: 7},
+		utils.CacheTimings:              {},
+		utils.CacheDiameterMessages:     {},
+		utils.CacheClosedSessions:       {},
+		utils.CacheLoadIDs:              {},
+		utils.CacheRPCConnections:       {},
+		utils.CacheCDRIDs:               {},
+		utils.CacheRatingProfilesTmp:    {},
+		utils.CacheUCH:                  {},
+		utils.CacheReverseFilterIndexes: {},
+		utils.MetaAPIBan:                {},
+		utils.CacheReplicationHosts:     {},
+	}
+	if *apiBan {
+		(*expectedStats)[utils.MetaAPIBan] = &ltcache.CacheStats{Items: 254}
 	}
 	if err := precacheRPC.Call(utils.CacheSv1GetCacheStats, args, &reply); err != nil {
 		t.Error(err.Error())
 	} else if !reflect.DeepEqual(reply, expectedStats) {
-		t.Errorf("Expecting : %+v, received: %+v", utils.ToJSON(expectedStats), utils.ToJSON(reply))
+		t.Errorf("Expecting : %+v, \n received: %+v", utils.ToJSON(expectedStats), utils.ToJSON(reply))
 	}
 }
 

@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package agents
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -77,78 +76,28 @@ func init() {
 	coder = radigo.NewCoder()
 }
 
-func TestAttrVendorFromPath(t *testing.T) {
-	if attrName, vendorName := attrVendorFromPath("*rep.User-Name"); attrName != "User-Name" ||
-		vendorName != "" {
-		t.Error("failed")
-	}
-	if attrName, vendorName := attrVendorFromPath("*rep.Cisco.Cisco-NAS-Port"); attrName != "Cisco-NAS-Port" ||
-		vendorName != "Cisco" {
-		t.Error("failed")
-	}
-}
-
-func TestRadComposedFieldValue(t *testing.T) {
-	pkt := radigo.NewPacket(radigo.AccountingRequest, 1, dictRad, coder, "CGRateS.org")
-	if err := pkt.AddAVPWithName("User-Name", "flopsy", ""); err != nil {
-		t.Error(err)
-	}
-	if err := pkt.AddAVPWithName("Cisco-NAS-Port", "CGR1", "Cisco"); err != nil {
-		t.Error(err)
-	}
-	vars := utils.NavigableMap2{
-		MetaRadReqType: utils.NewNMData(MetaRadAcctStart),
-		"Cisco":        utils.NewNMData("CGR1"),
-		"User-Name":    utils.NewNMData("flopsy"),
-	}
-	agReq := NewAgentRequest(nil, vars, nil, nil, nil, "cgrates.org", "", nil, nil, nil)
-	eOut := "*radAcctStart|flopsy|CGR1"
-	if out := radComposedFieldValue(pkt, agReq,
-		config.NewRSRParsersMustCompile("~*vars.*radReqType;|;~*vars.User-Name;|;~*vars.Cisco", true, utils.INFIELD_SEP)); out != eOut {
-		t.Errorf("Expecting: <%s>, received: <%s>", eOut, out)
-	}
-}
-
-func TestRadFieldOutVal(t *testing.T) {
-	pkt := radigo.NewPacket(radigo.AccountingRequest, 1, dictRad, coder, "CGRateS.org")
-	if err := pkt.AddAVPWithName("User-Name", "flopsy", ""); err != nil {
-		t.Error(err)
-	}
-	if err := pkt.AddAVPWithName("Cisco-NAS-Port", "CGR1", "Cisco"); err != nil {
-		t.Error(err)
-	}
-	eOut := fmt.Sprintf("%s|flopsy|CGR1", MetaRadAcctStart)
-	vars := utils.NavigableMap2{
-		MetaRadReqType: utils.NewNMData(MetaRadAcctStart),
-		"Cisco":        utils.NewNMData("CGR1"),
-		"User-Name":    utils.NewNMData("flopsy"),
-	}
-	agReq := NewAgentRequest(nil, vars, nil, nil, nil, "cgrates.org", "", nil, nil, nil)
-	cfgFld := &config.FCTemplate{Tag: "ComposedTest", Type: utils.META_COMPOSED, Path: utils.Destination,
-		Value: config.NewRSRParsersMustCompile("~*vars.*radReqType;|;~*vars.User-Name;|;~*vars.Cisco", true, utils.INFIELD_SEP), Mandatory: true}
-	if outVal, err := radFieldOutVal(pkt, agReq, cfgFld); err != nil {
-		t.Error(err)
-	} else if outVal != eOut {
-		t.Errorf("Expecting: <%s>, received: <%s>", eOut, outVal)
-	}
-}
-
 func TestRadReplyAppendAttributes(t *testing.T) {
 	rply := radigo.NewPacket(radigo.AccessRequest, 2, dictRad, coder, "CGRateS.org").Reply()
 	rplyFlds := []*config.FCTemplate{
-		{Tag: "ReplyCode", Path: MetaRadReplyCode, Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~*cgrep.Attributes.RadReply", true, utils.INFIELD_SEP)},
-		{Tag: "Acct-Session-Time", Path: "*rep.Acct-Session-Time", Type: utils.META_COMPOSED,
-			Value: config.NewRSRParsersMustCompile("~*cgrep.MaxUsage{*duration_seconds}", true, utils.INFIELD_SEP)},
+		{Tag: "ReplyCode", Path: utils.MetaRep + utils.NestingSep + MetaRadReplyCode,
+			Type:  utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgrep.Attributes.RadReply", utils.InfieldSep)},
+		{Tag: "Acct-Session-Time", Path: utils.MetaRep + utils.NestingSep + "Acct-Session-Time",
+			Type:  utils.MetaVariable,
+			Value: config.NewRSRParsersMustCompile("~*cgrep.MaxUsage{*duration_seconds}", utils.InfieldSep)},
 	}
 	for _, v := range rplyFlds {
 		v.ComputePath()
 	}
-	agReq := NewAgentRequest(nil, nil, nil, nil, nil, "cgrates.org", "", nil, nil, nil)
-	agReq.CGRReply.Set(utils.NewPathItems([]string{utils.CapMaxUsage}), utils.NewNMData(time.Duration(time.Hour)))
-	agReq.CGRReply.Set(utils.NewPathItems([]string{utils.CapAttributes, "RadReply"}), utils.NewNMData("AccessAccept"))
-	agReq.CGRReply.Set(utils.NewPathItems([]string{utils.CapAttributes, utils.Account}), utils.NewNMData("1001"))
-	if err := radReplyAppendAttributes(rply, agReq, rplyFlds); err != nil {
+	agReq := NewAgentRequest(nil, nil, nil, nil, nil, nil, "cgrates.org", "", nil, nil)
+	agReq.CGRReply.Set([]string{utils.CapMaxUsage}, utils.NewLeafNode(time.Hour))
+	agReq.CGRReply.Set([]string{utils.CapAttributes, "RadReply"}, utils.NewLeafNode("AccessAccept"))
+	agReq.CGRReply.Set([]string{utils.CapAttributes, utils.AccountField}, utils.NewLeafNode("1001"))
+
+	if err := agReq.SetFields(rplyFlds); err != nil {
+		t.Error(err)
+	}
+	if err := radReplyAppendAttributes(rply, agReq.Reply); err != nil {
 		t.Error(err)
 	}
 	if rply.Code != radigo.AccessAccept {

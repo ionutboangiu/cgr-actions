@@ -24,8 +24,10 @@ package dispatchers
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 var sTestsDspRsp = []func(t *testing.T){
@@ -35,7 +37,6 @@ var sTestsDspRsp = []func(t *testing.T){
 	testDspResponderRandom,
 	testDspResponderBroadcast,
 	testDspResponderInternal,
-	testDspResponderPingEmptyCGREventWIthArgDispatcher,
 }
 
 // Test start here
@@ -66,27 +67,25 @@ func TestDspResponder(t *testing.T) {
 }
 
 func testDspResponderStatus(t *testing.T) {
-	var reply map[string]interface{}
-	if err := allEngine.RPC.Call(utils.CoreSv1Status, utils.TenantWithArgDispatcher{}, &reply); err != nil {
+	var reply map[string]any
+	if err := allEngine.RPC.Call(utils.CoreSv1Status, utils.TenantWithAPIOpts{}, &reply); err != nil {
 		t.Error(err)
 	} else if reply[utils.NodeID] != "ALL" {
 		t.Errorf("Received: %s", reply)
 	}
-	ev := utils.TenantWithArgDispatcher{
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("rsp12345"),
+	ev := utils.TenantWithAPIOpts{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "rsp12345",
 		},
 	}
-	if err := dispEngine.RPC.Call(utils.CoreSv1Status, &ev, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemoteStatus, &ev, &reply); err != nil {
 		t.Error(err)
 	} else if reply[utils.NodeID] != "ALL" {
 		t.Errorf("Received: %s", utils.ToJSON(reply))
 	}
 	allEngine.stopEngine(t)
-	if err := dispEngine.RPC.Call(utils.CoreSv1Status, &ev, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemoteStatus, &ev, &reply); err != nil {
 		t.Error(err)
 	} else if reply[utils.NodeID] != "ALL2" {
 		t.Errorf("Received: %s", utils.ToJSON(reply))
@@ -95,36 +94,33 @@ func testDspResponderStatus(t *testing.T) {
 }
 
 func getNodeWithRoute(route string, t *testing.T) string {
-	var reply map[string]interface{}
+	var reply map[string]any
 	var pingReply string
-	pingEv := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "Random",
-			},
+	pingEv := utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.EventName: "Random",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey:  utils.StringPointer("rsp12345"),
-			RouteID: &route,
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey:  "rsp12345",
+			utils.OptsRouteID: route,
 		},
 	}
-	ev := utils.TenantWithArgDispatcher{
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey:  utils.StringPointer("rsp12345"),
-			RouteID: &route,
+	ev := utils.TenantWithAPIOpts{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey:  "rsp12345",
+			utils.OptsRouteID: route,
 		},
 	}
 
-	if err := dispEngine.RPC.Call(utils.CoreSv1Ping, pingEv, &pingReply); err != nil {
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemotePing, pingEv, &pingReply); err != nil {
 		t.Error(err)
 	} else if pingReply != utils.Pong {
 		t.Errorf("Received: %s", pingReply)
 	}
-	if err := dispEngine.RPC.Call(utils.CoreSv1Status, ev, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemoteStatus, ev, &reply); err != nil {
 		t.Error(err)
 	}
 	if reply[utils.NodeID] == nil {
@@ -145,13 +141,11 @@ func testDspResponderRandom(t *testing.T) {
 
 func testDspResponderShutdown(t *testing.T) {
 	var reply string
-	var statusReply map[string]interface{}
-	ev := utils.TenantWithArgDispatcher{
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("rsp12345"),
+	var statusReply map[string]any
+	ev := utils.TenantWithAPIOpts{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "rsp12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.ResponderShutdown, ev, &reply); err != nil {
@@ -159,7 +153,7 @@ func testDspResponderShutdown(t *testing.T) {
 	} else if reply != "Done!" {
 		t.Errorf("Received: %s", utils.ToJSON(reply))
 	}
-	if err := dispEngine.RPC.Call(utils.CoreSv1Status, &ev, &statusReply); err != nil {
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemoteStatus, &ev, &statusReply); err != nil {
 		t.Error(err)
 	} else if statusReply[utils.NodeID] != "ALL2" {
 		t.Errorf("Received: %s", utils.ToJSON(statusReply))
@@ -175,15 +169,14 @@ func testDspResponderShutdown(t *testing.T) {
 
 func testDspResponderBroadcast(t *testing.T) {
 	var pingReply string
-	pingEv := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "Broadcast",
-			},
+	pingEv := utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.EventName: "Broadcast",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("rsp12345"),
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "rsp12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.ResponderPing, pingEv, &pingReply); err != nil {
@@ -199,9 +192,10 @@ func testDspResponderBroadcast(t *testing.T) {
 		t.Errorf("Expected error: %s received error: %v	 and reply %q", utils.ErrPartiallyExecuted.Error(), err, pingReply)
 	}
 	allEngine.stopEngine(t)
+	time.Sleep(10 * time.Millisecond)
 	pingReply = ""
 	if err := dispEngine.RPC.Call(utils.ResponderPing, pingEv, &pingReply); err == nil ||
-		err.Error() != utils.ErrPartiallyExecuted.Error() {
+		!rpcclient.IsNetworkError(err) {
 		t.Errorf("Expected error: %s received error: %v	 and reply %q", utils.ErrPartiallyExecuted.Error(), err, pingReply)
 	}
 	allEngine.startEngine(t)
@@ -209,36 +203,33 @@ func testDspResponderBroadcast(t *testing.T) {
 }
 
 func testDspResponderInternal(t *testing.T) {
-	var reply map[string]interface{}
+	var reply map[string]any
 	var pingReply string
 	route := "internal"
-	pingEv := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "Internal",
-			},
+	pingEv := utils.CGREvent{
+		Tenant: "cgrates.org",
+		Event: map[string]any{
+			utils.EventName: "Internal",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey:  utils.StringPointer("rsp12345"),
-			RouteID: &route,
-		},
-	}
-	ev := utils.TenantWithArgDispatcher{
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey:  utils.StringPointer("rsp12345"),
-			RouteID: &route,
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey:  "rsp12345",
+			utils.OptsRouteID: route,
 		},
 	}
-	if err := dispEngine.RPC.Call(utils.CoreSv1Ping, pingEv, &pingReply); err != nil {
+	ev := utils.TenantWithAPIOpts{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey:  "rsp12345",
+			utils.OptsRouteID: route,
+		},
+	}
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemotePing, pingEv, &pingReply); err != nil {
 		t.Error(err)
 	} else if pingReply != utils.Pong {
 		t.Errorf("Received: %s", pingReply)
 	}
-	if err := dispEngine.RPC.Call(utils.CoreSv1Status, &ev, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.DispatcherSv1RemoteStatus, &ev, &reply); err != nil {
 		t.Error(err)
 	}
 	if reply[utils.NodeID] == nil {
@@ -246,14 +237,5 @@ func testDspResponderInternal(t *testing.T) {
 	}
 	if strRply := reply[utils.NodeID].(string); strRply != "DispatcherS1" {
 		t.Errorf("Expected: DispatcherS1 , received: %s", strRply)
-	}
-}
-
-func testDspResponderPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	var reply string
-	if err := dispEngine.RPC.Call(utils.ResponderPing,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
 	}
 }

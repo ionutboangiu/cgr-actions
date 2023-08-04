@@ -105,7 +105,7 @@ func TestSSv1ItWithPrepaid(t *testing.T) {
 	if *dbType == utils.MetaPostgres {
 		t.SkipNow()
 	}
-	sSV1RequestType = utils.META_PREPAID
+	sSV1RequestType = utils.MetaPrepaid
 	for _, stest := range sTestSessionSv1 {
 		t.Run(sSV1RequestType, stest)
 	}
@@ -115,7 +115,7 @@ func TestSSv1ItWithPostPaid(t *testing.T) {
 	if *dbType == utils.MetaPostgres {
 		t.SkipNow()
 	}
-	sSV1RequestType = utils.META_POSTPAID
+	sSV1RequestType = utils.MetaPostpaid
 	for _, stest := range sTestSessionSv1 {
 		t.Run(sSV1RequestType, stest)
 	}
@@ -125,7 +125,7 @@ func TestSSv1ItWithRated(t *testing.T) {
 	if *dbType == utils.MetaPostgres {
 		t.SkipNow()
 	}
-	sSV1RequestType = utils.META_RATED
+	sSV1RequestType = utils.MetaRated
 	for _, stest := range sTestSessionSv1 {
 		t.Run(sSV1RequestType, stest)
 	}
@@ -135,7 +135,7 @@ func TestSSv1ItWithPseudoPrepaid(t *testing.T) {
 	if *dbType == utils.MetaPostgres {
 		t.SkipNow()
 	}
-	sSV1RequestType = utils.META_PSEUDOPREPAID
+	sSV1RequestType = utils.MetaPseudoPrepaid
 	for _, stest := range sTestSessionSv1 {
 		t.Run(sSV1RequestType, stest)
 	}
@@ -165,7 +165,7 @@ func testSSv1ItRpcConn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clntHandlers := map[string]interface{}{
+	clntHandlers := map[string]any{
 		utils.SessionSv1DisconnectSession:   handleDisconnectSession,
 		utils.SessionSv1GetActiveSessionIDs: handleGetSessionIDs,
 	}
@@ -197,7 +197,7 @@ func testSSv1ItTPFromFolder(t *testing.T) {
 		attrs, &loadInst); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testSSv1ItAuth(t *testing.T) {
@@ -205,21 +205,21 @@ func testSSv1ItAuth(t *testing.T) {
 	args := &sessions.V1AuthorizeArgs{
 		GetMaxUsage:        true,
 		AuthorizeResources: true,
-		GetSuppliers:       true,
+		GetRoutes:          true,
 		GetAttributes:      true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItAuth",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:       authUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        authUsage,
 			},
 		},
 	}
@@ -227,52 +227,66 @@ func testSSv1ItAuth(t *testing.T) {
 	if err := sSv1BiRpc.Call(utils.SessionSv1AuthorizeEvent, args, &rply); err != nil {
 		t.Fatal(err)
 	}
-	if rply.MaxUsage != authUsage {
+	if rply.MaxUsage == nil || *rply.MaxUsage != authUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rply.MaxUsage)
 	}
 	if *rply.ResourceAllocation == "" {
 		t.Errorf("Unexpected ResourceAllocation: %s", *rply.ResourceAllocation)
 	}
-	eSplrs := &engine.SortedSuppliers{
-		ProfileID: "SPL_ACNT_1001",
+	eSplrs := engine.SortedRoutesList{{
+		ProfileID: "ROUTE_ACNT_1001",
 		Sorting:   utils.MetaWeight,
-		Count:     2,
-		SortedSuppliers: []*engine.SortedSupplier{
+		Routes: []*engine.SortedRoute{
 			{
-				SupplierID: "supplier1",
-				SortingData: map[string]interface{}{
+				RouteID: "route1",
+				SortingData: map[string]any{
 					"Weight": 20.0,
 				},
 			},
 			{
-				SupplierID: "supplier2",
-				SortingData: map[string]interface{}{
+				RouteID: "route2",
+				SortingData: map[string]any{
 					"Weight": 10.0,
 				},
 			},
 		},
-	}
-	if !reflect.DeepEqual(eSplrs, rply.Suppliers) {
-		t.Errorf("expecting: %+v,\n received: %+v", utils.ToJSON(eSplrs), utils.ToJSON(rply.Suppliers))
+	}, {
+		ProfileID: "ROUTE_WEIGHT_2",
+		Sorting:   utils.MetaWeight,
+		Routes: []*engine.SortedRoute{{
+			RouteID: "route1",
+			SortingData: map[string]any{
+				"Weight": 10.0,
+			},
+		}},
+	}}
+	if !reflect.DeepEqual(eSplrs, rply.RouteProfiles) {
+		t.Errorf("expecting: %+v,\n received: %+v", utils.ToJSON(eSplrs), utils.ToJSON(rply.RouteProfiles))
 	}
 	eAttrs := &engine.AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_ACNT_1001"},
+		MatchedProfiles: []string{"cgrates.org:ATTR_ACNT_1001"},
 		AlteredFields:   []string{"*req.OfficeGroup"},
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItAuth",
-			Event: map[string]interface{}{
-				utils.CGRID:       "5668666d6b8e44eb949042f25ce0796ec3592ff9",
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				"OfficeGroup":     "Marketing",
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.SetupTime:   "2018-01-07T17:00:00Z",
-				utils.Usage:       300000000000.0,
+			Event: map[string]any{
+				utils.CGRID:        "5668666d6b8e44eb949042f25ce0796ec3592ff9",
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				"OfficeGroup":      "Marketing",
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.SetupTime:    "2018-01-07T17:00:00Z",
+				utils.Usage:        300000000000.0,
+			},
+			APIOpts: map[string]any{
+				utils.MetaSubsys:               utils.MetaSessionS,
+				utils.OptsAttributesProfileIDs: nil,
+				utils.OptsResourcesUsageID:     "TestSSv1It1",
+				utils.OptsResourcesUnits:       1.,
 			},
 		},
 	}
@@ -287,22 +301,23 @@ func testSSv1ItAuthWithDigest(t *testing.T) {
 	args := &sessions.V1AuthorizeArgs{
 		GetMaxUsage:        true,
 		AuthorizeResources: true,
-		GetSuppliers:       true,
+		GetRoutes:          true,
 		GetAttributes:      true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItAuth",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:       authUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        authUsage,
 			},
+			APIOpts: map[string]any{utils.OptsRoutesProfileCount: 1},
 		},
 	}
 	var rply sessions.V1AuthorizeReplyWithDigest
@@ -317,9 +332,9 @@ func testSSv1ItAuthWithDigest(t *testing.T) {
 	if *rply.ResourceAllocation == "" {
 		t.Errorf("Unexpected ResourceAllocation: %s", *rply.ResourceAllocation)
 	}
-	eSplrs := utils.StringPointer("supplier1,supplier2")
-	if *eSplrs != *rply.SuppliersDigest {
-		t.Errorf("expecting: %v, received: %v", *eSplrs, *rply.SuppliersDigest)
+	eSplrs := utils.StringPointer("route1,route2")
+	if *eSplrs != *rply.RoutesDigest {
+		t.Errorf("expecting: %v, received: %v", *eSplrs, *rply.RoutesDigest)
 	}
 	eAttrs := utils.StringPointer("OfficeGroup:Marketing")
 	if *eAttrs != *rply.AttributesDigest {
@@ -336,17 +351,17 @@ func testSSv1ItInitiateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -358,31 +373,37 @@ func testSSv1ItInitiateSession(t *testing.T) {
 	// in case of prepaid and pseudoprepade we expect a MaxUsage of 5min
 	// and in case of postpaid and rated we expect the value of Usage field
 	// if this was missing the MaxUsage should be equal to MaxCallDuration from config
-	if rply.MaxUsage != initUsage {
+	if rply.MaxUsage == nil || *rply.MaxUsage != initUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rply.MaxUsage)
 	}
 	if *rply.ResourceAllocation != "RES_ACNT_1001" {
 		t.Errorf("Unexpected ResourceAllocation: %s", *rply.ResourceAllocation)
 	}
 	eAttrs := &engine.AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_ACNT_1001"},
+		MatchedProfiles: []string{"cgrates.org:ATTR_ACNT_1001"},
 		AlteredFields:   []string{"*req.OfficeGroup"},
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItInitiateSession",
-			Event: map[string]interface{}{
-				utils.CGRID:       "5668666d6b8e44eb949042f25ce0796ec3592ff9",
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				"OfficeGroup":     "Marketing",
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.SetupTime:   "2018-01-07T17:00:00Z",
-				utils.AnswerTime:  "2018-01-07T17:00:10Z",
-				utils.Usage:       300000000000.0,
+			Event: map[string]any{
+				utils.CGRID:        "5668666d6b8e44eb949042f25ce0796ec3592ff9",
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				"OfficeGroup":      "Marketing",
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.SetupTime:    "2018-01-07T17:00:00Z",
+				utils.AnswerTime:   "2018-01-07T17:00:10Z",
+				utils.Usage:        300000000000.0,
+			},
+			APIOpts: map[string]any{
+				utils.MetaSubsys:               utils.MetaSessionS,
+				utils.OptsAttributesProfileIDs: nil,
+				utils.OptsResourcesUnits:       1.,
+				utils.OptsResourcesUsageID:     "TestSSv1It1",
 			},
 		},
 	}
@@ -399,7 +420,7 @@ func testSSv1ItInitiateSession(t *testing.T) {
 }
 
 func testSSv1ItInitiateSessionWithDigest(t *testing.T) {
-	initUsage := time.Duration(5 * time.Minute)
+	initUsage := 5 * time.Minute
 	args := &sessions.V1InitSessionArgs{
 		InitSession:       true,
 		AllocateResources: true,
@@ -407,17 +428,17 @@ func testSSv1ItInitiateSessionWithDigest(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It2",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It2",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -456,17 +477,17 @@ func testSSv1ItUpdateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItUpdateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       reqUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        reqUsage,
 			},
 		},
 	}
@@ -476,24 +497,28 @@ func testSSv1ItUpdateSession(t *testing.T) {
 		t.Error(err)
 	}
 	eAttrs := &engine.AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_ACNT_1001"},
+		MatchedProfiles: []string{"cgrates.org:ATTR_ACNT_1001"},
 		AlteredFields:   []string{"*req.OfficeGroup"},
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItUpdateSession",
-			Event: map[string]interface{}{
-				utils.CGRID:       "5668666d6b8e44eb949042f25ce0796ec3592ff9",
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				"OfficeGroup":     "Marketing",
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.SetupTime:   "2018-01-07T17:00:00Z",
-				utils.AnswerTime:  "2018-01-07T17:00:10Z",
-				utils.Usage:       300000000000.0,
+			Event: map[string]any{
+				utils.CGRID:        "5668666d6b8e44eb949042f25ce0796ec3592ff9",
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				"OfficeGroup":      "Marketing",
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.SetupTime:    "2018-01-07T17:00:00Z",
+				utils.AnswerTime:   "2018-01-07T17:00:10Z",
+				utils.Usage:        300000000000.0,
+			},
+			APIOpts: map[string]any{
+				utils.MetaSubsys:               utils.MetaSessionS,
+				utils.OptsAttributesProfileIDs: nil,
 			},
 		},
 	}
@@ -504,7 +529,7 @@ func testSSv1ItUpdateSession(t *testing.T) {
 	// in case of prepaid and pseudoprepade we expect a MaxUsage of 5min
 	// and in case of postpaid and rated we expect the value of Usage field
 	// if this was missing the MaxUsage should be equal to MaxCallDuration from config
-	if rply.MaxUsage != reqUsage {
+	if rply.MaxUsage == nil || *rply.MaxUsage != reqUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rply.MaxUsage)
 	}
 	aSessions := make([]*sessions.ExternalSession, 0)
@@ -522,17 +547,17 @@ func testSSv1ItTerminateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItUpdateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       10 * time.Minute,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        10 * time.Minute,
 			},
 		},
 	}
@@ -552,22 +577,20 @@ func testSSv1ItTerminateSession(t *testing.T) {
 }
 
 func testSSv1ItProcessCDR(t *testing.T) {
-	args := &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "TestSSv1ItProcessCDR",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       10 * time.Minute,
-			},
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "TestSSv1ItProcessCDR",
+		Event: map[string]any{
+			utils.Tenant:       "cgrates.org",
+			utils.ToR:          utils.MetaVoice,
+			utils.OriginID:     "TestSSv1It1",
+			utils.RequestType:  sSV1RequestType,
+			utils.AccountField: "1001",
+			utils.Subject:      "ANY2CNT",
+			utils.Destination:  "1002",
+			utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+			utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+			utils.Usage:        10 * time.Minute,
 		},
 	}
 	var rply string
@@ -578,7 +601,6 @@ func testSSv1ItProcessCDR(t *testing.T) {
 	if rply != utils.OK {
 		t.Errorf("Unexpected reply: %s", rply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 // TestSSv1ItProcessEvent processes individual event and also checks it's CDRs
@@ -591,18 +613,18 @@ func testSSv1ItProcessEvent(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItProcessEvent",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It2",
-				utils.OriginHost:  "TestSSv1It3",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It2",
+				utils.OriginHost:   "TestSSv1It3",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -614,32 +636,38 @@ func testSSv1ItProcessEvent(t *testing.T) {
 	// in case of prepaid and pseudoprepade we expect a MaxUsage of 5min
 	// and in case of postpaid and rated we expect the value of Usage field
 	// if this was missing the MaxUsage should be equal to MaxCallDuration from config
-	if rply.MaxUsage != initUsage {
+	if rply.MaxUsage == nil || *rply.MaxUsage != initUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rply.MaxUsage)
 	}
 	if *rply.ResourceAllocation != "RES_ACNT_1001" {
 		t.Errorf("Unexpected ResourceAllocation: %s", *rply.ResourceAllocation)
 	}
 	eAttrs := &engine.AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_ACNT_1001"},
+		MatchedProfiles: []string{"cgrates.org:ATTR_ACNT_1001"},
 		AlteredFields:   []string{"*req.OfficeGroup"},
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItProcessEvent",
-			Event: map[string]interface{}{
-				utils.CGRID:       "f7f5cf1029905f9b98be1a608e4bd975b8e51413",
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				"OfficeGroup":     "Marketing",
-				utils.OriginID:    "TestSSv1It2",
-				utils.OriginHost:  "TestSSv1It3",
-				utils.RequestType: sSV1RequestType,
-				utils.SetupTime:   "2018-01-07T17:00:00Z",
-				utils.AnswerTime:  "2018-01-07T17:00:10Z",
-				utils.Usage:       300000000000.0,
+			Event: map[string]any{
+				utils.CGRID:        "f7f5cf1029905f9b98be1a608e4bd975b8e51413",
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				"OfficeGroup":      "Marketing",
+				utils.OriginID:     "TestSSv1It2",
+				utils.OriginHost:   "TestSSv1It3",
+				utils.RequestType:  sSV1RequestType,
+				utils.SetupTime:    "2018-01-07T17:00:00Z",
+				utils.AnswerTime:   "2018-01-07T17:00:10Z",
+				utils.Usage:        300000000000.0,
+			},
+			APIOpts: map[string]any{
+				utils.MetaSubsys:               utils.MetaSessionS,
+				utils.OptsAttributesProfileIDs: nil,
+				utils.OptsResourcesUnits:       1.,
+				utils.OptsResourcesUsageID:     "TestSSv1It2",
 			},
 		},
 	}
@@ -660,12 +688,11 @@ func testSSv1ItProcessEvent(t *testing.T) {
 	if rplyCDR != utils.OK {
 		t.Errorf("Unexpected reply: %s", rplyCDR)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testSSv1ItCDRsGetCdrs(t *testing.T) {
 	var cdrCnt int64
-	req := &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{}}
+	req := &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{}}
 	if err := sSApierRpc.Call(utils.CDRsV1GetCDRsCount, req, &cdrCnt); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if cdrCnt != 6 { // 3 for each CDR
@@ -673,7 +700,7 @@ func testSSv1ItCDRsGetCdrs(t *testing.T) {
 	}
 
 	var cdrs []*engine.CDR
-	args := &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{utils.MetaRaw}}}
+	args := &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"raw"}}}
 	if err := sSApierRpc.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 2 {
@@ -683,7 +710,7 @@ func testSSv1ItCDRsGetCdrs(t *testing.T) {
 			t.Errorf("Unexpected cost for CDR: %f", cdrs[0].Cost)
 		}
 	}
-	args = &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"CustomerCharges"},
+	args = &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"CustomerCharges"},
 		OriginIDs: []string{"TestSSv1It1"}}}
 	if err := sSApierRpc.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
@@ -699,9 +726,8 @@ func testSSv1ItCDRsGetCdrs(t *testing.T) {
 		if cdrs[0].CostDetails.Cost == nil || *cdrs[0].CostDetails.Cost != 0.198 {
 			t.Errorf("Unexpected cost from CostDetails for CDR: %+v", cdrs[0].CostDetails.Cost)
 		}
-
 	}
-	args = &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"SupplierCharges"},
+	args = &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"SupplierCharges"},
 		OriginIDs: []string{"TestSSv1It1"}}}
 	if err := sSApierRpc.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
@@ -719,7 +745,7 @@ func testSSv1ItCDRsGetCdrs(t *testing.T) {
 		}
 	}
 
-	args = &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"CustomerCharges"},
+	args = &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"CustomerCharges"},
 		OriginIDs: []string{"TestSSv1It2"}}}
 	if err := sSApierRpc.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
@@ -736,7 +762,7 @@ func testSSv1ItCDRsGetCdrs(t *testing.T) {
 			t.Errorf("Unexpected cost from CostDetails for CDR: %+v", cdrs[0].CostDetails.Cost)
 		}
 	}
-	args = &utils.RPCCDRsFilterWithArgDispatcher{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"SupplierCharges"},
+	args = &utils.RPCCDRsFilterWithAPIOpts{RPCCDRsFilter: &utils.RPCCDRsFilter{RunIDs: []string{"SupplierCharges"},
 		OriginIDs: []string{"TestSSv1It2"}}}
 	if err := sSApierRpc.Call(utils.CDRsV1GetCDRs, args, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
@@ -756,7 +782,7 @@ func testSSv1ItCDRsGetCdrs(t *testing.T) {
 }
 
 func testSSv1ItForceUpdateSession(t *testing.T) {
-	if sSV1RequestType != utils.META_PREPAID {
+	if sSV1RequestType != utils.MetaPrepaid {
 		t.SkipNow()
 		return
 	}
@@ -769,8 +795,8 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 	eAcntVal := 9.55
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != eAcntVal {
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != eAcntVal {
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 
 	reqUsage := 5 * time.Minute
@@ -780,18 +806,18 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItUpdateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       reqUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        reqUsage,
 			},
 		},
 	}
@@ -801,25 +827,29 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	eAttrs := &engine.AttrSProcessEventReply{
-		MatchedProfiles: []string{"ATTR_ACNT_1001"},
+		MatchedProfiles: []string{"cgrates.org:ATTR_ACNT_1001"},
 		AlteredFields:   []string{"*req.OfficeGroup"},
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItUpdateSession",
-			Event: map[string]interface{}{
-				utils.CGRID:       "70876773b294f0e1476065f8d18bb9ec6bcb3d5f",
-				utils.Tenant:      "cgrates.org",
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				"OfficeGroup":     "Marketing",
-				utils.OriginID:    "TestSSv1It",
-				utils.RequestType: sSV1RequestType,
-				utils.SetupTime:   "2018-01-07T17:00:00Z",
-				utils.AnswerTime:  "2018-01-07T17:00:10Z",
-				utils.Usage:       300000000000.0,
+			Event: map[string]any{
+				utils.CGRID:        "70876773b294f0e1476065f8d18bb9ec6bcb3d5f",
+				utils.Tenant:       "cgrates.org",
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				"OfficeGroup":      "Marketing",
+				utils.OriginID:     "TestSSv1It",
+				utils.RequestType:  sSV1RequestType,
+				utils.SetupTime:    "2018-01-07T17:00:00Z",
+				utils.AnswerTime:   "2018-01-07T17:00:10Z",
+				utils.Usage:        300000000000.0,
+			},
+			APIOpts: map[string]any{
+				utils.MetaSubsys:               utils.MetaSessionS,
+				utils.OptsAttributesProfileIDs: nil,
 			},
 		},
 	}
@@ -827,7 +857,7 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 		t.Fatalf("expecting: %+v, received: %+v",
 			utils.ToJSON(eAttrs), utils.ToJSON(rply.Attributes))
 	}
-	if rply.MaxUsage != reqUsage {
+	if rply.MaxUsage == nil || *rply.MaxUsage != reqUsage {
 		t.Errorf("Unexpected MaxUsage: %v", rply.MaxUsage)
 	}
 	aSessions = make([]*sessions.ExternalSession, 0)
@@ -840,8 +870,8 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 	eAcntVal = 9.4
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != eAcntVal {
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != eAcntVal {
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
 	rplyt := ""
 	if err := sSv1BiRpc.Call(utils.SessionSv1ForceDisconnect,
@@ -857,12 +887,11 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 	}
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.MONETARY].GetTotalValue() != eAcntVal { // no monetary change bacause the sessin was terminated
-		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MONETARY].GetTotalValue())
+	} else if acnt.BalanceMap[utils.MetaMonetary].GetTotalValue() != eAcntVal { // no monetary change bacause the sessin was terminated
+		t.Errorf("Expected: %f, received: %f", eAcntVal, acnt.BalanceMap[utils.MetaMonetary].GetTotalValue())
 	}
-	time.Sleep(100 * time.Millisecond)
 	var cdrs []*engine.CDR
-	argsCDR := &utils.RPCCDRsFilterWithArgDispatcher{
+	argsCDR := &utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			RunIDs:    []string{"CustomerCharges"},
 			OriginIDs: []string{"TestSSv1It"},
@@ -877,7 +906,7 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 			t.Errorf("Unexpected cost for CDR: %f", cdrs[0].Cost)
 		}
 	}
-	argsCDR = &utils.RPCCDRsFilterWithArgDispatcher{
+	argsCDR = &utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			RunIDs:    []string{"SupplierCharges"},
 			OriginIDs: []string{"TestSSv1It"},
@@ -895,16 +924,16 @@ func testSSv1ItForceUpdateSession(t *testing.T) {
 }
 
 func testSSv1ItDynamicDebit(t *testing.T) {
-	if sSV1RequestType != utils.META_PREPAID {
+	if sSV1RequestType != utils.MetaPrepaid {
 		t.SkipNow()
 		return
 	}
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "TestDynamicDebit",
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       2 * float64(time.Second),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "TestDynamicDebitBalance",
 			utils.RatingSubject: "*zero5ms",
 		},
@@ -923,9 +952,9 @@ func testSSv1ItDynamicDebit(t *testing.T) {
 	eAcntVal := 2 * float64(time.Second)
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.VOICE].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaVoice].GetTotalValue() != eAcntVal {
 		t.Errorf("Expecting: %v, received: %v",
-			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.VOICE].GetTotalValue()))
+			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.MetaVoice].GetTotalValue()))
 	}
 
 	args1 := &sessions.V1InitSessionArgs{
@@ -933,20 +962,22 @@ func testSSv1ItDynamicDebit(t *testing.T) {
 		GetAttributes: true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
-			ID:     "TestSSv1ItInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:           "cgrates.org",
-				utils.Category:         "call",
-				utils.ToR:              utils.VOICE,
-				utils.OriginID:         "TestDynamicTDebit",
-				utils.RequestType:      sSV1RequestType,
-				utils.Account:          "TestDynamicDebit",
-				utils.Subject:          "TEST",
-				utils.Destination:      "TEST",
-				utils.SetupTime:        time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:       time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:            0,
-				utils.CGRDebitInterval: 30 * time.Millisecond,
+			ID:     "TestSSv1ItInitiateSession2",
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestDynamicTDebit",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "TestDynamicDebit",
+				utils.Subject:      "TEST",
+				utils.Destination:  "TEST",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        0,
+			},
+			APIOpts: map[string]any{
+				utils.OptsDebitInterval: 30 * time.Millisecond,
 			},
 		},
 	}
@@ -955,7 +986,7 @@ func testSSv1ItDynamicDebit(t *testing.T) {
 		args1, &rply1); err != nil {
 		t.Error(err)
 		return
-	} else if rply1.MaxUsage != 3*time.Hour /* MaxCallDuration from config*/ {
+	} else if rply1.MaxUsage == nil || *rply1.MaxUsage != 3*time.Hour /* MaxCallDuration from config*/ {
 		t.Errorf("Unexpected MaxUsage: %v", rply1.MaxUsage)
 	}
 
@@ -969,25 +1000,25 @@ func testSSv1ItDynamicDebit(t *testing.T) {
 	eAcntVal -= float64(time.Millisecond) * 30 * 2 // 2 session
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.VOICE].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaVoice].GetTotalValue() != eAcntVal {
 		t.Errorf("Expecting: %v, received: %v",
-			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.VOICE].GetTotalValue()))
+			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.MetaVoice].GetTotalValue()))
 	}
 
 	time.Sleep(10 * time.Millisecond)
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.VOICE].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaVoice].GetTotalValue() != eAcntVal {
 		t.Errorf("Expecting: %v, received: %v",
-			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.VOICE].GetTotalValue()))
+			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.MetaVoice].GetTotalValue()))
 	}
 	time.Sleep(20 * time.Millisecond)
 	eAcntVal -= float64(time.Millisecond) * 30 * 2 // 2 session
 	if err := sSApierRpc.Call(utils.APIerSv2GetAccount, attrs, &acnt); err != nil {
 		t.Error(err)
-	} else if acnt.BalanceMap[utils.VOICE].GetTotalValue() != eAcntVal {
+	} else if acnt.BalanceMap[utils.MetaVoice].GetTotalValue() != eAcntVal {
 		t.Errorf("Expecting: %v, received: %v",
-			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.VOICE].GetTotalValue()))
+			time.Duration(eAcntVal), time.Duration(acnt.BalanceMap[utils.MetaVoice].GetTotalValue()))
 	}
 
 	if err := sSv1BiRpc.Call(utils.SessionSv1GetActiveSessions, nil, &aSessions); err != nil {
@@ -1029,17 +1060,17 @@ func testSSv1ItDeactivateSessions(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
@@ -1056,7 +1087,7 @@ func testSSv1ItDeactivateSessions(t *testing.T) {
 		t.Error(err)
 	}
 	var reply string
-	err := sSv1BiRpc.Call(utils.SessionSv1DeactivateSessions, []string{}, &reply)
+	err := sSv1BiRpc.Call(utils.SessionSv1DeactivateSessions, &utils.SessionIDsWithArgsDispatcher{}, &reply)
 	if err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {
@@ -1079,16 +1110,16 @@ func testSSv1ItAuthNotFoundCharger(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "Unexist",
 			ID:     "testSSv1ItAuthNotFoundCharger",
-			Event: map[string]interface{}{
-				utils.Tenant:      "Unexist",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testSSv1ItAuthNotFoundCharger",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.Usage:       authUsage,
+			Event: map[string]any{
+				utils.Tenant:       "Unexist",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testSSv1ItAuthNotFoundCharger",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.Usage:        authUsage,
 			},
 		},
 	}
@@ -1106,17 +1137,17 @@ func testSSv1ItInitiateSessionNotFoundCharger(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "Unexist",
 			ID:     "testSSv1ItInitiateSessionNotFoundCharger",
-			Event: map[string]interface{}{
-				utils.Tenant:      "Unexist",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "testSSv1ItInitiateSessionNotFoundCharger",
-				utils.RequestType: sSV1RequestType,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "Unexist",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "testSSv1ItInitiateSessionNotFoundCharger",
+				utils.RequestType:  sSV1RequestType,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}

@@ -120,20 +120,18 @@ func testHAitInitCfg(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	haCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(haCfg)
 }
 
 func testHAitHttp(t *testing.T) {
 	if isTls {
 		// With Tls
 		//make http client with tls
-		cert, err := tls.LoadX509KeyPair(haCfg.TlsCfg().ClientCerificate, haCfg.TlsCfg().ClientKey)
+		cert, err := tls.LoadX509KeyPair(haCfg.TLSCfg().ClientCerificate, haCfg.TLSCfg().ClientKey)
 		if err != nil {
 			t.Error(err)
 		}
 		// Load CA cert
-		caCert, err := os.ReadFile(haCfg.TlsCfg().CaCertificate)
+		caCert, err := os.ReadFile(haCfg.TLSCfg().CaCertificate)
 		if err != nil {
 			t.Error(err)
 		}
@@ -199,7 +197,7 @@ func testHAitAuthDryRun(t *testing.T) {
 		httpConst = "https"
 	}
 	reqUrl := fmt.Sprintf("%s://%s%s?request_type=OutboundAUTH&CallID=123456&Msisdn=497700056231&Imsi=2343000000000123&Destination=491239440004&MSRN=0102220233444488999&ProfileID=1&AgentID=176&GlobalMSISDN=497700056129&GlobalIMSI=214180000175129&ICCID=8923418450000089629&MCC=234&MNC=10&calltype=callback",
-		httpConst, addr, haCfg.HttpAgentCfg()[0].Url)
+		httpConst, addr, haCfg.HTTPAgentCfg()[0].URL)
 	rply, err := httpC.Get(reqUrl)
 	if err != nil {
 		t.Fatal(err)
@@ -226,9 +224,9 @@ func testHAitAuth1001(t *testing.T) {
 	attrSetBalance := utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     acnt,
-		BalanceType: utils.VOICE,
+		BalanceType: utils.MetaVoice,
 		Value:       float64(maxDuration) * float64(time.Second),
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "TestDynamicDebitBalance",
 			utils.RatingSubject: "*zero5ms",
 		},
@@ -249,10 +247,10 @@ func testHAitAuth1001(t *testing.T) {
 	}
 
 	reqUrl := fmt.Sprintf("%s://%s%s?request_type=OutboundAUTH&CallID=123456&Msisdn=%s&Imsi=2343000000000123&Destination=1002&MSRN=0102220233444488999&ProfileID=1&AgentID=176&GlobalMSISDN=497700056129&GlobalIMSI=214180000175129&ICCID=8923418450000089629&MCC=234&MNC=10&calltype=callback",
-		httpConst, addr, haCfg.HttpAgentCfg()[0].Url, acnt)
+		httpConst, addr, haCfg.HTTPAgentCfg()[0].URL, acnt)
 	rply, err := httpC.Get(reqUrl)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	eXml := []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <response>
@@ -276,10 +274,10 @@ func testHAitCDRmtcall(t *testing.T) {
 		httpConst = "https"
 	}
 	reqUrl := fmt.Sprintf("%s://%s%s?request_type=MTCALL_CDR&timestamp=2018-08-14%%2012:03:22&call_date=2018-0814%%2012:00:49&transactionid=10000&CDR_ID=123456&carrierid=1&mcc=0&mnc=0&imsi=434180000000000&msisdn=1001&destination=1002&leg=C&leg_duration=185&reseller_charge=11.1605&client_charge=0.0000&user_charge=22.0000&IOT=0&user_balance=10.00&cli=%%2B498702190000&polo=0.0100&ddi_map=N",
-		httpConst, addr, haCfg.HttpAgentCfg()[0].Url)
+		httpConst, addr, haCfg.HTTPAgentCfg()[0].URL)
 	rply, err := httpC.Get(reqUrl)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	eXml := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <CDR_RESPONSE>
@@ -295,7 +293,7 @@ func testHAitCDRmtcall(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	var cdrs []*engine.ExternalCDR
 	req := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}}
-	if err := haRPC.Call(utils.APIerSv2GetCDRs, req, &cdrs); err != nil {
+	if err := haRPC.Call(utils.APIerSv2GetCDRs, &req, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -303,7 +301,7 @@ func testHAitCDRmtcall(t *testing.T) {
 		if cdrs[0].Usage != "3m5s" { // should be 1 but maxUsage returns rounded version
 			t.Errorf("Unexpected CDR Usage received, cdr: %s ", utils.ToJSON(cdrs[0]))
 		}
-		if utils.Round(cdrs[0].Cost, 4, utils.ROUNDING_MIDDLE) != 0.2188 { // sql have only 4 digits after decimal point
+		if utils.Round(cdrs[0].Cost, 4, utils.MetaRoundingMiddle) != 0.2188 { // sql have only 4 digits after decimal point
 			t.Errorf("Unexpected CDR Cost received, cdr: %+v ", cdrs[0].Cost)
 		}
 		if cdrs[0].OriginHost != "127.0.0.1" {
@@ -320,7 +318,7 @@ func testHAitCDRmtcall2(t *testing.T) {
 		addr = haCfg.ListenCfg().HTTPTLSListen
 		httpConst = "https"
 	}
-	url := fmt.Sprintf("%s://%s%s", httpConst, addr, haCfg.HttpAgentCfg()[1].Url)
+	url := fmt.Sprintf("%s://%s%s", httpConst, addr, haCfg.HTTPAgentCfg()[1].URL)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(xmlBody)))
 	if err != nil {
@@ -329,14 +327,14 @@ func testHAitCDRmtcall2(t *testing.T) {
 	req.Header.Add("Content-Type", "application/xml; charset=utf-8")
 	resp, err := httpC.Do(req)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	resp.Body.Close()
 
 	time.Sleep(50 * time.Millisecond)
 	var cdrs []*engine.ExternalCDR
 	fltr := utils.RPCCDRsFilter{RunIDs: []string{utils.MetaDefault}, Accounts: []string{"447700086788"}}
-	if err := haRPC.Call(utils.APIerSv2GetCDRs, fltr, &cdrs); err != nil {
+	if err := haRPC.Call(utils.APIerSv2GetCDRs, &fltr, &cdrs); err != nil {
 		t.Error("Unexpected error: ", err.Error())
 	} else if len(cdrs) != 1 {
 		t.Error("Unexpected number of CDRs returned: ", len(cdrs))
@@ -355,7 +353,7 @@ func testHAitTextPlain(t *testing.T) {
 		httpConst = "https"
 	}
 	reqUrl := fmt.Sprintf("%s://%s%s?request_type=TextPlainDryRun&CallID=123456&Msisdn=497700056231&Imsi=2343000000000123&Destination=491239440004",
-		httpConst, addr, haCfg.HttpAgentCfg()[2].Url)
+		httpConst, addr, haCfg.HTTPAgentCfg()[2].URL)
 	rply, err := httpC.Get(reqUrl)
 	if err != nil {
 		t.Fatal(err)

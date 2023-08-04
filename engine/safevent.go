@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"net"
 	"sync"
 	"time"
 
@@ -27,7 +26,7 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-func NewSafEvent(mp map[string]interface{}) *SafEvent {
+func NewSafEvent(mp map[string]any) *SafEvent {
 	return &SafEvent{Me: NewMapEvent(mp)}
 }
 
@@ -56,7 +55,7 @@ func (se *SafEvent) String() (out string) {
 	return
 }
 
-func (se *SafEvent) FieldAsInterface(fldPath []string) (out interface{}, err error) {
+func (se *SafEvent) FieldAsInterface(fldPath []string) (out any, err error) {
 	se.RLock()
 	out, err = se.Me.FieldAsInterface(fldPath)
 	se.RUnlock()
@@ -70,13 +69,6 @@ func (se *SafEvent) FieldAsString(fldPath []string) (out string, err error) {
 	return
 }
 
-func (se *SafEvent) RemoteHost() (out net.Addr) {
-	se.RLock()
-	out = se.Me.RemoteHost()
-	se.RUnlock()
-	return
-}
-
 func (se *SafEvent) HasField(fldName string) (has bool) {
 	se.RLock()
 	has = se.Me.HasField(fldName)
@@ -84,24 +76,23 @@ func (se *SafEvent) HasField(fldName string) (has bool) {
 	return
 }
 
-func (se *SafEvent) Get(fldName string) (out interface{}, has bool) {
+func (se *SafEvent) Get(fldName string) (out any, has bool) {
 	se.RLock()
 	out, has = se.Me[fldName]
 	se.RUnlock()
 	return
 }
 
-func (se *SafEvent) GetIgnoreErrors(fldName string) (out interface{}) {
+func (se *SafEvent) GetIgnoreErrors(fldName string) (out any) {
 	out, _ = se.Get(fldName)
 	return
 }
 
 // Set will set a field's value
-func (se *SafEvent) Set(fldName string, val interface{}) {
+func (se *SafEvent) Set(fldName string, val any) {
 	se.Lock()
 	se.Me[fldName] = val
 	se.Unlock()
-	return
 }
 
 // Remove will remove a field from map
@@ -109,7 +100,6 @@ func (se *SafEvent) Remove(fldName string) {
 	se.Lock()
 	delete(se.Me, fldName)
 	se.Unlock()
-	return
 }
 
 func (se *SafEvent) GetString(fldName string) (out string, err error) {
@@ -119,7 +109,7 @@ func (se *SafEvent) GetString(fldName string) (out string, err error) {
 	return
 }
 
-func (se SafEvent) GetTInt64(fldName string) (out int64, err error) {
+func (se *SafEvent) GetTInt64(fldName string) (out int64, err error) {
 	se.RLock()
 	out, err = se.Me.GetTInt64(fldName)
 	se.RUnlock()
@@ -216,7 +206,7 @@ func (se *SafEvent) GetSetString(fldName string, setVal string) (out string, err
 }
 
 // GetMapInterface returns the map stored internally without cloning it
-func (se *SafEvent) GetMapInterface() (mp map[string]interface{}) {
+func (se *SafEvent) GetMapInterface() (mp map[string]any) {
 	se.RLock()
 	mp = se.Me
 	se.RUnlock()
@@ -224,7 +214,7 @@ func (se *SafEvent) GetMapInterface() (mp map[string]interface{}) {
 }
 
 // AsMapInterface returns the cloned map stored internally
-func (se *SafEvent) AsMapInterface() (mp map[string]interface{}) {
+func (se *SafEvent) AsMapInterface() (mp map[string]any) {
 	se.RLock()
 	mp = se.Me.Clone()
 	se.RUnlock()

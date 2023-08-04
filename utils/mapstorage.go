@@ -21,58 +21,74 @@ package utils
 import (
 	"errors"
 	"fmt"
-	"net"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-// dataStorage is the DataProvider that can be updated
-type dataStorage interface {
+// DataStorage is the DataProvider that can be updated
+type DataStorage interface {
 	DataProvider
 
-	Set(fldPath []string, val interface{}) error
+	Set(fldPath []string, val any) error
 	Remove(fldPath []string) error
-	GetKeys(nesteed bool) []string
+	GetKeys(nested bool, nesteedLimit int, prefix string) []string
 }
 
 // MapStorage is the basic dataStorage
-type MapStorage map[string]interface{}
+type MapStorage map[string]any
 
 // String returns the map as json string
 func (ms MapStorage) String() string { return ToJSON(ms) }
 
 // FieldAsInterface returns the value from the path
-func (ms MapStorage) FieldAsInterface(fldPath []string) (val interface{}, err error) {
+func (ms MapStorage) FieldAsInterface(fldPath []string) (val any, err error) {
 	if len(fldPath) == 0 {
 		err = errors.New("empty field path")
 		return
-
 	}
-	opath, indx := GetPathIndex(fldPath[0])
+	opath, sindx := GetPathIndexString(fldPath[0])
 	var has bool
 	if val, has = ms[opath]; !has {
 		err = ErrNotFound
 		return
 	}
 	if len(fldPath) == 1 {
-		if indx == nil {
+		if sindx == nil {
 			return
 		}
 		switch rv := val.(type) {
 		case []string:
-			if len(rv) <= *indx {
+			var indx int
+			if indx, err = strconv.Atoi(*sindx); err != nil {
+				return
+			}
+			if len(rv) <= indx {
 				return nil, ErrNotFound
 			}
-			val = rv[*indx]
+			val = rv[indx]
 			return
-		case []interface{}:
-			if len(rv) <= *indx {
+		case []any:
+			var indx int
+			if indx, err = strconv.Atoi(*sindx); err != nil {
+				return
+			}
+			if len(rv) <= indx {
 				return nil, ErrNotFound
 			}
-			val = rv[*indx]
+			val = rv[indx]
 			return
+		case DataProvider:
+			return rv.FieldAsInterface(append([]string{*sindx}, fldPath[1:]...))
+		case map[string]any:
+			return MapStorage(rv).FieldAsInterface(append([]string{*sindx}, fldPath[1:]...))
 		default:
+		}
+		var indx int
+		if indx, err = strconv.Atoi(*sindx); err != nil {
+			return
 		}
 		// only if all above fails use reflect:
 		vr := reflect.ValueOf(val)
@@ -83,54 +99,71 @@ func (ms MapStorage) FieldAsInterface(fldPath []string) (val interface{}, err er
 			return nil, ErrNotFound
 
 		}
-		if *indx >= vr.Len() {
+		if indx >= vr.Len() {
 			return nil, ErrNotFound
 		}
-		return vr.Index(*indx).Interface(), nil
-
+		return vr.Index(indx).Interface(), nil
 	}
-	if indx == nil {
+	if sindx == nil {
 		switch dp := ms[fldPath[0]].(type) {
 		case DataProvider:
 			return dp.FieldAsInterface(fldPath[1:])
-		case map[string]interface{}:
+		case map[string]any:
 			return MapStorage(dp).FieldAsInterface(fldPath[1:])
 		default:
 			err = ErrWrongPath
-
 			return
 		}
 	}
 	switch dp := ms[opath].(type) {
+	case DataProvider:
+		return dp.FieldAsInterface(append([]string{*sindx}, fldPath[1:]...))
+	case map[string]any:
+		return MapStorage(dp).FieldAsInterface(append([]string{*sindx}, fldPath[1:]...))
 	case []DataProvider:
-		if len(dp) <= *indx {
+		var indx int
+		if indx, err = strconv.Atoi(*sindx); err != nil {
+			return
+		}
+		if len(dp) <= indx {
 			return nil, ErrNotFound
 		}
-		return dp[*indx].FieldAsInterface(fldPath[1:])
+		return dp[indx].FieldAsInterface(fldPath[1:])
 	case []MapStorage:
-		if len(dp) <= *indx {
+		var indx int
+		if indx, err = strconv.Atoi(*sindx); err != nil {
+			return
+		}
+		if len(dp) <= indx {
 			return nil, ErrNotFound
 		}
-		return dp[*indx].FieldAsInterface(fldPath[1:])
-	case []map[string]interface{}:
-		if len(dp) <= *indx {
+		return dp[indx].FieldAsInterface(fldPath[1:])
+	case []map[string]any:
+		var indx int
+		if indx, err = strconv.Atoi(*sindx); err != nil {
+			return
+		}
+		if len(dp) <= indx {
 			return nil, ErrNotFound
 
 		}
-		return MapStorage(dp[*indx]).FieldAsInterface(fldPath[1:])
-	case []interface{}:
-		if len(dp) <= *indx {
+		return MapStorage(dp[indx]).FieldAsInterface(fldPath[1:])
+	case []any:
+		var indx int
+		if indx, err = strconv.Atoi(*sindx); err != nil {
+			return
+		}
+		if len(dp) <= indx {
 			return nil, ErrNotFound
 		}
-		switch ds := dp[*indx].(type) {
+		switch ds := dp[indx].(type) {
 		case DataProvider:
 			return ds.FieldAsInterface(fldPath[1:])
-		case map[string]interface{}:
+		case map[string]any:
 			return MapStorage(ds).FieldAsInterface(fldPath[1:])
 		default:
 		}
 	default:
-
 	}
 	err = ErrNotFound // xml compatible
 	val = nil
@@ -139,7 +172,7 @@ func (ms MapStorage) FieldAsInterface(fldPath []string) (val interface{}, err er
 
 // FieldAsString returns the value from path as string
 func (ms MapStorage) FieldAsString(fldPath []string) (str string, err error) {
-	var val interface{}
+	var val any
 	if val, err = ms.FieldAsInterface(fldPath); err != nil {
 		return
 	}
@@ -147,13 +180,12 @@ func (ms MapStorage) FieldAsString(fldPath []string) (str string, err error) {
 }
 
 // Set sets the value at the given path
-func (ms MapStorage) Set(fldPath []string, val interface{}) (err error) {
+func (ms MapStorage) Set(fldPath []string, val any) (err error) {
 	if len(fldPath) == 0 {
 		return ErrWrongPath
 	}
 	if len(fldPath) == 1 {
 		ms[fldPath[0]] = val
-
 		return
 	}
 
@@ -163,9 +195,9 @@ func (ms MapStorage) Set(fldPath []string, val interface{}) (err error) {
 		return nMap.Set(fldPath[1:], val)
 	}
 	switch dp := ms[fldPath[0]].(type) {
-	case dataStorage:
+	case DataStorage:
 		return dp.Set(fldPath[1:], val)
-	case map[string]interface{}:
+	case map[string]any:
 		return MapStorage(dp).Set(fldPath[1:], val)
 	default:
 		return ErrWrongPath
@@ -174,67 +206,84 @@ func (ms MapStorage) Set(fldPath []string, val interface{}) (err error) {
 }
 
 // GetKeys returns all the keys from map
-func (ms MapStorage) GetKeys(nesteed bool) (keys []string) {
-	if !nesteed {
-		keys = make([]string, len(ms))
-		i := 0
-		for k := range ms {
-			keys[i] = k
-			i++
-
+func (ms MapStorage) GetKeys(nested bool, nestedLimit int, prefix string) (keys []string) {
+	if prefix != EmptyString {
+		prefix += NestingSep
+	}
+	if !nested {
+		// this is a special case for the filter matching where we have the full map:
+		/*
+			ms:=MapStorage{
+				"*req":MapStorage{
+					...
+				},
+				"*opts":MapStorage{
+					...
+				},
+			}
+			when nested is false we should stiil look inside `*req` and `*opts` but only in the first level of them
+		*/
+		if nestedLimit <= 1 {
+			keys = make([]string, 0, len(ms))
+			for k := range ms {
+				keys = append(keys, prefix+k)
+			}
+			return
+		}
+		for k, v := range ms { // in case of nested on false we take in consideraton the nestedLimit
+			//keys = append(keys, prefix+k)
+			switch rv := v.(type) { // and for performance we only take in consideration a limited set of types for nested false
+			case DataStorage:
+				keys = append(keys, rv.GetKeys(nested, nestedLimit-1, prefix+k)...)
+			case map[string]any:
+				keys = append(keys, MapStorage(rv).GetKeys(nested, nestedLimit-1, prefix+k)...)
+			case nil, int, int32, int64, uint32, uint64, bool, float32, float64, []uint8, time.Duration, time.Time, string:
+				keys = append(keys, prefix+k)
+			default:
+				keys = append(keys, prefix+k)
+			}
 		}
 		return
 	}
 	for k, v := range ms {
-		// keys = append(keys, k)
+		//keys = append(keys, prefix+k)
 		switch rv := v.(type) {
-		case dataStorage:
-			for _, dsKey := range rv.GetKeys(nesteed) {
-				keys = append(keys, k+NestingSep+dsKey)
-			}
-		case map[string]interface{}:
-			for _, dsKey := range MapStorage(rv).GetKeys(nesteed) {
-				keys = append(keys, k+NestingSep+dsKey)
-			}
+		case DataStorage:
+			keys = append(keys, rv.GetKeys(nested, nestedLimit, prefix+k)...)
+		case map[string]any:
+			keys = append(keys, MapStorage(rv).GetKeys(nested, nestedLimit, prefix+k)...)
 		case []MapStorage:
 			for i, dp := range rv {
-				pref := k + fmt.Sprintf("[%v]", i)
+				pref := prefix + k + fmt.Sprintf("[%v]", i)
 				// keys = append(keys, pref)
-				for _, dsKey := range dp.GetKeys(nesteed) {
-					keys = append(keys, pref+NestingSep+dsKey)
-				}
+				keys = append(keys, dp.GetKeys(nested, nestedLimit, pref)...)
 			}
-		case []dataStorage:
+		case []DataStorage:
 			for i, dp := range rv {
-				pref := k + fmt.Sprintf("[%v]", i)
+				pref := prefix + k + fmt.Sprintf("[%v]", i)
 				// keys = append(keys, pref)
-				for _, dsKey := range dp.GetKeys(nesteed) {
-					keys = append(keys, pref+NestingSep+dsKey)
-				}
+				keys = append(keys, dp.GetKeys(nested, nestedLimit, pref)...)
 			}
-		case []map[string]interface{}:
+		case []map[string]any:
 			for i, dp := range rv {
-				pref := k + fmt.Sprintf("[%v]", i)
+				pref := prefix + k + fmt.Sprintf("[%v]", i)
 				// keys = append(keys, pref)
-				for _, dsKey := range MapStorage(dp).GetKeys(nesteed) {
-					keys = append(keys, pref+NestingSep+dsKey)
-				}
+				keys = append(keys, MapStorage(dp).GetKeys(nested, nestedLimit, pref)...)
 			}
-		case []interface{}:
+		case []any:
 			for i := range rv {
-				keys = append(keys, k+fmt.Sprintf("[%v]", i))
+				keys = append(keys, prefix+k+fmt.Sprintf("[%v]", i))
 			}
 		case []string:
 			for i := range rv {
-				keys = append(keys, k+fmt.Sprintf("[%v]", i))
+				keys = append(keys, prefix+k+fmt.Sprintf("[%v]", i))
 			}
-		case nil, int, int32, int64, uint32, uint64, bool, float32, float64, []uint8, time.Duration, time.Time, string: //no path
-			keys = append(keys, k)
+		case nil, int, int32, int64, uint32, uint64, bool, float32, float64, []uint8, time.Duration, time.Time, string:
+			keys = append(keys, prefix+k)
 		default:
 			// ToDo:should not be called
-			keys = append(keys, getPathFromValue(reflect.ValueOf(v), k+NestingSep)...)
+			keys = append(keys, getPathFromValue(reflect.ValueOf(v), prefix+k+NestingSep)...)
 		}
-
 	}
 	return
 
@@ -245,7 +294,7 @@ func (ms MapStorage) Remove(fldPath []string) (err error) {
 	if len(fldPath) == 0 {
 		return ErrWrongPath
 	}
-	var val interface{}
+	var val any
 	var has bool
 	if val, has = ms[fldPath[0]]; !has {
 		return // ignore (already removed)
@@ -256,9 +305,9 @@ func (ms MapStorage) Remove(fldPath []string) (err error) {
 		return
 	}
 	switch dp := val.(type) {
-	case dataStorage:
+	case DataStorage:
 		return dp.Remove(fldPath[1:])
-	case map[string]interface{}:
+	case map[string]any:
 		return MapStorage(dp).Remove(fldPath[1:])
 	default:
 		return ErrWrongPath
@@ -267,12 +316,89 @@ func (ms MapStorage) Remove(fldPath []string) (err error) {
 
 }
 
-// RemoteHost is part of dataStorage interface
-func (ms MapStorage) RemoteHost() net.Addr {
-	return LocalAddr()
+func (ms MapStorage) Clone() (msClone MapStorage) {
+	if ms == nil {
+		return
+	}
+	msClone = make(MapStorage, len(ms))
+	for k, v := range ms {
+		msClone[k] = v
+	}
+	return
 }
 
-// ToDo: remove the following functions
+// NewSecureMapStorage constructs a new SecureMapStorage
+func NewSecureMapStorage() *SecureMapStorage {
+	return &SecureMapStorage{
+		ms: make(MapStorage),
+	}
+}
+
+// SecureMapStorage is a MapStorage with secure read/writes
+// useful for example as cache for various parts
+type SecureMapStorage struct {
+	sync.RWMutex
+	ms MapStorage
+}
+
+// String returns the JNSON representation of MapStorage
+func (sm *SecureMapStorage) String() (s string) {
+	sm.RLock()
+	s = sm.ms.String()
+	sm.RUnlock()
+	return
+}
+
+// FieldAsInterface returns the value at the path specified
+func (sm *SecureMapStorage) FieldAsInterface(fldPath []string) (val any, err error) {
+	sm.RLock()
+	val, err = sm.ms.FieldAsInterface(fldPath)
+	sm.RUnlock()
+	return
+}
+
+// FieldAsString returns the value at the path specified casted as string
+func (sm *SecureMapStorage) FieldAsString(fldPath []string) (s string, err error) {
+	sm.RLock()
+	s, err = sm.ms.FieldAsString(fldPath)
+	sm.RUnlock()
+	return
+}
+
+// Set will set the value at path
+func (sm *SecureMapStorage) Set(fldPath []string, val any) (err error) {
+	sm.Lock()
+	err = sm.ms.Set(fldPath, val)
+	sm.Unlock()
+	return
+}
+
+// GetKeys returns a list of keys for the prefix
+func (sm *SecureMapStorage) GetKeys(nested bool, nestedLimit int, prefix string) (keys []string) {
+	sm.RLock()
+	keys = sm.ms.GetKeys(nested, nestedLimit, prefix)
+	sm.RUnlock()
+	return
+}
+
+// Remove will remove based on field path
+func (sm *SecureMapStorage) Remove(fldPath []string) (err error) {
+	sm.Lock()
+	err = sm.ms.Remove(fldPath)
+	sm.Unlock()
+	return
+}
+
+// Clone returns a clone of sm
+func (sm *SecureMapStorage) Clone() (smClone *SecureMapStorage) {
+	sm.RLock()
+	smClone = new(SecureMapStorage)
+	smClone.ms = sm.ms.Clone()
+	sm.RUnlock()
+	return
+}
+
+// used only in extreme cases where the dataprovider is an object that doesn't implement the dataStorage interface
 func getPathFromValue(in reflect.Value, prefix string) (out []string) {
 	switch in.Kind() {
 	case reflect.Ptr:
@@ -285,7 +411,7 @@ func getPathFromValue(in reflect.Value, prefix string) (out []string) {
 			out = append(out, getPathFromValue(in.Index(i), pref+NestingSep)...)
 		}
 	case reflect.Map:
-		iter := reflect.ValueOf(in).MapRange()
+		iter := in.MapRange()
 		for iter.Next() {
 			pref := prefix + iter.Key().String()
 			// out = append(out, pref)

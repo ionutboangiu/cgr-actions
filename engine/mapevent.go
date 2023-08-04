@@ -20,7 +20,6 @@ package engine
 
 import (
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/cgrates/cgrates/config"
@@ -28,21 +27,21 @@ import (
 )
 
 // NewMapEvent makes sure the content is not nil
-func NewMapEvent(mp map[string]interface{}) (me MapEvent) {
+func NewMapEvent(mp map[string]any) (me MapEvent) {
 	if mp == nil {
-		mp = make(map[string]interface{})
+		mp = make(map[string]any)
 	}
 	return MapEvent(mp)
 }
 
-// MapEvent is a map[string]interface{} with convenience methods on top
-type MapEvent map[string]interface{}
+// MapEvent is a map[string]any with convenience methods on top
+type MapEvent map[string]any
 
 func (me MapEvent) String() string {
 	return utils.ToJSON(me)
 }
 
-func (me MapEvent) FieldAsInterface(fldPath []string) (interface{}, error) {
+func (me MapEvent) FieldAsInterface(fldPath []string) (any, error) {
 	if len(fldPath) != 1 {
 		return nil, utils.ErrNotFound
 	}
@@ -58,10 +57,6 @@ func (me MapEvent) FieldAsString(fldPath []string) (string, error) {
 		return "", utils.ErrNotFound
 	}
 	return me.GetString(fldPath[0])
-}
-
-func (me MapEvent) RemoteHost() net.Addr {
-	return utils.LocalAddr()
 }
 
 func (me MapEvent) HasField(fldName string) (has bool) {
@@ -83,6 +78,15 @@ func (me MapEvent) GetTInt64(fldName string) (out int64, err error) {
 		return 0, utils.ErrNotFound
 	}
 	return utils.IfaceAsTInt64(fldIface)
+}
+
+// GetFloat64 returns a field as float64 instance
+func (me MapEvent) GetFloat64(fldName string) (f float64, err error) {
+	iface, has := me[fldName]
+	if !has {
+		return f, utils.ErrNotFound
+	}
+	return utils.IfaceAsFloat64(iface)
 }
 
 func (me MapEvent) GetStringIgnoreErrors(fldName string) (out string) {
@@ -221,7 +225,7 @@ func (me MapEvent) AsCDR(cfg *config.CGRConfig, tnt, tmz string) (cdr *CDR, err 
 			cdr.Tenant = utils.IfaceAsString(v)
 		case utils.Category:
 			cdr.Category = utils.IfaceAsString(v)
-		case utils.Account:
+		case utils.AccountField:
 			cdr.Account = utils.IfaceAsString(v)
 		case utils.Subject:
 			cdr.Subject = utils.IfaceAsString(v)
@@ -272,7 +276,20 @@ func (me MapEvent) AsCDR(cfg *config.CGRConfig, tnt, tmz string) (cdr *CDR, err 
 	return
 }
 
-// Data returns the MapEvent as a map[string]interface{}
-func (me MapEvent) Data() map[string]interface{} {
+// Data returns the MapEvent as a map[string]any
+func (me MapEvent) Data() map[string]any {
 	return me
+}
+
+// GetBoolOrDefault returns the value as a bool or dflt if not present in map
+func (me MapEvent) GetBoolOrDefault(fldName string, dflt bool) (out bool) {
+	fldIface, has := me[fldName]
+	if !has {
+		return dflt
+	}
+	out, err := utils.IfaceAsBool(fldIface)
+	if err != nil {
+		return dflt
+	}
+	return out
 }

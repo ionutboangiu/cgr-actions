@@ -240,39 +240,39 @@ func TestRirStrigyfy(t *testing.T) {
 	rir1 := &RIRate{
 		ConnectFee: 0.1,
 		Rates: RateGroups{
-			&Rate{
+			&RGRate{
 				GroupIntervalStart: time.Hour,
 				Value:              0.17,
 				RateIncrement:      time.Second,
 				RateUnit:           time.Minute,
 			},
-			&Rate{
+			&RGRate{
 				GroupIntervalStart: 0,
 				Value:              0.7,
 				RateIncrement:      time.Second,
 				RateUnit:           time.Minute,
 			},
 		},
-		RoundingMethod:   utils.ROUNDING_MIDDLE,
+		RoundingMethod:   utils.MetaRoundingMiddle,
 		RoundingDecimals: 4,
 	}
 	rir2 := &RIRate{
 		ConnectFee: 0.1,
 		Rates: RateGroups{
-			&Rate{
+			&RGRate{
 				GroupIntervalStart: time.Hour,
 				Value:              0.17,
 				RateIncrement:      time.Second,
 				RateUnit:           time.Minute,
 			},
-			&Rate{
+			&RGRate{
 				GroupIntervalStart: 0,
 				Value:              0.7,
 				RateIncrement:      time.Second,
 				RateUnit:           time.Minute,
 			},
 		},
-		RoundingMethod:   utils.ROUNDING_MIDDLE,
+		RoundingMethod:   utils.MetaRoundingMiddle,
 		RoundingDecimals: 4,
 	}
 	if rir1.Stringify() != rir2.Stringify() {
@@ -281,12 +281,12 @@ func TestRirStrigyfy(t *testing.T) {
 }
 
 func TestRateStrigyfy(t *testing.T) {
-	r1 := &Rate{
+	r1 := &RGRate{
 		GroupIntervalStart: time.Hour,
 		Value:              0.17,
 		RateUnit:           time.Minute,
 	}
-	r2 := &Rate{
+	r2 := &RGRate{
 		GroupIntervalStart: time.Hour,
 		Value:              0.17,
 		RateUnit:           time.Minute,
@@ -370,7 +370,7 @@ func TestRateIntervalCost(t *testing.T) {
 	ri := &RateInterval{
 		Rating: &RIRate{
 			Rates: RateGroups{
-				&Rate{
+				&RGRate{
 					Value:         0.1,
 					RateIncrement: time.Second,
 					RateUnit:      60 * time.Second,
@@ -386,28 +386,28 @@ func TestRateIntervalCost(t *testing.T) {
 
 func TestRateGroupsEquals(t *testing.T) {
 	rg1 := RateGroups{
-		&Rate{
-			GroupIntervalStart: time.Duration(0),
+		&RGRate{
+			GroupIntervalStart: 0,
 			Value:              0.1,
 			RateIncrement:      time.Minute,
 			RateUnit:           60 * time.Second,
 		},
-		&Rate{
-			GroupIntervalStart: time.Duration(60 * time.Second),
+		&RGRate{
+			GroupIntervalStart: 60 * time.Second,
 			Value:              0.05,
 			RateIncrement:      time.Second,
 			RateUnit:           time.Second,
 		},
 	}
 	rg2 := RateGroups{
-		&Rate{
-			GroupIntervalStart: time.Duration(0),
+		&RGRate{
+			GroupIntervalStart: 0,
 			Value:              0.1,
 			RateIncrement:      time.Minute,
 			RateUnit:           60 * time.Second,
 		},
-		&Rate{
-			GroupIntervalStart: time.Duration(60 * time.Second),
+		&RGRate{
+			GroupIntervalStart: 60 * time.Second,
 			Value:              0.05,
 			RateIncrement:      time.Second,
 			RateUnit:           time.Second,
@@ -417,14 +417,14 @@ func TestRateGroupsEquals(t *testing.T) {
 		t.Error("not equal")
 	}
 	rg2 = RateGroups{
-		&Rate{
-			GroupIntervalStart: time.Duration(0),
+		&RGRate{
+			GroupIntervalStart: 0,
 			Value:              0.1,
 			RateIncrement:      time.Minute,
 			RateUnit:           60 * time.Second,
 		},
-		&Rate{
-			GroupIntervalStart: time.Duration(60 * time.Second),
+		&RGRate{
+			GroupIntervalStart: 60 * time.Second,
 			Value:              0.3,
 			RateIncrement:      time.Second,
 			RateUnit:           time.Second,
@@ -434,8 +434,8 @@ func TestRateGroupsEquals(t *testing.T) {
 		t.Error("equals")
 	}
 	rg2 = RateGroups{
-		&Rate{
-			GroupIntervalStart: time.Duration(0),
+		&RGRate{
+			GroupIntervalStart: 0,
 			Value:              0.1,
 			RateIncrement:      time.Minute,
 			RateUnit:           60 * time.Second,
@@ -493,10 +493,38 @@ func TestRITimingClone(t *testing.T) {
 	}
 }
 
+func TestRITimingClone2(t *testing.T) {
+	var rit, cln RITiming
+	rit = RITiming{
+		Years:     utils.Years{2019},
+		Months:    utils.Months{4},
+		MonthDays: utils.MonthDays{18},
+		WeekDays:  utils.WeekDays{5},
+		StartTime: "StartTime_test",
+		EndTime:   "EndTime_test",
+	}
+	cln = RITiming{
+		Years:     utils.Years{2019},
+		Months:    utils.Months{4},
+		MonthDays: utils.MonthDays{18},
+		WeekDays:  utils.WeekDays{5},
+		StartTime: "StartTime_test",
+		EndTime:   "EndTime_test",
+	}
+	cloned := rit.Clone()
+	if !reflect.DeepEqual(cln, *cloned) {
+		t.Errorf("Expecting: %+v, received: %+v", cln, *cloned)
+	}
+	rit.Years[0] = 2020
+	if cloned.Years[0] != cln.Years[0] {
+		t.Errorf("Expecting: 2019, received: %+v", cloned.Years)
+	}
+}
+
 func TestRIRateClone(t *testing.T) {
 	var rit, cln RIRate
 	if cloned := rit.Clone(); !reflect.DeepEqual(cln, *cloned) {
-		t.Errorf("\nExpecting: %+v,\n received: %+v", cln, *cloned)
+		t.Errorf("Expecting: %+v,\n received: %+v", cln, *cloned)
 	}
 	rit = RIRate{
 		ConnectFee:       0.7,
@@ -505,11 +533,11 @@ func TestRIRateClone(t *testing.T) {
 		MaxCost:          0.7,
 		MaxCostStrategy:  "MaxCostStrategy_test",
 		Rates: RateGroups{
-			&Rate{
-				GroupIntervalStart: time.Duration(10),
+			&RGRate{
+				GroupIntervalStart: 10,
 				Value:              0.7,
-				RateIncrement:      time.Duration(10),
-				RateUnit:           time.Duration(10),
+				RateIncrement:      10,
+				RateUnit:           10,
 			},
 		},
 	}
@@ -520,11 +548,11 @@ func TestRIRateClone(t *testing.T) {
 		MaxCost:          0.7,
 		MaxCostStrategy:  "MaxCostStrategy_test",
 		Rates: RateGroups{
-			&Rate{
-				GroupIntervalStart: time.Duration(10),
+			&RGRate{
+				GroupIntervalStart: 10,
 				Value:              0.7,
-				RateIncrement:      time.Duration(10),
-				RateUnit:           time.Duration(10),
+				RateIncrement:      10,
+				RateUnit:           10,
 			},
 		},
 	}
@@ -532,9 +560,9 @@ func TestRIRateClone(t *testing.T) {
 	if !reflect.DeepEqual(cln, *cloned) {
 		t.Errorf("Expecting: %+v, received: %+v", cln, *cloned)
 	}
-	rit.Rates[0].GroupIntervalStart = time.Duration(7)
-	if cloned.Rates[0].GroupIntervalStart != time.Duration(10) {
-		t.Errorf("\nExpecting: 10,\n received: %+v", cloned.Rates[0].GroupIntervalStart)
+	rit.Rates[0].GroupIntervalStart = 7
+	if cloned.Rates[0].GroupIntervalStart != 10 {
+		t.Errorf("Expecting: 10,\n received: %+v", cloned.Rates[0].GroupIntervalStart)
 	}
 }
 
@@ -545,5 +573,342 @@ func BenchmarkRateIntervalContainsDate(b *testing.B) {
 	d := time.Date(2012, time.February, 1, 14, 30, 0, 0, time.UTC)
 	for x := 0; x < b.N; x++ {
 		i.Contains(d, false)
+	}
+}
+
+func TestRateIntervalCronStringDefault(t *testing.T) {
+	rit := &RITiming{
+		StartTime: "223000",
+	}
+	cron := rit.CronString()
+	if !reflect.DeepEqual(cron, "* * * * * * *") {
+		t.Errorf("\nExpecting: <* * * * * * *>,\n Received: <%+v>", cron)
+	}
+}
+
+func TestRateIntervalCronStringMonthDayNegative(t *testing.T) {
+	rit := &RITiming{
+		StartTime: "223000",
+		MonthDays: utils.MonthDays{-1},
+	}
+	cron := rit.CronString()
+	if !reflect.DeepEqual(cron, "* * * L * * *") {
+		t.Errorf("\nExpecting: <* * * L * * *>,\n Received: <%+v>", cron)
+	}
+}
+
+func TestRateIntervalIsActiveAt(t *testing.T) {
+	rit := &RITiming{}
+	cronActive := rit.IsActive()
+	if !reflect.DeepEqual(cronActive, true) {
+		t.Errorf("\nExpecting: <true>,\n Received: <%+v>", cronActive)
+	}
+}
+
+func TestRateIntervalIsActiveAtNot(t *testing.T) {
+	rit := &RITiming{
+		Years: utils.Years{1000},
+	}
+	cronActive := rit.IsActive()
+	if !reflect.DeepEqual(cronActive, false) {
+		t.Errorf("\nExpecting: <false>,\n Received: <%+v>", cronActive)
+	}
+}
+
+func TestRateIntervalFieldAsInterfaceError(t *testing.T) {
+	rateTest := &RGRate{
+		Value: 2.2,
+	}
+	_, err := rateTest.FieldAsInterface([]string{"FALSE"})
+	if err == nil && err.Error() != "unsupported field prefix: <FALSE>" {
+		t.Errorf("\nExpecting: <unsupported field prefix: <FALSE>>,\n Received: <%+v>", err)
+	}
+}
+
+func TestRateIntervalFieldAsInterfaceError2(t *testing.T) {
+	rateTest := &RGRate{}
+	_, err := rateTest.FieldAsInterface([]string{"value1", "value2"})
+
+	if err == nil && err != utils.ErrNotFound {
+		t.Errorf("\nExpecting: <NOT_FOUND>,\n Received: <%+v>", err)
+	}
+}
+
+func TestRateIntervalFieldAsInterfaceRateIncrement(t *testing.T) {
+	rateTest := &RGRate{
+		RateIncrement: time.Second,
+	}
+	if result, err := rateTest.FieldAsInterface([]string{"RateIncrement"}); err != nil {
+		t.Errorf("\nExpecting: <nil>,\n Received: <%+v>", err)
+	} else if !reflect.DeepEqual(result, time.Second) {
+		t.Errorf("\nExpecting: <1s>,\n Received: <%+v>", result)
+	}
+
+}
+
+func TestRateIntervalFieldAsInterfaceGroupIntervalStart(t *testing.T) {
+	rateTest := &RGRate{
+		GroupIntervalStart: time.Second,
+	}
+	if result, err := rateTest.FieldAsInterface([]string{"GroupIntervalStart"}); err != nil {
+		t.Errorf("\nExpecting: <nil>,\n Received: <%+v>", err)
+	} else if !reflect.DeepEqual(result, time.Second) {
+		t.Errorf("\nExpecting: <1s>,\n Received: <%+v>", result)
+	}
+
+}
+
+func TestRateIntervalFieldAsInterfaceRateUnit(t *testing.T) {
+	rateTest := &RGRate{
+		RateUnit: time.Second,
+	}
+	if result, err := rateTest.FieldAsInterface([]string{"RateUnit"}); err != nil {
+		t.Errorf("\nExpecting: <nil>,\n Received: <%+v>", err)
+	} else if !reflect.DeepEqual(result, time.Second) {
+		t.Errorf("\nExpecting: <1s>,\n Received: <%+v>", result)
+	}
+
+}
+
+func TestRateGroupsEqual(t *testing.T) {
+	rateGroupOG := RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther := RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	result := rateGroupOG.Equal(rateGroupOther)
+	if !reflect.DeepEqual(result, true) {
+		t.Errorf("\nExpecting: <true>,\n Received: <%+v>", result)
+	}
+}
+
+func TestRateGroupsEqualFalse(t *testing.T) {
+	rateGroupOG := RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther := RateGroups{&RGRate{
+		Value: 2.5,
+	}}
+	result := rateGroupOG.Equal(rateGroupOther)
+	if !reflect.DeepEqual(result, false) {
+		t.Errorf("\nExpecting: <false>,\n Received: <%+v>", result)
+	}
+}
+
+func TestRateGroupsUnEqual(t *testing.T) {
+	rateGroupOG := RateGroups{&RGRate{
+		Value: 2.2,
+	},
+		&RGRate{},
+	}
+	rateGroupOther := RateGroups{&RGRate{
+		Value: 2.5,
+	}}
+	result := rateGroupOG.Equal(rateGroupOther)
+	if !reflect.DeepEqual(result, false) {
+		t.Errorf("\nExpecting: <false>,\n Received: <%+v>", result)
+	}
+}
+
+func TestRateGroupsAddRate(t *testing.T) {
+	rateGroupOG := &RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther := &RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther.AddRate(&RGRate{})
+	if reflect.DeepEqual(rateGroupOther, rateGroupOG) {
+		t.Errorf("\nExpecting: <true>,\n Received: <false>")
+	}
+}
+
+func TestRateGroupsAddRateEmpty(t *testing.T) {
+	rateGroupOG := &RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther := &RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther.AddRate()
+	if !reflect.DeepEqual(rateGroupOther, rateGroupOG) {
+		t.Errorf("\nExpecting: <false>,\n Received: <true>")
+	}
+}
+
+func TestRateGroupsAddRateSame(t *testing.T) {
+	rateGroupOG := &RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther := &RateGroups{&RGRate{
+		Value: 2.2,
+	}}
+	rateGroupOther.AddRate(&RGRate{
+		Value: 2.2,
+	})
+	if !reflect.DeepEqual(rateGroupOther, rateGroupOG) {
+		t.Errorf("\nExpecting: <false>,\n Received: <true>")
+	}
+}
+
+func TestRateIntervalStringDisabled(t *testing.T) {
+	testInterval := &RateInterval{
+		Timing: &RITiming{
+			Years: utils.Years{1000},
+		},
+		Rating: &RIRate{
+			ConnectFee: 2,
+		},
+		Weight: 6.5,
+	}
+	result := testInterval.String_DISABLED()
+	if !reflect.DeepEqual(result, "[1000] [] [] []  ") {
+		t.Errorf("\nExpecting: <[1000] [] [] [] >,\n Received: <%+v>", result)
+	}
+}
+
+func TestRateIntervalEqualError(t *testing.T) {
+	testRateInterval := &RateInterval{
+		Weight: 2,
+	}
+	var testRateInterval2 *RateInterval = nil
+	result := testRateInterval.Equal(testRateInterval2)
+	if !reflect.DeepEqual(result, false) {
+		t.Errorf("\nExpecting: <false>,\n Received: <%+v>", result)
+	}
+}
+
+func TestRateIntervalGetRateParametersEmpty(t *testing.T) {
+	testRateInterval := &RateInterval{
+		Rating: &RIRate{},
+		Weight: 2,
+	}
+	rate, rateIncrement, rateUnit := testRateInterval.GetRateParameters(time.Second)
+
+	if !reflect.DeepEqual(rate, float64(-1)) {
+		t.Errorf("\nExpecting: <-1>,\n Received: <%+v> ", rate)
+	}
+	if !reflect.DeepEqual(rateIncrement.String(), "-1ns") {
+		t.Errorf("\nExpecting: <-1ns>,\n Received: <%+v> ", rateIncrement.String())
+	}
+	if !reflect.DeepEqual(rateUnit.String(), "-1ns") {
+		t.Errorf("\nExpecting: <-1ns>,\n Received: <%+v> ", rateUnit)
+	}
+}
+
+func TestRateIntervalGetMaxCost(t *testing.T) {
+	testRateInterval := &RateInterval{
+		Weight: 2,
+	}
+	result, result2 := testRateInterval.GetMaxCost()
+	if !reflect.DeepEqual(result, float64(0.0)) || !reflect.DeepEqual(result2, "") {
+		t.Errorf("\nExpecting: <0> and <>,\n Received: <%+v> and <%+v>", result, result2)
+	}
+}
+
+func TestRGRateCloneNil(t *testing.T) {
+	var testRate *RGRate = nil
+	result := testRate.Clone()
+	if !reflect.DeepEqual(result, testRate) {
+		t.Errorf("\nExpecting: <nil>,\n Received: <%+v>", result)
+	}
+}
+
+func TestRGRateAsFieldInterface(t *testing.T) {
+	ri := &RITiming{
+		Years:     utils.Years{2, 3},
+		Months:    utils.Months{1, 2, 3, 5},
+		MonthDays: utils.MonthDays{21, 12, 14},
+		WeekDays:  utils.WeekDays{0, 2, 3},
+		ID:        "id",
+		StartTime: "20:00:00",
+		EndTime:   "20:30:00",
+	}
+	if _, err := ri.FieldAsInterface([]string{}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years[3]"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months[5]"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays[4]"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays[4]"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Values"}); err == nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years[0]"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months[1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays[1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays[1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"ID"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"ID", "test"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"StartTime"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"StartTime", "test"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"StartTime"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"StartTime", "test"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years", "0"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years", "5"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years", "zero"}); err == nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Years", "0", "2"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"EndTime"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"EndTime", "test"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months", "0"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months", "5"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months", "zero"}); err == nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"Months", "0", "2"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays", "0"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays", "5"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays", "zero"}); err == nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"MonthDays", "0", "2"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays", "0"}); err != nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays", "5"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays", "zero"}); err == nil {
+		t.Error(err)
+	} else if _, err = ri.FieldAsInterface([]string{"WeekDays", "0", "2"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
+}
+
+func TestRGRateFieldAsString(t *testing.T) {
+	rit := &RITiming{}
+	if _, err := rit.FieldAsString([]string{"ID"}); err != nil {
+		t.Error(err)
+	} else if _, err = rit.FieldAsString([]string{"val"}); err == nil {
+		t.Error(err)
 	}
 }

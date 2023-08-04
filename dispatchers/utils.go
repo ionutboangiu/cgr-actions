@@ -20,7 +20,6 @@ package dispatchers
 
 import (
 	"strings"
-	"time"
 
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
@@ -29,53 +28,35 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-var ( //var used in all tests
-	dspDelay   = 1000
-	dspDataDir = "/usr/share/cgrates"
-	nowTime    = time.Now()
-)
-
-type DispatcherEvent struct {
-	utils.CGREvent
-	*utils.ArgDispatcher
-	Subsystem string
-}
-
-type ArgsReplicateSessionsWithApiKey struct {
-	*utils.ArgDispatcher
-	utils.TenantArg
+type ArgsReplicateSessionsWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
 	sessions.ArgsReplicateSessions
 }
 
-type AttrRemoteLockWithApiKey struct {
-	*utils.ArgDispatcher
-	utils.TenantArg
+type AttrRemoteLockWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
 	utils.AttrRemoteLock
 }
 
-type AttrRemoteUnlockWithApiKey struct {
-	*utils.ArgDispatcher
-	utils.TenantArg
-	RefID string
+type AttrRemoteUnlockWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
+	RefID   string
 }
 
-type StringWithApiKey struct {
-	*utils.ArgDispatcher
-	utils.TenantArg
-	Arg string
-}
-
-type ArgStartServiceWithApiKey struct {
-	*utils.ArgDispatcher
-	utils.TenantArg
+type ArgStartServiceWithAPIOpts struct {
+	APIOpts map[string]any
+	Tenant  string
 	servmanager.ArgStartService
 }
 
-func ParseStringMap(s string) utils.StringMap {
-	if s == utils.ZERO {
-		return make(utils.StringMap)
+func ParseStringSet(s string) utils.StringSet {
+	if s == utils.MetaZero {
+		return make(utils.StringSet)
 	}
-	return utils.StringMapFromSlice(strings.Split(s, utils.ANDSep))
+	return utils.NewStringSet(strings.Split(s, utils.ANDSep))
 }
 
 type RatingPlanCost struct {

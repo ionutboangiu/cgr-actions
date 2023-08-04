@@ -82,8 +82,6 @@ func testSessionSRplInitCfg(t *testing.T) {
 	if smgRplcMasterCfg, err = config.NewCGRConfigFromPath(smgRplcMasterCfgPath); err != nil {
 		t.Fatal(err)
 	}
-	smgRplcMasterCfg.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(smgRplcMasterCfg)
 	smgRplcSlaveCfgPath = path.Join(*dataDir, "conf", "samples", smgRplcSlaveCfgDIR)
 	if smgRplcSlaveCfg, err = config.NewCGRConfigFromPath(smgRplcSlaveCfgPath); err != nil {
 		t.Fatal(err)
@@ -142,25 +140,25 @@ func testSessionSRplInitiate(t *testing.T) {
 		t.Error(err)
 	}
 
-	usage := time.Duration(1*time.Minute + 30*time.Second)
+	usage := time.Minute + 30*time.Second
 	argsInit := &V1InitSessionArgs{
 		InitSession: true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionSRplInitiate",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.Tenant:      "cgrates.org",
-				utils.OriginID:    "123451",
-				utils.ToR:         utils.VOICE,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1004",
-				utils.Category:    "call",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       usage,
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.Tenant:       "cgrates.org",
+				utils.OriginID:     "123451",
+				utils.ToR:          utils.MetaVoice,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1004",
+				utils.Category:     "call",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        usage,
 			},
 		},
 	}
@@ -171,7 +169,7 @@ func testSessionSRplInitiate(t *testing.T) {
 		t.Error(err)
 	}
 	//compare the value
-	if initRpl.MaxUsage != usage {
+	if initRpl.MaxUsage == nil || *initRpl.MaxUsage != usage {
 		t.Errorf("Expecting : %+v, received: %+v", usage, initRpl.MaxUsage)
 	}
 	time.Sleep(time.Duration(*waitRater) * time.Millisecond) // Wait for the sessions to be populated
@@ -186,8 +184,8 @@ func testSessionSRplInitiate(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 {
 		t.Errorf("Unexpected number of sessions received: %+v", utils.ToIJSON(aSessions))
-	} else if aSessions[0].Usage != time.Duration(90)*time.Second {
-		t.Errorf("Expecting : %+v, received: %+v", time.Duration(90)*time.Second, aSessions[0].Usage)
+	} else if aSessions[0].Usage != 90*time.Second {
+		t.Errorf("Expecting : %+v, received: %+v", 90*time.Second, aSessions[0].Usage)
 	}
 
 	//check if the session was created as passive session on slave
@@ -201,32 +199,32 @@ func testSessionSRplInitiate(t *testing.T) {
 		t.Error(err)
 	} else if len(pSessions) != 1 {
 		t.Errorf("PassiveSessions: %+v", pSessions)
-	} else if pSessions[0].Usage != time.Duration(90*time.Second) {
-		t.Errorf("Expecting : %+v, received: %+v", time.Duration(90)*time.Second, pSessions[0].Usage)
+	} else if pSessions[0].Usage != 90*time.Second {
+		t.Errorf("Expecting : %+v, received: %+v", 90*time.Second, pSessions[0].Usage)
 	}
 }
 
 func testSessionSRplUpdate(t *testing.T) {
 	//update the session on slave so the session should became active
-	usage := time.Duration(1 * time.Minute)
+	usage := time.Minute
 	argsUpdate := &V1UpdateSessionArgs{
 		UpdateSession: true,
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionSRplUpdate",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.Tenant:      "cgrates.org",
-				utils.OriginID:    "123451",
-				utils.ToR:         utils.VOICE,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1004",
-				utils.Category:    "call",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       usage,
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.Tenant:       "cgrates.org",
+				utils.OriginID:     "123451",
+				utils.ToR:          utils.MetaVoice,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1004",
+				utils.Category:     "call",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        usage,
 			},
 		},
 	}
@@ -235,7 +233,7 @@ func testSessionSRplUpdate(t *testing.T) {
 		argsUpdate, &updtRpl); err != nil {
 		t.Error(err)
 	}
-	if updtRpl.MaxUsage != usage {
+	if updtRpl.MaxUsage == nil || *updtRpl.MaxUsage != usage {
 		t.Errorf("Expecting : %+v, received: %+v", usage, updtRpl.MaxUsage)
 	}
 
@@ -250,8 +248,8 @@ func testSessionSRplUpdate(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 1 {
 		t.Errorf("Unexpected number of sessions received: %+v", aSessions)
-	} else if aSessions[0].Usage != time.Duration(150)*time.Second {
-		t.Errorf("Expecting : %+v, received: %+v", time.Duration(150)*time.Second, aSessions[0].Usage)
+	} else if aSessions[0].Usage != 150*time.Second {
+		t.Errorf("Expecting : %+v, received: %+v", 150*time.Second, aSessions[0].Usage)
 	}
 
 	var pSessions []*ExternalSession
@@ -281,8 +279,8 @@ func testSessionSRplUpdate(t *testing.T) {
 		t.Errorf("PassiveSessions: %+v", pSessions)
 	} else if pSessions[0].CGRID != cgrID {
 		t.Errorf("PassiveSession: %+v", pSessions[0])
-	} else if pSessions[0].Usage != time.Duration(150*time.Second) {
-		t.Errorf("Expecting : %+v, received: %+v", time.Duration(150)*time.Second, pSessions[0].Usage)
+	} else if pSessions[0].Usage != 150*time.Second {
+		t.Errorf("Expecting : %+v, received: %+v", 150*time.Second, pSessions[0].Usage)
 	}
 }
 
@@ -292,19 +290,19 @@ func testSessionSRplTerminate(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSessionSRplTerminate",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.Tenant:      "cgrates.org",
-				utils.OriginID:    "123451",
-				utils.ToR:         utils.VOICE,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1004",
-				utils.Category:    "call",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       time.Duration(2*time.Minute + 30*time.Second),
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.Tenant:       "cgrates.org",
+				utils.OriginID:     "123451",
+				utils.ToR:          utils.MetaVoice,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1004",
+				utils.Category:     "call",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        2*time.Minute + 30*time.Second,
 			},
 		},
 	}
@@ -355,19 +353,19 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItAuth",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.Tenant:      "cgrates.org",
-				utils.OriginID:    "123451",
-				utils.ToR:         utils.VOICE,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1004",
-				utils.Category:    "call",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       1*time.Minute + 30*time.Second,
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.Tenant:       "cgrates.org",
+				utils.OriginID:     "123451",
+				utils.ToR:          utils.MetaVoice,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1004",
+				utils.Category:     "call",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        time.Minute + 30*time.Second,
 			},
 		},
 	}
@@ -377,19 +375,19 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItAuth2",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "TEST_EVENT",
-				utils.Tenant:      "cgrates.org",
-				utils.OriginID:    "123481",
-				utils.ToR:         utils.VOICE,
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1005",
-				utils.Category:    "call",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       1*time.Minute + 30*time.Second,
+			Event: map[string]any{
+				utils.EventName:    "TEST_EVENT",
+				utils.Tenant:       "cgrates.org",
+				utils.OriginID:     "123481",
+				utils.ToR:          utils.MetaVoice,
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1005",
+				utils.Category:     "call",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        time.Minute + 30*time.Second,
 			},
 		},
 	}
@@ -399,7 +397,7 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		if err := smgRplcMstrRPC.Call(utils.SessionSv1InitiateSession, args, &initRpl); err != nil {
 			t.Error(err)
 		}
-		if initRpl.MaxUsage != time.Duration(90*time.Second) {
+		if initRpl.MaxUsage == nil || *initRpl.MaxUsage != 90*time.Second {
 			t.Error("Bad max usage: ", initRpl.MaxUsage)
 		}
 	}
@@ -409,7 +407,7 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 2 {
 		t.Errorf("Unexpected number of sessions received: %+v", utils.ToJSON(aSessions))
-	} else if aSessions[0].Usage != time.Duration(90)*time.Second && aSessions[1].Usage != time.Duration(90)*time.Second {
+	} else if aSessions[0].Usage != 90*time.Second && aSessions[1].Usage != 90*time.Second {
 		t.Errorf("Received usage: %v", aSessions[0].Usage)
 	}
 	// Start slave, should not have any active session at beginning
@@ -436,7 +434,7 @@ func testSessionSRplManualReplicate(t *testing.T) {
 	}
 	//replicate manually the session from master to slave
 	var repply string
-	if err := smgRplcMstrRPC.Call(utils.SessionSv1ReplicateSessions, argsRepl, &repply); err != nil {
+	if err := smgRplcMstrRPC.Call(utils.SessionSv1ReplicateSessions, &argsRepl, &repply); err != nil {
 		t.Error(err)
 	}
 	time.Sleep(time.Duration(*waitRater) * time.Millisecond) // Wait for the sessions to be populated
@@ -444,18 +442,18 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 2 {
 		t.Errorf("Unexpected number of sessions received: %+v", aSessions)
-	} else if aSessions[0].Usage != time.Duration(90)*time.Second {
+	} else if aSessions[0].Usage != 90*time.Second {
 		t.Errorf("Received usage: %v", aSessions[0].Usage)
 	}
 	// kill master
 	if err := masterProc.Process.Kill(); err != nil {
 		t.Errorf("Failed to kill process, error: %v", err.Error())
 	}
-	var status map[string]interface{}
-	if err := smgRplcMstrRPC.Call(utils.CoreSv1Status, utils.TenantWithArgDispatcher{}, &status); err == nil { // master should not longer be reachable
+	var status map[string]any
+	if err := smgRplcMstrRPC.Call(utils.CoreSv1Status, utils.TenantWithAPIOpts{}, &status); err == nil { // master should not longer be reachable
 		t.Error(err, status)
 	}
-	if err := smgRplcSlvRPC.Call(utils.CoreSv1Status, utils.TenantWithArgDispatcher{}, &status); err != nil { // slave should be still operational
+	if err := smgRplcSlvRPC.Call(utils.CoreSv1Status, utils.TenantWithAPIOpts{}, &status); err != nil { // slave should be still operational
 		t.Error(err)
 	}
 	// start master
@@ -477,7 +475,7 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		Passive: true,
 		ConnIDs: []string{"rplConn"},
 	}
-	if err := smgRplcSlvRPC.Call(utils.SessionSv1ReplicateSessions, argsRepl, &repply); err != nil {
+	if err := smgRplcSlvRPC.Call(utils.SessionSv1ReplicateSessions, &argsRepl, &repply); err != nil {
 		t.Error(err)
 	}
 	time.Sleep(time.Duration(*waitRater) * time.Millisecond) // Wait for the sessions to be populated
@@ -489,7 +487,7 @@ func testSessionSRplManualReplicate(t *testing.T) {
 		t.Error(err)
 	} else if len(aSessions) != 2 {
 		t.Errorf("Unexpected number of sessions received: %+v", aSessions)
-	} else if aSessions[0].Usage != time.Duration(90)*time.Second {
+	} else if aSessions[0].Usage != 90*time.Second {
 		t.Errorf("Received usage: %v", aSessions[0].Usage)
 	}
 }
@@ -498,7 +496,9 @@ func testSessionSRplActivateSessions(t *testing.T) {
 	var aSessions []*ExternalSession
 	var reply string
 	// Activate first session (with ID: ede927f8e42318a8db02c0f74adc2d9e16770339)
-	args := []string{"ede927f8e42318a8db02c0f74adc2d9e16770339"}
+	args := &utils.SessionIDsWithArgsDispatcher{
+		IDs: []string{"ede927f8e42318a8db02c0f74adc2d9e16770339"},
+	}
 	if err := smgRplcMstrRPC.Call(utils.SessionSv1ActivateSessions, args, &reply); err != nil {
 		t.Error(err)
 	}
@@ -525,7 +525,9 @@ func testSessionSRplActivateSessions(t *testing.T) {
 	// 	t.Errorf("Expecting: 1 session, received: %+v sessions", len(aSessions))
 	// }
 	//activate the second session (with ID: 3b0417028f8cefc0e02ddbd37a6dda6fbef4f5e0)
-	args = []string{"3b0417028f8cefc0e02ddbd37a6dda6fbef4f5e0"}
+	args = &utils.SessionIDsWithArgsDispatcher{
+		IDs: []string{"3b0417028f8cefc0e02ddbd37a6dda6fbef4f5e0"},
+	}
 	if err := smgRplcMstrRPC.Call(utils.SessionSv1ActivateSessions, args, &reply); err != nil {
 		t.Error(err)
 	}

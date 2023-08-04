@@ -32,7 +32,6 @@ import (
 var (
 	sTestsDspCDRs = []func(t *testing.T){
 		testDspCDRsPing,
-		testDspCDRsPingEmptyCGREventWIthArgDispatcher,
 		testDspCDRsProcessEvent,
 		testDspCDRsCountCDR,
 		testDspCDRsGetCDR,
@@ -41,6 +40,8 @@ var (
 		testDspCDRsGetCDR2,
 		testDspCDRsProcessExternalCDR,
 		testDspCDRsGetCDR3,
+		testDspCDRsV2ProcessEvent,
+		testDspCDRsV2StoreSessionCost,
 	}
 
 	sTestsDspCDRsWithoutAuth = []func(t *testing.T){
@@ -53,6 +54,8 @@ var (
 		testDspCDRsGetCDR2NoAuth,
 		testDspCDRsProcessExternalCDRNoAuth,
 		testDspCDRsGetCDR3NoAuth,
+		testDspCDRsV2ProcessEventNoAuth,
+		testDspCDRsV2StoreSessionCostNoAuth,
 	}
 )
 
@@ -101,12 +104,10 @@ func testDspCDRsPing(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := dispEngine.RPC.Call(utils.CDRsV1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+	if err := dispEngine.RPC.Call(utils.CDRsV1Ping, &utils.CGREvent{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}, &reply); err != nil {
 		t.Error(err)
@@ -115,36 +116,28 @@ func testDspCDRsPing(t *testing.T) {
 	}
 }
 
-func testDspCDRsPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	var reply string
-	if err := dispEngine.RPC.Call(utils.CDRsV1Ping,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
-	}
-}
-
 func testDspCDRsProcessEvent(t *testing.T) {
 	var reply string
 	args := &engine.ArgV1ProcessEvent{
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.OriginID:    "testDspCDRsProcessEvent",
-				utils.OriginHost:  "192.168.1.1",
-				utils.Source:      "testDspCDRsProcessEvent",
-				utils.RequestType: utils.META_RATED,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002",
-				utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(1) * time.Minute,
-				"field_extr1":     "val_extr1",
-				"fieldextr2":      "valextr2",
+			Event: map[string]any{
+				utils.OriginID:     "testDspCDRsProcessEvent",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testDspCDRsProcessEvent",
+				utils.RequestType:  utils.MetaRated,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
+				"field_extr1":      "val_extr1",
+				"fieldextr2":       "valextr2",
 			},
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+
+			APIOpts: map[string]any{
+				utils.OptsAPIKey: "cdrs12345",
+			},
 		},
 	}
 
@@ -153,21 +146,18 @@ func testDspCDRsProcessEvent(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspCDRsCountCDR(t *testing.T) {
 	var reply int64
-	args := &utils.RPCCDRsFilterWithArgDispatcher{
+	args := &utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts: []string{"1001"},
 			RunIDs:   []string{utils.MetaDefault},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 
@@ -180,20 +170,18 @@ func testDspCDRsCountCDR(t *testing.T) {
 
 func testDspCDRsGetCDR(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts: []string{"1001"},
 			RunIDs:   []string{utils.MetaDefault},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
@@ -204,17 +192,17 @@ func testDspCDRsGetCDR(t *testing.T) {
 
 func testDspCDRsGetCDRWithoutTenant(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts: []string{"1001"},
 			RunIDs:   []string{utils.MetaDefault},
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
@@ -225,21 +213,21 @@ func testDspCDRsGetCDRWithoutTenant(t *testing.T) {
 
 func testDspCDRsProcessCDR(t *testing.T) {
 	var reply string
-	args := &engine.CDRWithArgDispatcher{
+	args := &engine.CDRWithAPIOpts{
 		CDR: &engine.CDR{
 			Tenant:      "cgrates.org",
 			OriginID:    "testDspCDRsProcessCDR",
 			OriginHost:  "192.168.1.1",
 			Source:      "testDspCDRsProcessCDR",
-			RequestType: utils.META_RATED,
+			RequestType: utils.MetaRated,
 			Account:     "1001",
 			Subject:     "1001",
 			Destination: "1002",
 			AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-			Usage:       time.Duration(2) * time.Minute,
+			Usage:       2 * time.Minute,
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.CDRsV1ProcessCDR, args, &reply); err != nil {
@@ -247,26 +235,23 @@ func testDspCDRsProcessCDR(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspCDRsGetCDR2(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts:  []string{"1001"},
 			RunIDs:    []string{utils.MetaDefault},
 			OriginIDs: []string{"testDspCDRsProcessCDR"},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
@@ -277,13 +262,13 @@ func testDspCDRsGetCDR2(t *testing.T) {
 
 func testDspCDRsProcessExternalCDR(t *testing.T) {
 	var reply string
-	args := &engine.ExternalCDRWithArgDispatcher{
+	args := &engine.ExternalCDRWithAPIOpts{
 		ExternalCDR: &engine.ExternalCDR{
-			ToR:         utils.VOICE,
+			ToR:         utils.MetaVoice,
 			OriginID:    "testDspCDRsProcessExternalCDR",
 			OriginHost:  "127.0.0.1",
-			Source:      utils.UNIT_TEST,
-			RequestType: utils.META_RATED,
+			Source:      utils.UnitTest,
+			RequestType: utils.MetaRated,
 			Tenant:      "cgrates.org",
 			Category:    "call",
 			Account:     "1003",
@@ -294,8 +279,8 @@ func testDspCDRsProcessExternalCDR(t *testing.T) {
 			Usage:       "1s",
 			ExtraFields: map[string]string{"field_extr1": "val_extr1", "fieldextr2": "valextr2"},
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.CDRsV1ProcessExternalCDR, args, &reply); err != nil {
@@ -303,31 +288,101 @@ func testDspCDRsProcessExternalCDR(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspCDRsGetCDR3(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts:  []string{"1003"},
 			RunIDs:    []string{utils.MetaDefault},
 			OriginIDs: []string{"testDspCDRsProcessExternalCDR"},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("cdrs12345"),
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrs12345",
 		},
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
 	} else if reply[0].CGRID != "8ae63781b39f3265d014d2ba6a70437172fba46d" {
 		t.Errorf("Expected: 8ae63781b39f3265d014d2ba6a70437172fba46d , received:%v", reply[0].CGRID)
+	}
+}
+
+func testDspCDRsV2ProcessEvent(t *testing.T) {
+	var reply []*utils.EventWithFlags
+	args := &engine.ArgV1ProcessEvent{
+		Flags: []string{utils.MetaRALs},
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			Event: map[string]any{
+				utils.OriginID:     "testDspCDRsV2ProcessEvent",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testDspCDRsV2ProcessEvent",
+				utils.RequestType:  utils.MetaRated,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
+			},
+			APIOpts: map[string]any{
+				utils.OptsAPIKey: "cdrsv212345",
+			},
+		},
+	}
+
+	if err := dispEngine.RPC.Call(utils.CDRsV2ProcessEvent, args, &reply); err != nil {
+		t.Error(err)
+	} else if len(reply) != 2 {
+		for _, procEv := range reply {
+			if procEv.Event[utils.RequestType] == utils.MetaRated && procEv.Event[utils.Cost] != 0.6 {
+				t.Errorf("Expected: %+v , received: %v", 0.6, procEv.Event[utils.Cost])
+			}
+		}
+	}
+}
+
+func testDspCDRsV2StoreSessionCost(t *testing.T) {
+	var reply string
+	cc := &engine.CallCost{
+		Category:    "generic",
+		Tenant:      "cgrates.org",
+		Subject:     "1001",
+		Account:     "1001",
+		Destination: "data",
+		ToR:         "*data",
+		Cost:        0,
+	}
+	args := &engine.ArgsV2CDRSStoreSMCost{
+		CheckDuplicate: true,
+		Cost: &engine.V2SMCost{
+			CGRID:       "testDspCDRsV2StoreSessionCost",
+			RunID:       utils.MetaDefault,
+			OriginHost:  "",
+			OriginID:    "testdatagrp_grp1",
+			CostSource:  "SMR",
+			Usage:       1536,
+			CostDetails: engine.NewEventCostFromCallCost(cc, "testDspCDRsV2StoreSessionCost", utils.MetaDefault),
+		},
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "cdrsv212345",
+		},
+	}
+
+	if err := dispEngine.RPC.Call(utils.CDRsV2StoreSessionCost, args, &reply); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply received: ", reply)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if err := dispEngine.RPC.Call(utils.CDRsV2StoreSessionCost, args,
+		&reply); err == nil || err.Error() != "SERVER_ERROR: EXISTS" {
+		t.Error("Unexpected error: ", err)
 	}
 }
 
@@ -338,10 +393,8 @@ func testDspCDRsPingNoAuth(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := dispEngine.RPC.Call(utils.CDRsV1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
+	if err := dispEngine.RPC.Call(utils.CDRsV1Ping, &utils.CGREvent{
+		Tenant: "cgrates.org",
 	}, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.Pong {
@@ -354,18 +407,18 @@ func testDspCDRsProcessEventNoAuth(t *testing.T) {
 	args := &engine.ArgV1ProcessEvent{
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
-			Event: map[string]interface{}{
-				utils.OriginID:    "testDspCDRsProcessEvent",
-				utils.OriginHost:  "192.168.1.1",
-				utils.Source:      "testDspCDRsProcessEvent",
-				utils.RequestType: utils.META_RATED,
-				utils.Account:     "1001",
-				utils.Subject:     "1001",
-				utils.Destination: "1002",
-				utils.AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-				utils.Usage:       time.Duration(1) * time.Minute,
-				"field_extr1":     "val_extr1",
-				"fieldextr2":      "valextr2",
+			Event: map[string]any{
+				utils.OriginID:     "testDspCDRsProcessEvent",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testDspCDRsProcessEvent",
+				utils.RequestType:  utils.MetaRated,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
+				"field_extr1":      "val_extr1",
+				"fieldextr2":       "valextr2",
 			},
 		},
 	}
@@ -375,19 +428,16 @@ func testDspCDRsProcessEventNoAuth(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspCDRsCountCDRNoAuth(t *testing.T) {
 	var reply int64
-	args := &utils.RPCCDRsFilterWithArgDispatcher{
+	args := &utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts: []string{"1001"},
 			RunIDs:   []string{utils.MetaDefault},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 
 	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRsCount, args, &reply); err != nil {
@@ -399,17 +449,15 @@ func testDspCDRsCountCDRNoAuth(t *testing.T) {
 
 func testDspCDRsGetCDRNoAuth(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts: []string{"1001"},
 			RunIDs:   []string{utils.MetaDefault},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
@@ -420,14 +468,14 @@ func testDspCDRsGetCDRNoAuth(t *testing.T) {
 
 func testDspCDRsGetCDRNoAuthWithoutTenant(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts: []string{"1001"},
 			RunIDs:   []string{utils.MetaDefault},
 		},
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
@@ -438,18 +486,18 @@ func testDspCDRsGetCDRNoAuthWithoutTenant(t *testing.T) {
 
 func testDspCDRsProcessCDRNoAuth(t *testing.T) {
 	var reply string
-	args := &engine.CDRWithArgDispatcher{
+	args := &engine.CDRWithAPIOpts{
 		CDR: &engine.CDR{
 			Tenant:      "cgrates.org",
 			OriginID:    "testDspCDRsProcessCDR",
 			OriginHost:  "192.168.1.1",
 			Source:      "testDspCDRsProcessCDR",
-			RequestType: utils.META_RATED,
+			RequestType: utils.MetaRated,
 			Account:     "1001",
 			Subject:     "1001",
 			Destination: "1002",
 			AnswerTime:  time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
-			Usage:       time.Duration(2) * time.Minute,
+			Usage:       2 * time.Minute,
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.CDRsV1ProcessCDR, args, &reply); err != nil {
@@ -457,23 +505,20 @@ func testDspCDRsProcessCDRNoAuth(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspCDRsGetCDR2NoAuth(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts:  []string{"1001"},
 			RunIDs:    []string{utils.MetaDefault},
 			OriginIDs: []string{"testDspCDRsProcessCDR"},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
@@ -484,13 +529,13 @@ func testDspCDRsGetCDR2NoAuth(t *testing.T) {
 
 func testDspCDRsProcessExternalCDRNoAuth(t *testing.T) {
 	var reply string
-	args := &engine.ExternalCDRWithArgDispatcher{
+	args := &engine.ExternalCDRWithAPIOpts{
 		ExternalCDR: &engine.ExternalCDR{
-			ToR:         utils.VOICE,
+			ToR:         utils.MetaVoice,
 			OriginID:    "testDspCDRsProcessExternalCDR",
 			OriginHost:  "127.0.0.1",
-			Source:      utils.UNIT_TEST,
-			RequestType: utils.META_RATED,
+			Source:      utils.UnitTest,
+			RequestType: utils.MetaRated,
 			Tenant:      "cgrates.org",
 			Category:    "call",
 			Account:     "1003",
@@ -507,27 +552,90 @@ func testDspCDRsProcessExternalCDRNoAuth(t *testing.T) {
 	} else if reply != utils.OK {
 		t.Errorf("Received: %s", reply)
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 func testDspCDRsGetCDR3NoAuth(t *testing.T) {
 	var reply []*engine.CDR
-	args := utils.RPCCDRsFilterWithArgDispatcher{
+	args := utils.RPCCDRsFilterWithAPIOpts{
 		RPCCDRsFilter: &utils.RPCCDRsFilter{
 			Accounts:  []string{"1003"},
 			RunIDs:    []string{utils.MetaDefault},
 			OriginIDs: []string{"testDspCDRsProcessExternalCDR"},
 		},
-		TenantArg: &utils.TenantArg{
-			Tenant: "cgrates.org",
-		},
+		Tenant: "cgrates.org",
 	}
 
-	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, args, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.CDRsV1GetCDRs, &args, &reply); err != nil {
 		t.Error(err)
 	} else if len(reply) != 1 {
 		t.Errorf("Received: %+v", reply)
 	} else if reply[0].CGRID != "8ae63781b39f3265d014d2ba6a70437172fba46d" {
 		t.Errorf("Expected: 8ae63781b39f3265d014d2ba6a70437172fba46d , received:%v", reply[0].CGRID)
+	}
+}
+
+func testDspCDRsV2ProcessEventNoAuth(t *testing.T) {
+	var reply []*utils.EventWithFlags
+	args := &engine.ArgV1ProcessEvent{
+		Flags: []string{utils.MetaRALs},
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			Event: map[string]any{
+				utils.OriginID:     "testDspCDRsV2ProcessEventNoAuth",
+				utils.OriginHost:   "192.168.1.1",
+				utils.Source:       "testDspCDRsV2ProcessEventNoAuth",
+				utils.RequestType:  utils.MetaRated,
+				utils.AccountField: "1001",
+				utils.Subject:      "1001",
+				utils.Destination:  "1002",
+				utils.AnswerTime:   time.Date(2018, 8, 24, 16, 00, 26, 0, time.UTC),
+				utils.Usage:        time.Minute,
+			},
+		},
+	}
+	if err := dispEngine.RPC.Call(utils.CDRsV2ProcessEvent, args, &reply); err != nil {
+		t.Error(err)
+	} else if len(reply) != 2 {
+		for _, procEv := range reply {
+			if procEv.Event[utils.RequestType] == utils.MetaRated && procEv.Event[utils.Cost] != 0.6 {
+				t.Errorf("Expected: %+v , received: %v", 0.6, procEv.Event[utils.Cost])
+			}
+		}
+	}
+}
+
+func testDspCDRsV2StoreSessionCostNoAuth(t *testing.T) {
+	var reply string
+	cc := &engine.CallCost{
+		Category:    "generic",
+		Tenant:      "cgrates.org",
+		Subject:     "1001",
+		Account:     "1001",
+		Destination: "data",
+		ToR:         "*data",
+		Cost:        0,
+	}
+	args := &engine.ArgsV2CDRSStoreSMCost{
+		CheckDuplicate: true,
+		Cost: &engine.V2SMCost{
+			CGRID:       "testDspCDRsV2StoreSessionCostNoAuth",
+			RunID:       utils.MetaDefault,
+			OriginHost:  "",
+			OriginID:    "testdatagrp_grp1",
+			CostSource:  "SMR",
+			Usage:       1536,
+			CostDetails: engine.NewEventCostFromCallCost(cc, "testDspCDRsV2StoreSessionCostNoAuth", utils.MetaDefault),
+		},
+	}
+
+	if err := dispEngine.RPC.Call(utils.CDRsV2StoreSessionCost, args, &reply); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if reply != utils.OK {
+		t.Error("Unexpected reply received: ", reply)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if err := dispEngine.RPC.Call(utils.CDRsV2StoreSessionCost, args,
+		&reply); err == nil || err.Error() != "SERVER_ERROR: EXISTS" {
+		t.Error("Unexpected error: ", err)
 	}
 }

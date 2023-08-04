@@ -54,7 +54,8 @@ func TestSharedGroupITRedis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shrGrpCfgOut, err = config.NewCGRConfigFromPath(shrGrpPathIn)
+	shrGrpPathOut = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	shrGrpCfgOut, err = config.NewCGRConfigFromPath(shrGrpPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,8 @@ func TestSharedGroupITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shrGrpCfgOut, err = config.NewCGRConfigFromPath(shrGrpPathIn)
+	shrGrpPathOut = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	shrGrpCfgOut, err = config.NewCGRConfigFromPath(shrGrpPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,25 +143,29 @@ func TestSharedGroupITMoveEncoding2(t *testing.T) {
 }
 
 func testShrGrpITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(shrGrpCfgIn.DataDbCfg().DataDbType,
-		shrGrpCfgIn.DataDbCfg().DataDbHost, shrGrpCfgIn.DataDbCfg().DataDbPort,
-		shrGrpCfgIn.DataDbCfg().DataDbName, shrGrpCfgIn.DataDbCfg().DataDbUser,
-		shrGrpCfgIn.DataDbCfg().DataDbPass, shrGrpCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", shrGrpCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(shrGrpCfgIn.DataDbCfg().Type,
+		shrGrpCfgIn.DataDbCfg().Host, shrGrpCfgIn.DataDbCfg().Port,
+		shrGrpCfgIn.DataDbCfg().Name, shrGrpCfgIn.DataDbCfg().User,
+		shrGrpCfgIn.DataDbCfg().Password, shrGrpCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), shrGrpCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(shrGrpCfgOut.DataDbCfg().DataDbType,
-		shrGrpCfgOut.DataDbCfg().DataDbHost, shrGrpCfgOut.DataDbCfg().DataDbPort,
-		shrGrpCfgOut.DataDbCfg().DataDbName, shrGrpCfgOut.DataDbCfg().DataDbUser,
-		shrGrpCfgOut.DataDbCfg().DataDbPass, shrGrpCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", shrGrpCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(shrGrpCfgOut.DataDbCfg().Type,
+		shrGrpCfgOut.DataDbCfg().Host, shrGrpCfgOut.DataDbCfg().Port,
+		shrGrpCfgOut.DataDbCfg().Name, shrGrpCfgOut.DataDbCfg().User,
+		shrGrpCfgOut.DataDbCfg().Password, shrGrpCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), shrGrpCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	shrGrpMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(shrGrpPathIn, shrGrpPathOut) {
+		shrGrpMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		shrGrpMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -217,13 +223,15 @@ func testShrGrpITMigrateAndMove(t *testing.T) {
 		}
 		if !reflect.DeepEqual(shrGrp, result) {
 			t.Errorf("Expecting: %+v, received: %+v", shrGrp, result)
+		} else if shrGrpMigrator.stats[utils.SharedGroups] != 1 {
+			t.Errorf("Expected 1, received: %v", shrGrpMigrator.stats[utils.SharedGroups])
 		}
 	case utils.Move:
-		if err := shrGrpMigrator.dmIN.DataManager().SetSharedGroup(shrGrp, utils.NonTransactional); err != nil {
+		if err := shrGrpMigrator.dmIN.DataManager().SetSharedGroup(shrGrp); err != nil {
 			t.Error("Error when setting SharedGroup ", err.Error())
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := shrGrpMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := shrGrpMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for SharedGroup ", err.Error())
 		}
@@ -237,6 +245,8 @@ func testShrGrpITMigrateAndMove(t *testing.T) {
 		}
 		if !reflect.DeepEqual(shrGrp, result) {
 			t.Errorf("Expecting: %+v, received: %+v", shrGrp, result)
+		} else if shrGrpMigrator.stats[utils.SharedGroups] != 1 {
+			t.Errorf("Expected 1, received: %v", shrGrpMigrator.stats[utils.SharedGroups])
 		}
 	}
 }

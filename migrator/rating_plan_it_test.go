@@ -124,25 +124,29 @@ func TestRatingPlanITMoveEncoding2(t *testing.T) {
 }
 
 func testRtPlITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(rtplCfgIn.DataDbCfg().DataDbType,
-		rtplCfgIn.DataDbCfg().DataDbHost, rtplCfgIn.DataDbCfg().DataDbPort,
-		rtplCfgIn.DataDbCfg().DataDbName, rtplCfgIn.DataDbCfg().DataDbUser,
-		rtplCfgIn.DataDbCfg().DataDbPass, rtplCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", rtplCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(rtplCfgIn.DataDbCfg().Type,
+		rtplCfgIn.DataDbCfg().Host, rtplCfgIn.DataDbCfg().Port,
+		rtplCfgIn.DataDbCfg().Name, rtplCfgIn.DataDbCfg().User,
+		rtplCfgIn.DataDbCfg().Password, rtplCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), rtplCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(rtplCfgOut.DataDbCfg().DataDbType,
-		rtplCfgOut.DataDbCfg().DataDbHost, rtplCfgOut.DataDbCfg().DataDbPort,
-		rtplCfgOut.DataDbCfg().DataDbName, rtplCfgOut.DataDbCfg().DataDbUser,
-		rtplCfgOut.DataDbCfg().DataDbPass, rtplCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", rtplCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(rtplCfgOut.DataDbCfg().Type,
+		rtplCfgOut.DataDbCfg().Host, rtplCfgOut.DataDbCfg().Port,
+		rtplCfgOut.DataDbCfg().Name, rtplCfgOut.DataDbCfg().User,
+		rtplCfgOut.DataDbCfg().Password, rtplCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), rtplCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	rtplMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if rtplPathIn == rtplPathOut {
+		rtplMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		rtplMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -155,7 +159,7 @@ func testRtPlITFlush(t *testing.T) {
 	if isEmpty, err := rtplMigrator.dmOut.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(rtplMigrator.dmOut.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -166,7 +170,7 @@ func testRtPlITFlush(t *testing.T) {
 	if isEmpty, err := rtplMigrator.dmIN.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(rtplMigrator.dmIN.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -180,7 +184,7 @@ func testRtPlITMigrateAndMove(t *testing.T) {
 		Ratings: map[string]*engine.RIRate{
 			"asjkilj": {
 				ConnectFee:       10,
-				RoundingMethod:   utils.ROUNDING_UP,
+				RoundingMethod:   utils.MetaRoundingUp,
 				RoundingDecimals: 1,
 				MaxCost:          10,
 			},
@@ -190,11 +194,11 @@ func testRtPlITMigrateAndMove(t *testing.T) {
 	switch rtplAction {
 	case utils.Migrate: // for the momment only one version of rating plans exists
 	case utils.Move:
-		if err := rtplMigrator.dmIN.DataManager().SetRatingPlan(rtplPlan, utils.NonTransactional); err != nil {
+		if err := rtplMigrator.dmIN.DataManager().SetRatingPlan(rtplPlan); err != nil {
 			t.Error(err)
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := rtplMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := rtplMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for RatingPlan ", err.Error())
 		}
@@ -218,6 +222,8 @@ func testRtPlITMigrateAndMove(t *testing.T) {
 		result, err = rtplMigrator.dmIN.DataManager().GetRatingPlan("RT_PLAN1", true, utils.NonTransactional)
 		if err != utils.ErrNotFound {
 			t.Error(err)
+		} else if rtplMigrator.stats[utils.RatingPlan] != 1 {
+			t.Errorf("Expected 1, received: %v", rtplMigrator.stats[utils.RatingPlan])
 		}
 	}
 }

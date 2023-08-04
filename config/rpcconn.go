@@ -19,11 +19,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package config
 
 import (
+	"time"
+
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/rpcclient"
 )
 
-// Returns the first cached default value for a RemoteHost connection
+// NewDfltRemoteHost returns the first cached default value for a RemoteHost connection
 func NewDfltRemoteHost() *RemoteHost {
 	if dfltRemoteHost == nil {
 		return new(RemoteHost) // No defaults, most probably we are building the defaults now
@@ -32,17 +34,40 @@ func NewDfltRemoteHost() *RemoteHost {
 	return &dfltVal
 }
 
+// NewDfltRPCConn returns the default value for a RPCConn
 func NewDfltRPCConn() *RPCConn {
 	return &RPCConn{Strategy: rpcclient.PoolFirst}
 }
 
+// RPCConns the config for all rpc pools
+type RPCConns map[string]*RPCConn
+
+// AsMapInterface returns the config as a map[string]any
+func (rC RPCConns) AsMapInterface() (rpcConns map[string]any) {
+	rpcConns = make(map[string]any)
+	for key, value := range rC {
+		rpcConns[key] = value.AsMapInterface()
+	}
+	return
+}
+
+// Clone returns a deep copy of RPCConns
+func (rC RPCConns) Clone() (cln RPCConns) {
+	cln = make(RPCConns)
+	for id, conn := range rC {
+		cln[id] = conn.Clone()
+	}
+	return
+}
+
+// RPCConn the connection pool config
 type RPCConn struct {
 	Strategy string
 	PoolSize int
 	Conns    []*RemoteHost
 }
 
-func (rC *RPCConn) loadFromJsonCfg(jsnCfg *RPCConnsJson) (err error) {
+func (rC *RPCConn) loadFromJSONCfg(jsnCfg *RPCConnsJson) {
 	if jsnCfg == nil {
 		return
 	}
@@ -56,64 +81,216 @@ func (rC *RPCConn) loadFromJsonCfg(jsnCfg *RPCConnsJson) (err error) {
 		rC.Conns = make([]*RemoteHost, len(*jsnCfg.Conns))
 		for idx, jsnHaCfg := range *jsnCfg.Conns {
 			rC.Conns[idx] = NewDfltRemoteHost()
-			rC.Conns[idx].loadFromJsonCfg(jsnHaCfg)
+			rC.Conns[idx].loadFromJSONCfg(jsnHaCfg) //To review if the function signature changes
+		}
+	}
+}
+
+// AsMapInterface returns the config as a map[string]any
+func (rC *RPCConn) AsMapInterface() (initialMP map[string]any) {
+	initialMP = map[string]any{
+		utils.StrategyCfg: rC.Strategy,
+		utils.PoolSize:    rC.PoolSize,
+	}
+	if rC.Conns != nil {
+		conns := make([]map[string]any, len(rC.Conns))
+		for i, item := range rC.Conns {
+			conns[i] = item.AsMapInterface()
+		}
+		initialMP[utils.Conns] = conns
+	}
+	return
+}
+
+// Clone returns a deep copy of RPCConn
+func (rC RPCConn) Clone() (cln *RPCConn) {
+	cln = &RPCConn{
+		Strategy: rC.Strategy,
+		PoolSize: rC.PoolSize,
+	}
+	if rC.Conns != nil {
+		cln.Conns = make([]*RemoteHost, len(rC.Conns))
+		for i, req := range rC.Conns {
+			cln.Conns[i] = req.Clone()
 		}
 	}
 	return
 }
 
-func (rC *RPCConn) AsMapInterface() map[string]interface{} {
-	conns := make([]map[string]interface{}, len(rC.Conns))
-	for i, item := range rC.Conns {
-		conns[i] = item.AsMapInterface()
-	}
-
-	return map[string]interface{}{
-		utils.StrategyCfg: rC.Strategy,
-		utils.PoolSize:    rC.PoolSize,
-		utils.Conns:       conns,
-	}
-}
-
-// One connection to Rater
+// RemoteHost connection config
 type RemoteHost struct {
-	ID          string
-	Address     string
-	Transport   string
-	Synchronous bool
-	TLS         bool
+	ID                   string
+	Address              string
+	Transport            string
+	ConnectAttempts      int
+	Reconnects           int
+	MaxReconnectInterval time.Duration
+	ConnectTimeout       time.Duration
+	ReplyTimeout         time.Duration
+	TLS                  bool
+	ClientKey            string
+	ClientCertificate    string
+	CaCertificate        string
 }
 
-func (self *RemoteHost) loadFromJsonCfg(jsnCfg *RemoteHostJson) error {
+func (rh *RemoteHost) loadFromJSONCfg(jsnCfg *RemoteHostJson) (err error) {
 	if jsnCfg == nil {
-		return nil
+		return
 	}
 	if jsnCfg.Id != nil {
-		self.ID = *jsnCfg.Id
+		rh.ID = *jsnCfg.Id
 		// ignore defaults if we have ID
-		self.Address = utils.EmptyString
-		self.Transport = utils.EmptyString
+		rh.Address = utils.EmptyString
+		rh.Transport = utils.EmptyString
 	}
 	if jsnCfg.Address != nil {
-		self.Address = *jsnCfg.Address
+		rh.Address = *jsnCfg.Address
 	}
 	if jsnCfg.Transport != nil {
-		self.Transport = *jsnCfg.Transport
-	}
-	if jsnCfg.Synchronous != nil {
-		self.Synchronous = *jsnCfg.Synchronous
+		rh.Transport = *jsnCfg.Transport
 	}
 	if jsnCfg.Tls != nil {
-		self.TLS = *jsnCfg.Tls
+		rh.TLS = *jsnCfg.Tls
 	}
-	return nil
+	if jsnCfg.Key_path != nil {
+		rh.ClientKey = *jsnCfg.Key_path
+	}
+	if jsnCfg.Cert_path != nil {
+		rh.ClientCertificate = *jsnCfg.Cert_path
+	}
+	if jsnCfg.Ca_path != nil {
+		rh.CaCertificate = *jsnCfg.Ca_path
+	}
+	if jsnCfg.Conn_attempts != nil {
+		rh.ConnectAttempts = *jsnCfg.Conn_attempts
+	}
+	if jsnCfg.Reconnects != nil {
+		rh.Reconnects = *jsnCfg.Reconnects
+	}
+	if jsnCfg.Max_reconnect_interval != nil {
+		if rh.MaxReconnectInterval, err = utils.ParseDurationWithNanosecs(*jsnCfg.Max_reconnect_interval); err != nil {
+			return err
+		}
+	}
+	if jsnCfg.Connect_timeout != nil {
+		if rh.ConnectTimeout, err = utils.ParseDurationWithNanosecs(*jsnCfg.Connect_timeout); err != nil {
+			return err
+		}
+	}
+	if jsnCfg.Reply_timeout != nil {
+		if rh.ReplyTimeout, err = utils.ParseDurationWithNanosecs(*jsnCfg.Reply_timeout); err != nil {
+			return err
+		}
+	}
+	return
 }
 
-func (rh *RemoteHost) AsMapInterface() map[string]interface{} {
-	return map[string]interface{}{
-		utils.AddressCfg:     rh.Address,
-		utils.TransportCfg:   rh.Transport,
-		utils.SynchronousCfg: rh.Synchronous,
-		utils.TlsCfg:         rh.TLS,
+// AsMapInterface returns the config as a map[string]any
+func (rh *RemoteHost) AsMapInterface() (mp map[string]any) {
+	mp = map[string]any{
+		utils.AddressCfg:   rh.Address,
+		utils.TransportCfg: rh.Transport,
 	}
+	if rh.ID != utils.EmptyString {
+		mp[utils.IDCfg] = rh.ID
+	}
+	if rh.TLS {
+		mp[utils.TLSNoCaps] = rh.TLS
+	}
+	if rh.ClientKey != utils.EmptyString {
+		mp[utils.KeyPathCgr] = rh.ClientKey
+	}
+	if rh.ClientCertificate != utils.EmptyString {
+		mp[utils.CertPathCgr] = rh.ClientCertificate
+	}
+	if rh.CaCertificate != utils.EmptyString {
+		mp[utils.CAPathCgr] = rh.CaCertificate
+	}
+	if rh.ConnectAttempts != 0 {
+		mp[utils.ConnectAttemptsCfg] = rh.ConnectAttempts
+	}
+	if rh.Reconnects != 0 {
+		mp[utils.ReconnectsCfg] = rh.Reconnects
+	}
+	if rh.MaxReconnectInterval != 0 {
+		mp[utils.MaxReconnectIntervalCfg] = rh.MaxReconnectInterval
+	}
+	if rh.ConnectTimeout != 0 {
+		mp[utils.ConnectTimeoutCfg] = rh.ConnectTimeout
+	}
+	if rh.ReplyTimeout != 0 {
+		mp[utils.ReplyTimeoutCfg] = rh.ReplyTimeout
+	}
+	return
+}
+
+// Clone returns a deep copy of RemoteHost
+func (rh RemoteHost) Clone() (cln *RemoteHost) {
+	return &RemoteHost{
+		ID:                   rh.ID,
+		Address:              rh.Address,
+		Transport:            rh.Transport,
+		ConnectAttempts:      rh.ConnectAttempts,
+		Reconnects:           rh.Reconnects,
+		MaxReconnectInterval: rh.MaxReconnectInterval,
+		ConnectTimeout:       rh.ConnectTimeout,
+		ReplyTimeout:         rh.ReplyTimeout,
+		TLS:                  rh.TLS,
+		ClientKey:            rh.ClientKey,
+		ClientCertificate:    rh.ClientCertificate,
+		CaCertificate:        rh.CaCertificate,
+	}
+}
+
+// UpdateRPCCons will parse each conn and update only
+// the conns that have the same ID
+func UpdateRPCCons(rpcConns RPCConns, newHosts map[string]*RemoteHost) (connIDs utils.StringSet) {
+	connIDs = make(utils.StringSet)
+	for rpcKey, rpcPool := range rpcConns {
+		for _, rh := range rpcPool.Conns {
+			newHost, has := newHosts[rh.ID]
+			if !has {
+				continue
+			}
+			connIDs.Add(rpcKey)
+			rh.Address = newHost.Address
+			rh.Transport = newHost.Transport
+			rh.ConnectAttempts = newHost.ConnectAttempts
+			rh.Reconnects = newHost.Reconnects
+			rh.MaxReconnectInterval = newHost.MaxReconnectInterval
+			rh.ConnectTimeout = newHost.ConnectTimeout
+			rh.ReplyTimeout = newHost.ReplyTimeout
+			rh.TLS = newHost.TLS
+			rh.ClientKey = newHost.ClientKey
+			rh.ClientCertificate = newHost.ClientCertificate
+			rh.CaCertificate = newHost.CaCertificate
+		}
+	}
+	return
+}
+
+// RemoveRPCCons will parse each conn and reset only
+// the conns that have the same ID
+func RemoveRPCCons(rpcConns RPCConns, hosts utils.StringSet) (connIDs utils.StringSet) {
+	connIDs = make(utils.StringSet)
+	for rpcKey, rpcPool := range rpcConns {
+		for _, rh := range rpcPool.Conns {
+			if !hosts.Has(rh.ID) {
+				continue
+			}
+			connIDs.Add(rpcKey)
+			rh.Address = ""
+			rh.Transport = ""
+			rh.ConnectAttempts = 0
+			rh.Reconnects = 0
+			rh.MaxReconnectInterval = 0
+			rh.ConnectTimeout = 0
+			rh.ReplyTimeout = 0
+			rh.TLS = false
+			rh.ClientKey = ""
+			rh.ClientCertificate = ""
+			rh.CaCertificate = ""
+		}
+	}
+	return
 }

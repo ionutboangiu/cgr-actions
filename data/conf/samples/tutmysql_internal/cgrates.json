@@ -43,40 +43,21 @@
 },
 
 
-"cdre": {
-	"TestTutITExportCDR": {
-		"fields": [
-			{"path": "*exp.CGRID", "type": "*composed", "value": "~*req.CGRID"},
-			{"path": "*exp.RunID", "type": "*composed", "value": "~*req.RunID"},
-			{"path": "*exp.OriginID", "type": "*composed", "value": "~*req.OriginID"},
-			{"path": "*exp.RequestType", "type": "*composed", "value": "~*req.RequestType"},
-			{"path": "*exp.Tenant", "type": "*composed", "value": "~*req.Tenant"},
-			{"path": "*exp.Category", "type": "*composed", "value": "~*req.Category"},
-			{"path": "*exp.Account", "type": "*composed", "value": "~*req.Account"},
-			{"path": "*exp.Destination", "type": "*composed", "value": "~*req.Destination"},
-			{"path": "*exp.AnswerTime", "type": "*composed", "value": "~*req.AnswerTime", "layout": "2006-01-02T15:04:05Z07:00"},
-			{"path": "*exp.Usage", "type": "*composed", "value": "~*req.Usage"},
-			{"path": "*exp.Cost", "type": "*composed", "value": "~*req.Cost", "rounding_decimals": 4},
-			{"path": "*exp.MatchedDestinationID", "type": "*composed", "value": "~*req.CostDetails:s/\"MatchedDestId\":.*_(\\w{4})/${1}/:s/\"MatchedDestId\":\"INTERNAL\"/ON010/"},
-		],
-	},
-},
-
 "loaders": [
 	{
-		"id": "TeoLoader",									// identifier of the Loader
-		"enabled": false,									// starts as service: <true|false>.
-		"dry_run": false,									// do not send the CDRs to CDRS, just parse them
-		"run_delay": 0,										// sleep interval in seconds between consecutive runs, 0 to use automation via inotify
-		"lock_filename": ".cgr.lock",						// Filename containing concurrency lock in case of delayed processing
+		"id": "TeoLoader",									
+		"enabled": false,									
+		"dry_run": false,									
+		"run_delay": "0",										
+		"lockfile_path": ".cgr.lock",						
 		"caches_conns": ["*internal"],
-		"field_separator": ",",								// separator used in case of csv files
-		"tp_in_dir": "/tmp/In",		// absolute path towards the directory where the CDRs are stored
-		"tp_out_dir": "/tmp/Out",	// absolute path towards the directory where processed CDRs will be moved
+		"field_separator": ",",								
+		"tp_in_dir": "/tmp/In",		
+		"tp_out_dir": "/tmp/Out",	
 		"data":[	
 			{
-				"type": "*resources",						// data source type
-				"file_name": "Resources.csv",				// file name in the tp_in_dir
+				"type": "*resources",						
+				"file_name": "Resources.csv",				
 				"fields": [
 					{"tag": "Tenant", "path": "Tenant", "type": "*variable", "value": "~0", "mandatory": true},
 					{"tag": "ID", "path": "ID", "type": "*variable", "value": "~1", "mandatory": true},
@@ -92,8 +73,8 @@
 				],
 			},
 			{
-				"type": "*stats",						// data source type
-				"file_name": "Stats.csv",				// file name in the tp_in_dir
+				"type": "*stats",						
+				"file_name": "Stats.csv",				
 				"fields": [
 					{"tag": "Tenant", "path": "Tenant", "type": "*variable", "value": "~0", "mandatory": true},
 					{"tag": "ID", "path": "ID", "type": "*variable", "value": "~1", "mandatory": true},
@@ -111,8 +92,8 @@
 				],
 			},
 			{
-				"type": "*thresholds",						// data source type
-				"file_name": "Thresholds.csv",				// file name in the tp_in_dir
+				"type": "*thresholds",						
+				"file_name": "Thresholds.csv",				
 				"fields": [
 					{"tag": "Tenant", "path": "Tenant", "type": "*variable", "value": "~0", "mandatory": true},
 					{"tag": "ID", "path": "ID", "type": "*variable", "value": "~1", "mandatory": true},
@@ -128,8 +109,8 @@
 				],
 			},
 			{
-				"type": "*suppliers",						// data source type
-				"file_name": "Suppliers.csv",				// file name in the tp_in_dir
+				"type": "*routes",						
+				"file_name": "Routes.csv",				
 				"fields": [
 					{"tag": "Tenant", "path": "Tenant", "type": "*variable", "value": "~0", "mandatory": true},
 					{"tag": "ID", "path": "ID", "type": "*variable", "value": "~1", "mandatory": true},
@@ -152,19 +133,19 @@
 		],
 	},
 	{
-		"id": "FilterLoader",									// identifier of the Loader
-		"enabled": false,									// starts as service: <true|false>.
-		"dry_run": false,									// do not send the CDRs to CDRS, just parse them
-		"run_delay": 0,										// sleep interval in seconds between consecutive runs, 0 to use automation via inotify
-		"lock_filename": ".cgr.lock",						// Filename containing concurrency lock in case of delayed processing
+		"id": "FilterLoader",									
+		"enabled": false,									
+		"dry_run": false,									
+		"run_delay": "0",										
+		"lockfile_path": ".cgr.lock",						
 		"caches_conns": ["*internal"],
-		"field_separator": ",",								// separator used in case of csv files
-		"tp_in_dir": "/tmp/FilterIn",		// absolute path towards the directory where the CDRs are stored
-		"tp_out_dir": "/tmp/FilterOut",	// absolute path towards the directory where processed CDRs will be moved
+		"field_separator": ",",								
+		"tp_in_dir": "/tmp/FilterIn",		
+		"tp_out_dir": "/tmp/FilterOut",	
 		"data":[	
 			{
-				"type": "*filters",						// data source type
-				"file_name": "Filters.csv",				// file name in the tp_in_dir
+				"type": "*filters",						
+				"file_name": "Filters.csv",				
 				"fields": [
 					{"tag": "Tenant", "path": "Tenant", "type": "*variable", "value": "~0", "mandatory": true},
 					{"tag": "ID", "path": "ID", "type": "*variable", "value": "~1", "mandatory": true},
@@ -210,16 +191,16 @@
 },
 
 
-"suppliers": {
+"routes": {
 	"enabled": true,
-	"prefix_indexed_fields":["Destination"],
+	"prefix_indexed_fields":["*req.Destination"],
 	"stats_conns": ["*internal"],
 },
 
 
 "sessions": {
 	"enabled": true,
-	"suppliers_conns": ["*internal"],
+	"routes_conns": ["*internal"],
 	"resources_conns": ["*internal"],
 	"attributes_conns": ["*internal"],
 	"rals_conns": ["*internal"],
@@ -239,5 +220,9 @@
 	"scheduler_conns": ["*internal"],
 },
 
+
+"filters": {								
+	"apiers_conns": ["*internal"],
+},
 
 }

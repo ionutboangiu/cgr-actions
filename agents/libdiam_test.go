@@ -25,13 +25,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/cgrates/engine"
-
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
-	"github.com/fiorix/go-diameter/diam"
-	"github.com/fiorix/go-diameter/diam/avp"
-	"github.com/fiorix/go-diameter/diam/datatype"
+	"github.com/fiorix/go-diameter/v4/diam"
+	"github.com/fiorix/go-diameter/v4/diam/avp"
+	"github.com/fiorix/go-diameter/v4/diam/datatype"
 )
 
 func TestDPFieldAsInterface(t *testing.T) {
@@ -72,19 +71,19 @@ func TestDPFieldAsInterface(t *testing.T) {
 		}})
 
 	dP := newDADataProvider(nil, m)
-	eOut := interface{}("simuhuawei;1449573472;00002")
+	eOut := any("simuhuawei;1449573472;00002")
 	if out, err := dP.FieldAsInterface([]string{"Session-Id"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
-	eOut = interface{}(int64(10000))
+	eOut = any(int64(10000))
 	if out, err := dP.FieldAsInterface([]string{"Requested-Service-Unit", "CC-Money", "Unit-Value", "Value-Digits"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
-	eOut = interface{}("208708000003") // with filter on second group item
+	eOut = any("208708000003") // with filter on second group item
 	if out, err := dP.FieldAsInterface([]string{"Subscription-Id",
 		"Subscription-Id-Data[1]"}); err != nil { // on index
 		t.Error(err)
@@ -97,14 +96,14 @@ func TestDPFieldAsInterface(t *testing.T) {
 	} else if out != eOut { // can be any result since both entries are matching single filter
 		t.Errorf("expecting: %v, received: %v", eOut, out)
 	}
-	eOut = interface{}("208708000004")
+	eOut = any("208708000004")
 	if out, err := dP.FieldAsInterface([]string{"Subscription-Id",
 		"Subscription-Id-Data[~Subscription-Id-Type(2)|~Value-Digits(20000)]"}); err != nil { // on multiple filter
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
-	eOut = interface{}("33708000003")
+	eOut = any("33708000003")
 	if out, err := dP.FieldAsInterface([]string{"Subscription-Id", "Subscription-Id-Data"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
@@ -357,7 +356,7 @@ func TestMessageSetAVPsWithPath5(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(eMessage.String(), m.String()) {
-		t.Errorf("Expected %s, recived %s", utils.ToJSON(eMessage), utils.ToJSON(m))
+		t.Errorf("Expected %s, received %s", utils.ToJSON(eMessage), utils.ToJSON(m))
 		// t.Errorf("Expecting: %+v \n, received: %+v \n", eMessage, m)
 	}
 }
@@ -430,38 +429,38 @@ func TestUpdateDiamMsgFromNavMap1(t *testing.T) {
 	)
 
 	nM := utils.NewOrderedNavigableMap()
-	itm := &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"},
+	path := []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"}
+	itm := &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"},
+	path = []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"},
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: "http://172.10.88.88/",
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
 	if err := updateDiamMsgFromNavMap(m2, nM, ""); err != nil {
 		t.Error(err)
 	}
 	if !reflect.DeepEqual(eMessage.String(), m2.String()) {
-		t.Errorf("Expected %s, recived %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
+		t.Errorf("Expected %s, received %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
 	}
 }
 
@@ -514,48 +513,48 @@ func TestUpdateDiamMsgFromNavMap2(t *testing.T) {
 	)
 
 	nM := utils.NewOrderedNavigableMap()
-	itm := &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"},
+	path := []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"}
+	itm := &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"},
+	path = []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path:   []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"},
-		Data:   "http://172.10.88.88/",
-		Config: &config.FCTemplate{NewBranch: true},
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
+		Data:      "http://172.10.88.88/",
+		NewBranch: true,
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"},
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(
+	}}
+	nM.Append(
 		&utils.FullPath{
-			Path:      strings.Join(itm.Path, utils.NestingSep),
-			PathItems: utils.NewPathItems([]string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type[1]"}),
-		}, itm)
+			Path:      strings.Join(path, utils.NestingSep),
+			PathSlice: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"},
+		}, itm.Value)
 	if err := updateDiamMsgFromNavMap(m2, nM, ""); err != nil {
 		t.Error(err)
 	}
 	if !reflect.DeepEqual(eMessage.String(), m2.String()) {
-		t.Errorf("Expected %s, recived %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
+		t.Errorf("Expected %s, received %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
 	}
 }
 
@@ -586,47 +585,47 @@ func TestUpdateDiamMsgFromNavMap3(t *testing.T) {
 
 	nM := utils.NewOrderedNavigableMap()
 
-	itm := &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Final-Unit-Action"},
+	path := []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Final-Unit-Action"}
+	itm := &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(1),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"},
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"},
+	path = []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"},
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: "http://172.10.88.88/",
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
 	if err := updateDiamMsgFromNavMap(m2, nM, ""); err != nil {
 		t.Error(err)
 	}
 	if !reflect.DeepEqual(eMessage.String(), m2.String()) {
-		t.Errorf("Expected %s, recived %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
+		t.Errorf("Expected %s, received %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
 	}
 }
 
@@ -679,72 +678,72 @@ func TestUpdateDiamMsgFromNavMap4(t *testing.T) {
 
 	nM := utils.NewOrderedNavigableMap()
 
-	itm := &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Final-Unit-Action"},
+	path := []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Final-Unit-Action"}
+	itm := &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(1),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"},
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Address-Type"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"},
+	path = []string{"Multiple-Services-Credit-Control", "Tariff-Change-Usage"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Enumerated(2),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm = &config.NMItem{
-		Path: []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"},
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: "http://172.10.88.88/",
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
-	itm2 := &config.NMItem{
-		Path:   []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"},
-		Data:   "http://172.10.88.88/",
-		Config: &config.FCTemplate{NewBranch: true},
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm, itm2})
+	path = []string{"Multiple-Services-Credit-Control", "Final-Unit-Indication", "Redirect-Server", "Redirect-Server-Address"}
+	itm2 := &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
+		Data:      "http://172.10.88.88/",
+		NewBranch: true,
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm, itm2})
 
-	itm = &config.NMItem{
-		Path: []string{"Granted-Service-Unit", "CC-Time"},
+	path = []string{"Granted-Service-Unit", "CC-Time"}
+	itm = &utils.DataNode{Type: utils.NMDataType, Value: &utils.DataLeaf{
 		Data: datatype.Unsigned32(10),
-	}
-	nM.Set(&utils.FullPath{
-		Path:      strings.Join(itm.Path, utils.NestingSep),
-		PathItems: utils.NewPathItems(itm.Path),
-	}, &utils.NMSlice{itm})
+	}}
+	nM.SetAsSlice(&utils.FullPath{
+		Path:      strings.Join(path, utils.NestingSep),
+		PathSlice: path,
+	}, []*utils.DataNode{itm})
 
 	if err := updateDiamMsgFromNavMap(m2, nM, ""); err != nil {
 		t.Error(err)
 	}
 	if !reflect.DeepEqual(eMessage.String(), m2.String()) {
-		t.Errorf("Expected %s, recived %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
+		t.Errorf("Expected %s, received %s", utils.ToJSON(eMessage), utils.ToJSON(m2))
 	}
 }
 
 func TestDiamAVPAsIface(t *testing.T) {
 	args := diam.NewAVP(435, avp.Mbit, 0, datatype.Address("127.0.0.1"))
-	var exp interface{} = net.IP([]byte("127.0.0.1"))
+	var exp any = net.IP([]byte("127.0.0.1"))
 	if rply, err := diamAVPAsIface(args); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(exp, rply) {
@@ -1104,28 +1103,32 @@ func TestDiamAvpGroupIface(t *testing.T) {
 			diam.NewAVP(432, avp.Mbit, 0, datatype.Unsigned32(99)),
 		}})
 	dP := newDADataProvider(nil, avps)
-	eOut := interface{}(uint32(1))
+	eOut := any(uint32(1))
 	if out, err := dP.FieldAsInterface([]string{"Multiple-Services-Credit-Control", "Rating-Group"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
+	dP.(*diameterDP).cache = utils.MapStorage{}
 	if out, err := dP.FieldAsInterface([]string{"Multiple-Services-Credit-Control", "Rating-Group[~Rating-Group(1)]"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
-	eOut = interface{}(uint32(99))
+	dP.(*diameterDP).cache = utils.MapStorage{}
+	eOut = any(uint32(99))
 	if out, err := dP.FieldAsInterface([]string{"Multiple-Services-Credit-Control", "Rating-Group[1]"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
+	dP.(*diameterDP).cache = utils.MapStorage{}
 	if out, err := dP.FieldAsInterface([]string{"Multiple-Services-Credit-Control", "Rating-Group[~Rating-Group(99)]"}); err != nil {
 		t.Error(err)
 	} else if eOut != out {
 		t.Errorf("Expecting: %v, received: %v", eOut, out)
 	}
+	dP.(*diameterDP).cache = utils.MapStorage{}
 	if _, err := dP.FieldAsInterface([]string{"Multiple-Services-Credit-Control", "Rating-Group[~Rating-Group(10)]"}); err != utils.ErrNotFound {
 		t.Error(err)
 	}
@@ -1142,11 +1145,11 @@ func TestFilterWithDiameterDP(t *testing.T) {
 			diam.NewAVP(432, avp.Mbit, 0, datatype.Unsigned32(99)),
 		}})
 	dP := newDADataProvider(nil, avps)
-	cfg, _ := config.NewDefaultCGRConfig()
+	cfg := config.NewDefaultCGRConfig()
 	dm := engine.NewDataManager(engine.NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items),
 		config.CgrConfig().CacheCfg(), nil)
 	filterS := engine.NewFilterS(cfg, nil, dm)
-	agReq := NewAgentRequest(dP, nil, nil, nil, nil, "cgrates.org", "", filterS, nil, nil)
+	agReq := NewAgentRequest(dP, nil, nil, nil, nil, nil, "cgrates.org", "", filterS, nil)
 
 	if pass, err := filterS.Pass("cgrates.org",
 		[]string{"*exists:~*req.Multiple-Services-Credit-Control.Rating-Group[~Rating-Group(99)]:"}, agReq); err != nil {

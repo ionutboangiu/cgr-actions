@@ -33,7 +33,7 @@ import (
 
 var (
 	lineR = regexp.MustCompile(`(\w+)\s*=\s*(\[.*?\]|\".*?\"|\{.*?\}|.+?)(?:\s+|$)`)
-	jsonR = regexp.MustCompile(`"(\w+)":(\[.+?\]|.+?)[,|}]`)
+	jsonR = regexp.MustCompile(`"(\w+)":(\[.+?\]|.+?)(?:,|}$)`)
 )
 
 // Commander implementation
@@ -59,7 +59,7 @@ func (ce *CommandExecuter) FromArgs(args string, verbose bool) error {
 	return nil
 }
 
-func (ce *CommandExecuter) clientArgs(iface interface{}) (args []string) {
+func (ce *CommandExecuter) clientArgs(iface any) (args []string) {
 	val := reflect.ValueOf(iface)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
@@ -70,7 +70,7 @@ func (ce *CommandExecuter) clientArgs(iface interface{}) (args []string) {
 		for i := 0; i < typ.NumField(); i++ {
 			valField := val.Field(i)
 			typeField := typ.Field(i)
-			//log.Printf("%v (%v : %v)", typeField.Name, valField.Kind(), typeField.PkgPath)
+			// log.Printf("%v (%v : %v)", typeField.Name, valField.Kind(), typeField.PkgPath)
 			if len(typeField.PkgPath) > 0 { //unexported field
 				continue
 			}
@@ -79,7 +79,7 @@ func (ce *CommandExecuter) clientArgs(iface interface{}) (args []string) {
 				if valField.Kind() == reflect.Ptr {
 					valField = reflect.New(valField.Type().Elem()).Elem()
 					if valField.Kind() != reflect.Struct {
-						//log.Printf("Here: %v (%v)", typeField.Name, valField.Kind())
+						// log.Printf("Here: %v (%v)", typeField.Name, valField.Kind())
 						args = append(args, typeField.Name)
 						continue
 					}
@@ -104,11 +104,11 @@ func (ce *CommandExecuter) ClientArgs() (args []string) {
 
 // To be overwritten by commands that do not need a rpc call
 func (ce *CommandExecuter) LocalExecute() string {
-	return ""
+	return utils.EmptyString
 }
 
 func ToJSON(line string) (jsn []byte) {
-	if !strings.Contains(line, "=") && line != "" {
+	if !strings.Contains(line, utils.AttrValueSep) && line != utils.EmptyString {
 		line = fmt.Sprintf("Item=\"%s\"", line)
 	}
 	jsn = append(jsn, '{')
@@ -117,7 +117,7 @@ func ToJSON(line string) (jsn []byte) {
 			jsn = append(jsn, []byte(fmt.Sprintf("\"%s\":%s,", group[1], group[2]))...)
 		}
 	}
-	jsn = bytes.TrimRight(jsn, ",")
+	jsn = bytes.TrimRight(jsn, utils.FieldsSep)
 	jsn = append(jsn, '}')
 	return
 }
@@ -136,7 +136,7 @@ func FromJSON(jsn []byte, interestingFields []string) (line string) {
 	return strings.TrimSpace(line)
 }
 
-func getStringValue(v interface{}, defaultDurationFields map[string]struct{}) string {
+func getStringValue(v any, defaultDurationFields utils.StringSet) string {
 	switch o := v.(type) {
 	case nil:
 		return "null"
@@ -146,27 +146,27 @@ func getStringValue(v interface{}, defaultDurationFields map[string]struct{}) st
 		return fmt.Sprintf(`%v`, o)
 	case string:
 		return fmt.Sprintf(`"%s"`, o)
-	case map[string]interface{}:
+	case map[string]any:
 		return getMapAsString(o, defaultDurationFields)
-	case []interface{}:
+	case []any:
 		return getSliceAsString(o, defaultDurationFields)
 	}
 	return utils.ToJSON(v)
 }
 
-func getSliceAsString(mp []interface{}, defaultDurationFields map[string]struct{}) (out string) {
-	out = "["
+func getSliceAsString(mp []any, defaultDurationFields utils.StringSet) (out string) {
+	out = utils.IdxStart
 	for _, v := range mp {
 		out += fmt.Sprintf(`%s,`, getStringValue(v, defaultDurationFields))
 	}
-	return strings.TrimSuffix(out, ",") + "]"
+	return strings.TrimSuffix(out, utils.FieldsSep) + utils.IdxEnd
 }
 
-func getMapAsString(mp map[string]interface{}, defaultDurationFields map[string]struct{}) (out string) {
+func getMapAsString(mp map[string]any, defaultDurationFields utils.StringSet) (out string) {
 	// in order to find the data faster
 	keylist := []string{} // add key value pairs to list so at the end we can sort them
 	for k, v := range mp {
-		if _, has := defaultDurationFields[k]; has {
+		if defaultDurationFields.Has(k) {
 			if t, err := utils.IfaceAsDuration(v); err == nil {
 				keylist = append(keylist, fmt.Sprintf(`"%s":"%s"`, k, t.String()))
 				continue
@@ -175,36 +175,36 @@ func getMapAsString(mp map[string]interface{}, defaultDurationFields map[string]
 		keylist = append(keylist, fmt.Sprintf(`"%s":%s`, k, getStringValue(v, defaultDurationFields)))
 	}
 	sort.Strings(keylist)
-	return fmt.Sprintf(`{%s}`, strings.Join(keylist, ","))
+	return fmt.Sprintf(`{%s}`, strings.Join(keylist, utils.FieldsSep))
 }
 
-func GetFormatedResult(result interface{}, defaultDurationFields map[string]struct{}) string {
+func GetFormatedResult(result any, defaultDurationFields utils.StringSet) string {
 	jsonResult, _ := json.Marshal(result)
-	var mp map[string]interface{}
+	var mp map[string]any
 	if err := json.Unmarshal(jsonResult, &mp); err != nil {
-		out, _ := json.MarshalIndent(result, "", " ")
+		out, _ := json.MarshalIndent(result, utils.EmptyString, " ")
 		return string(out)
 	}
 	mpstr := getMapAsString(mp, defaultDurationFields)
 	var out bytes.Buffer
-	json.Indent(&out, []byte(mpstr), "", " ")
+	json.Indent(&out, []byte(mpstr), utils.EmptyString, " ")
 	return out.String()
 }
 
-func GetFormatedSliceResult(result interface{}, defaultDurationFields map[string]struct{}) string {
+func GetFormatedSliceResult(result any, defaultDurationFields utils.StringSet) string {
 	jsonResult, _ := json.Marshal(result)
-	var mp []interface{}
+	var mp []any
 	if err := json.Unmarshal(jsonResult, &mp); err != nil {
-		out, _ := json.MarshalIndent(result, "", " ")
+		out, _ := json.MarshalIndent(result, utils.EmptyString, " ")
 		return string(out)
 	}
 	mpstr := getSliceAsString(mp, defaultDurationFields)
 	var out bytes.Buffer
-	json.Indent(&out, []byte(mpstr), "", " ")
+	json.Indent(&out, []byte(mpstr), utils.EmptyString, " ")
 	return out.String()
 }
 
-func (ce *CommandExecuter) GetFormatedResult(result interface{}) string {
-	out, _ := json.MarshalIndent(result, "", " ")
+func (ce *CommandExecuter) GetFormatedResult(result any) string {
+	out, _ := json.MarshalIndent(result, utils.EmptyString, " ")
 	return string(out)
 }

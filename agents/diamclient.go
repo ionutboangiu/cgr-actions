@@ -26,10 +26,10 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/utils"
-	"github.com/fiorix/go-diameter/diam"
-	"github.com/fiorix/go-diameter/diam/avp"
-	"github.com/fiorix/go-diameter/diam/datatype"
-	"github.com/fiorix/go-diameter/diam/sm"
+	"github.com/fiorix/go-diameter/v4/diam"
+	"github.com/fiorix/go-diameter/v4/diam/avp"
+	"github.com/fiorix/go-diameter/v4/diam/datatype"
+	"github.com/fiorix/go-diameter/v4/diam/sm"
 )
 
 var dictOnce sync.Once
@@ -56,7 +56,7 @@ func NewDiameterClient(addr, originHost, originRealm string, vendorId int, produ
 		}
 		for _, iAddr := range addrs {
 			cfg.HostIPAddresses = append(cfg.HostIPAddresses, datatype.Address(
-				net.ParseIP(strings.Split(iAddr.String(), utils.HDR_VAL_SEP)[0]))) // address came in form x.y.z.t/24
+				net.ParseIP(strings.Split(iAddr.String(), utils.HDRValSep)[0]))) // address came in form x.y.z.t/24
 		}
 	}
 	dSM := sm.New(cfg)

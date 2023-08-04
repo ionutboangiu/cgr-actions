@@ -89,7 +89,7 @@ func TestUserProfile2attributeProfile(t *testing.T) {
 		0: {
 			Tenant:             defaultTenant,
 			ID:                 "1001",
-			Contexts:           []string{utils.META_ANY},
+			Contexts:           []string{utils.MetaAny},
 			FilterIDs:          make([]string, 0),
 			ActivationInterval: nil,
 			Attributes:         []*engine.Attribute{},
@@ -99,19 +99,19 @@ func TestUserProfile2attributeProfile(t *testing.T) {
 		1: {
 			Tenant:             defaultTenant,
 			ID:                 "1001",
-			Contexts:           []string{utils.META_ANY},
-			FilterIDs:          []string{"*string:~Account:1002"},
+			Contexts:           []string{utils.MetaAny},
+			FilterIDs:          []string{"*string:~*req.Account:1002"},
 			ActivationInterval: nil,
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "Subject",
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("call_1001", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("call_1001", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaTenant,
-					Type:  utils.META_CONSTANT,
-					Value: config.NewRSRParsersMustCompile(usrTenant, true, utils.INFIELD_SEP),
+					Type:  utils.MetaConstant,
+					Value: config.NewRSRParsersMustCompile(usrTenant, utils.InfieldSep),
 				},
 			},
 			Blocker: false,
@@ -120,21 +120,21 @@ func TestUserProfile2attributeProfile(t *testing.T) {
 		2: {
 			Tenant:   defaultTenant,
 			ID:       "1001",
-			Contexts: []string{utils.META_ANY},
+			Contexts: []string{utils.MetaAny},
 			FilterIDs: []string{
-				"*string:~Account:1002",
+				"*string:~*req.Account:1002",
 			},
 			ActivationInterval: nil,
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + utils.RequestType,
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("*prepaid", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("*prepaid", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "msisdn",
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("123423534646752", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("123423534646752", utils.InfieldSep),
 				},
 			},
 			Blocker: false,
@@ -143,19 +143,19 @@ func TestUserProfile2attributeProfile(t *testing.T) {
 		3: {
 			Tenant:             defaultTenant,
 			ID:                 "1001",
-			Contexts:           []string{utils.META_ANY},
-			FilterIDs:          []string{"*string:~Account:1002"},
+			Contexts:           []string{utils.MetaAny},
+			FilterIDs:          []string{"*string:~*req.Account:1002"},
 			ActivationInterval: nil,
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + utils.RequestType,
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("*prepaid", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("*prepaid", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaTenant,
-					Type:  utils.META_CONSTANT,
-					Value: config.NewRSRParsersMustCompile(usrTenant, true, utils.INFIELD_SEP),
+					Type:  utils.MetaConstant,
+					Value: config.NewRSRParsersMustCompile(usrTenant, utils.InfieldSep),
 				},
 			},
 			Blocker: false,
@@ -164,36 +164,36 @@ func TestUserProfile2attributeProfile(t *testing.T) {
 		4: {
 			Tenant:   defaultTenant,
 			ID:       "acstmusername",
-			Contexts: []string{utils.META_ANY},
+			Contexts: []string{utils.MetaAny},
 			FilterIDs: []string{
-				"*string:~Account:acnt63",
+				"*string:~*req.Account:acnt63",
 			},
 			ActivationInterval: nil,
 			Attributes: []*engine.Attribute{
 				{
 					Path:  utils.MetaReq + utils.NestingSep + utils.RequestType,
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("*prepaid", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("*prepaid", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + utils.Subject,
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("acnt63", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("acnt63", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "imsi",
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("12345", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("12345", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaReq + utils.NestingSep + "msisdn",
 					Type:  utils.MetaVariable,
-					Value: config.NewRSRParsersMustCompile("12345", true, utils.INFIELD_SEP),
+					Value: config.NewRSRParsersMustCompile("12345", utils.InfieldSep),
 				},
 				{
 					Path:  utils.MetaTenant,
-					Type:  utils.META_CONSTANT,
-					Value: config.NewRSRParsersMustCompile(usrTenant, true, utils.INFIELD_SEP),
+					Type:  utils.MetaConstant,
+					Value: config.NewRSRParsersMustCompile(usrTenant, utils.InfieldSep),
 				},
 			},
 			Blocker: false,

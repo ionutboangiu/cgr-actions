@@ -44,7 +44,7 @@ func (m *Migrator) migrateCurrentTiming() (err error) {
 		if err := m.dmOut.DataManager().SetTiming(tm); err != nil {
 			return err
 		}
-		m.stats[utils.Timing] += 1
+		m.stats[utils.Timing]++
 	}
 	return
 }
@@ -52,19 +52,12 @@ func (m *Migrator) migrateCurrentTiming() (err error) {
 func (m *Migrator) migrateTimings() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmIN.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.Timing); err != nil {
+		return
 	}
-	switch vrs[utils.Timing] {
+	switch version := vrs[utils.Timing]; version {
+	default:
+		return fmt.Errorf("Unsupported version %v", version)
 	case current[utils.Timing]:
 		if m.sameDataDB {
 			break

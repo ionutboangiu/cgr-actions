@@ -19,12 +19,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/guardian"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -42,15 +44,48 @@ type StatQueueProfile struct {
 	Blocker            bool // blocker flag to stop processing on filters matched
 	Weight             float64
 	ThresholdIDs       []string // list of thresholds to be checked after changes
+
+	lkID string // holds the reference towards guardian lock key
+}
+
+// StatQueueProfileWithAPIOpts is used in replicatorV1 for dispatcher
+type StatQueueProfileWithAPIOpts struct {
+	*StatQueueProfile
+	APIOpts map[string]any
 }
 
 func (sqp *StatQueueProfile) TenantID() string {
 	return utils.ConcatenatedKey(sqp.Tenant, sqp.ID)
 }
 
-type StatQueueWithCache struct {
-	*StatQueueProfile
-	Cache *string
+// statQueueProfileLockKey returns the ID used to lock a StatQueueProfile with guardian
+func statQueueProfileLockKey(tnt, id string) string {
+	return utils.ConcatenatedKey(utils.CacheStatQueueProfiles, tnt, id)
+}
+
+// lock will lock the StatQueueProfile using guardian and store the lock within r.lkID
+// if lkID is passed as argument, the lock is considered as executed
+func (sqp *StatQueueProfile) lock(lkID string) {
+	if lkID == utils.EmptyString {
+		lkID = guardian.Guardian.GuardIDs("",
+			config.CgrConfig().GeneralCfg().LockingTimeout,
+			statQueueProfileLockKey(sqp.Tenant, sqp.ID))
+	}
+	sqp.lkID = lkID
+}
+
+// unlock will unlock the StatQueueProfile and clear rp.lkID
+func (sqp *StatQueueProfile) unlock() {
+	if sqp.lkID == utils.EmptyString {
+		return
+	}
+	guardian.Guardian.UnguardIDs(sqp.lkID)
+	sqp.lkID = utils.EmptyString
+}
+
+// isLocked returns the locks status of this StatQueueProfile
+func (sqp *StatQueueProfile) isLocked() bool {
+	return sqp.lkID != utils.EmptyString
 }
 
 type MetricWithFilters struct {
@@ -61,22 +96,22 @@ type MetricWithFilters struct {
 // NewStoredStatQueue initiates a StoredStatQueue out of StatQueue
 func NewStoredStatQueue(sq *StatQueue, ms Marshaler) (sSQ *StoredStatQueue, err error) {
 	sSQ = &StoredStatQueue{
-		Tenant:     sq.Tenant,
-		ID:         sq.ID,
-		Compressed: sq.Compress(int64(config.CgrConfig().StatSCfg().StoreUncompressedLimit)),
-		SQItems:    make([]SQItem, len(sq.SQItems)),
-		SQMetrics:  make(map[string][]byte, len(sq.SQMetrics)),
-		MinItems:   sq.MinItems,
+		Tenant: sq.Tenant,
+		ID:     sq.ID,
+		Compressed: sq.Compress(int64(config.CgrConfig().StatSCfg().StoreUncompressedLimit),
+			config.CgrConfig().GeneralCfg().RoundingDecimals),
+		SQItems:   make([]SQItem, len(sq.SQItems)),
+		SQMetrics: make(map[string][]byte, len(sq.SQMetrics)),
 	}
 	for i, sqItm := range sq.SQItems {
 		sSQ.SQItems[i] = sqItm
 	}
 	for metricID, metric := range sq.SQMetrics {
-		if marshaled, err := metric.Marshal(ms); err != nil {
+		marshaled, err := metric.Marshal(ms)
+		if err != nil {
 			return nil, err
-		} else {
-			sSQ.SQMetrics[metricID] = marshaled
 		}
+		sSQ.SQMetrics[metricID] = marshaled
 	}
 	return
 }
@@ -87,8 +122,12 @@ type StoredStatQueue struct {
 	ID         string
 	SQItems    []SQItem
 	SQMetrics  map[string][]byte
-	MinItems   int
 	Compressed bool
+}
+
+type StatQueueWithAPIOpts struct {
+	*StatQueue
+	APIOpts map[string]any
 }
 
 // SqID will compose the unique identifier for the StatQueue out of Tenant and ID
@@ -106,13 +145,12 @@ func (ssq *StoredStatQueue) AsStatQueue(ms Marshaler) (sq *StatQueue, err error)
 		ID:        ssq.ID,
 		SQItems:   make([]SQItem, len(ssq.SQItems)),
 		SQMetrics: make(map[string]StatMetric, len(ssq.SQMetrics)),
-		MinItems:  ssq.MinItems,
 	}
 	for i, sqItm := range ssq.SQItems {
 		sq.SQItems[i] = sqItm
 	}
 	for metricID, marshaled := range ssq.SQMetrics {
-		if metric, err := NewStatMetric(metricID, ssq.MinItems, []string{}); err != nil {
+		if metric, err := NewStatMetric(metricID, 0, []string{}); err != nil {
 			return nil, err
 		} else if err := metric.LoadMarshaled(ms, marshaled); err != nil {
 			return nil, err
@@ -131,30 +169,63 @@ type SQItem struct {
 	ExpiryTime *time.Time // Used to auto-expire events
 }
 
+func NewStatQueue(tnt, id string, metrics []*MetricWithFilters, minItems int) (sq *StatQueue, err error) {
+	sq = &StatQueue{
+		Tenant:    tnt,
+		ID:        id,
+		SQMetrics: make(map[string]StatMetric),
+	}
+
+	for _, metric := range metrics {
+		if sq.SQMetrics[metric.MetricID], err = NewStatMetric(metric.MetricID,
+			minItems, metric.FilterIDs); err != nil {
+			return
+		}
+	}
+	return
+}
+
 // StatQueue represents an individual stats instance
 type StatQueue struct {
-	lk        sync.RWMutex // protect the elements from within
 	Tenant    string
 	ID        string
 	SQItems   []SQItem
 	SQMetrics map[string]StatMetric
-	MinItems  int
+	lkID      string // ID of the lock used when matching the stat
 	sqPrfl    *StatQueueProfile
 	dirty     *bool          // needs save
 	ttl       *time.Duration // timeToLeave, picked on each init
 }
 
-// RLock only to implement sync.RWMutex methods
-func (sq *StatQueue) RLock() { sq.lk.RLock() }
+// statQueueLockKey returns the ID used to lock a StatQueue with guardian
+func statQueueLockKey(tnt, id string) string {
+	return utils.ConcatenatedKey(utils.CacheStatQueues, tnt, id)
+}
 
-// RUnlock only to implement sync.RWMutex methods
-func (sq *StatQueue) RUnlock() { sq.lk.RUnlock() }
+// lock will lock the StatQueue using guardian and store the lock within r.lkID
+// if lkID is passed as argument, the lock is considered as executed
+func (sq *StatQueue) lock(lkID string) {
+	if lkID == utils.EmptyString {
+		lkID = guardian.Guardian.GuardIDs("",
+			config.CgrConfig().GeneralCfg().LockingTimeout,
+			statQueueLockKey(sq.Tenant, sq.ID))
+	}
+	sq.lkID = lkID
+}
 
-// Lock only to implement sync.RWMutex methods
-func (sq *StatQueue) Lock() { sq.lk.Lock() }
+// unlock will unlock the StatQueue and clear r.lkID
+func (sq *StatQueue) unlock() {
+	if sq.lkID == utils.EmptyString {
+		return
+	}
+	guardian.Guardian.UnguardIDs(sq.lkID)
+	sq.lkID = utils.EmptyString
+}
 
-// Unlock only to implement sync.RWMutex methods
-func (sq *StatQueue) Unlock() { sq.lk.Unlock() }
+// isLocked returns the locks status of this StatQueue
+func (sq *StatQueue) isLocked() bool {
+	return sq.lkID != utils.EmptyString
+}
 
 // TenantID will compose the unique identifier for the StatQueue out of Tenant and ID
 func (sq *StatQueue) TenantID() string {
@@ -162,14 +233,14 @@ func (sq *StatQueue) TenantID() string {
 }
 
 // ProcessEvent processes a utils.CGREvent, returns true if processed
-func (sq *StatQueue) ProcessEvent(ev *utils.CGREvent, filterS *FilterS) (err error) {
-	if err = sq.remExpired(); err != nil {
+func (sq *StatQueue) ProcessEvent(tnt, evID string, filterS *FilterS, evNm utils.MapStorage) (err error) {
+	if _, err = sq.remExpired(); err != nil {
 		return
 	}
 	if err = sq.remOnQueueLength(); err != nil {
 		return
 	}
-	return sq.addStatEvent(ev, filterS)
+	return sq.addStatEvent(tnt, evID, filterS, evNm)
 }
 
 // remStatEvent removes an event from metrics
@@ -188,7 +259,7 @@ func (sq *StatQueue) remEventWithID(evID string) (err error) {
 }
 
 // remExpired expires items in queue
-func (sq *StatQueue) remExpired() (err error) {
+func (sq *StatQueue) remExpired() (removed int, err error) {
 	var expIdx *int // index of last item to be expired
 	for i, item := range sq.SQItems {
 		if item.ExpiryTime == nil {
@@ -205,7 +276,8 @@ func (sq *StatQueue) remExpired() (err error) {
 	if expIdx == nil {
 		return
 	}
-	sq.SQItems = sq.SQItems[*expIdx+1:]
+	removed = *expIdx + 1
+	sq.SQItems = sq.SQItems[removed:]
 	return
 }
 
@@ -225,41 +297,39 @@ func (sq *StatQueue) remOnQueueLength() (err error) {
 }
 
 // addStatEvent computes metrics for an event
-func (sq *StatQueue) addStatEvent(ev *utils.CGREvent, filterS *FilterS) (err error) {
+func (sq *StatQueue) addStatEvent(tnt, evID string, filterS *FilterS, evNm utils.MapStorage) (err error) {
 	var expTime *time.Time
 	if sq.ttl != nil {
 		expTime = utils.TimePointer(time.Now().Add(*sq.ttl))
 	}
-	sq.SQItems = append(sq.SQItems,
-		struct {
-			EventID    string
-			ExpiryTime *time.Time
-		}{ev.ID, expTime})
+	sq.SQItems = append(sq.SQItems, SQItem{EventID: evID, ExpiryTime: expTime})
 	var pass bool
-	evNm := utils.MapStorage{utils.MetaReq: ev.Event}
+	// recreate the request without *opts
+	dDP := newDynamicDP(config.CgrConfig().FilterSCfg().ResourceSConns, config.CgrConfig().FilterSCfg().StatSConns,
+		config.CgrConfig().FilterSCfg().ApierSConns, tnt, utils.MapStorage{utils.MetaReq: evNm[utils.MetaReq]})
 	for metricID, metric := range sq.SQMetrics {
-		if pass, err = filterS.Pass(ev.Tenant, metric.GetFilterIDs(),
+		if pass, err = filterS.Pass(tnt, metric.GetFilterIDs(),
 			evNm); err != nil {
 			return
 		} else if !pass {
 			continue
 		}
-		if err = metric.AddEvent(ev); err != nil {
+		if err = metric.AddEvent(evID, dDP); err != nil {
 			utils.Logger.Warning(fmt.Sprintf("<StatQueue> metricID: %s, add eventID: %s, error: %s",
-				metricID, ev.ID, err.Error()))
+				metricID, evID, err.Error()))
 			return
 		}
 	}
 	return
 }
 
-func (sq *StatQueue) Compress(maxQL int64) bool {
+func (sq *StatQueue) Compress(maxQL int64, roundDec int) bool {
 	if int64(len(sq.SQItems)) < maxQL || maxQL == 0 {
 		return false
 	}
 	var newSQItems []SQItem
 	sqMap := make(map[string]*time.Time)
-	idMap := make(map[string]struct{})
+	idMap := make(utils.StringSet)
 	defaultCompressID := sq.SQItems[len(sq.SQItems)-1].EventID
 	defaultTTL := sq.SQItems[len(sq.SQItems)-1].ExpiryTime
 
@@ -268,8 +338,8 @@ func (sq *StatQueue) Compress(maxQL int64) bool {
 	}
 
 	for _, m := range sq.SQMetrics {
-		for _, id := range m.Compress(maxQL, defaultCompressID) {
-			idMap[id] = struct{}{}
+		for _, id := range m.Compress(maxQL, defaultCompressID, roundDec) {
+			idMap.Add(id)
 		}
 	}
 	for k := range idMap {
@@ -321,4 +391,89 @@ type StatQueues []*StatQueue
 // Sort is part of sort interface, sort based on Weight
 func (sis StatQueues) Sort() {
 	sort.Slice(sis, func(i, j int) bool { return sis[i].sqPrfl.Weight > sis[j].sqPrfl.Weight })
+}
+
+// unlock will unlock StatQueues part of this slice
+func (sis StatQueues) unlock() {
+	for _, s := range sis {
+		s.unlock()
+		if s.sqPrfl != nil {
+			s.sqPrfl.unlock()
+		}
+	}
+}
+
+func (sis StatQueues) IDs() []string {
+	ids := make([]string, len(sis))
+	for i, s := range sis {
+		ids[i] = s.ID
+	}
+	return ids
+}
+
+// UnmarshalJSON here only to fully support json for StatQueue
+func (sq *StatQueue) UnmarshalJSON(data []byte) (err error) {
+	var tmp struct {
+		Tenant    string
+		ID        string
+		SQItems   []SQItem
+		SQMetrics map[string]json.RawMessage
+	}
+	if err = json.Unmarshal(data, &tmp); err != nil {
+		return
+	}
+	sq.Tenant = tmp.Tenant
+	sq.ID = tmp.ID
+	sq.SQItems = tmp.SQItems
+	sq.SQMetrics = make(map[string]StatMetric)
+	for metricID, val := range tmp.SQMetrics {
+		metricSplit := strings.Split(metricID, utils.HashtagSep)
+		var metric StatMetric
+		switch metricSplit[0] {
+		case utils.MetaASR:
+			metric = new(StatASR)
+		case utils.MetaACD:
+			metric = new(StatACD)
+		case utils.MetaTCD:
+			metric = new(StatTCD)
+		case utils.MetaACC:
+			metric = new(StatACC)
+		case utils.MetaTCC:
+			metric = new(StatTCC)
+		case utils.MetaPDD:
+			metric = new(StatPDD)
+		case utils.MetaDDC:
+			metric = new(StatDDC)
+		case utils.MetaSum:
+			metric = new(StatSum)
+		case utils.MetaAverage:
+			metric = new(StatAverage)
+		case utils.MetaDistinct:
+			metric = new(StatDistinct)
+		default:
+			return fmt.Errorf("unsupported metric type <%s>", metricSplit[0])
+		}
+		if err = json.Unmarshal([]byte(val), metric); err != nil {
+			return
+		}
+		sq.SQMetrics[metricID] = metric
+	}
+	return
+}
+
+// UnmarshalJSON here only to fully support json for StatQueue
+func (ssq *StatQueueWithAPIOpts) UnmarshalJSON(data []byte) (err error) {
+	sq := new(StatQueue)
+	if err = json.Unmarshal(data, &sq); err != nil {
+		return
+	}
+	i := struct {
+		APIOpts map[string]any
+	}{}
+	if err = json.Unmarshal(data, &i); err != nil {
+		return
+	}
+	ssq.StatQueue = sq
+	ssq.APIOpts = i.APIOpts
+	return
 }

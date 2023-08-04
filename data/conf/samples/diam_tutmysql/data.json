@@ -101,7 +101,7 @@
 				},
 				{
 					"tag": "LastUsed", "path": "LastUsed", "type": "*sum", 
-					"value": "~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets[~Rating-Group(1)];~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Output-Octets[~Rating-Group(1)]"
+					"value": "~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets[~Rating-Group(1)>;~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Output-Octets[~Rating-Group(1)]"
 				},
 			],
 			"reply_fields": [
@@ -170,7 +170,7 @@
 				},
 				{
 					"tag": "LastUsed", "path": "LastUsed", "type": "*sum", 
-					"value": "~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets[~Rating-Group(2)];~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Output-Octets[~Rating-Group(2)]"
+					"value": "~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Input-Octets[~Rating-Group(2)>;~*req.Multiple-Services-Credit-Control.Used-Service-Unit.CC-Output-Octets[~Rating-Group(2)]"
 				},
 			],
 			"reply_fields": [

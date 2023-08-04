@@ -19,7 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/analyzers"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -29,19 +28,24 @@ func NewAnalyzerSv1(aS *analyzers.AnalyzerService) *AnalyzerSv1 {
 	return &AnalyzerSv1{aS: aS}
 }
 
-// Exports RPC from RLs
+// AnalyzerSv1 exports RPC from RLs
 type AnalyzerSv1 struct {
 	aS *analyzers.AnalyzerService
 }
 
-// Call implements birpc.ClientConnector interface for internal RPC
-func (aSv1 *AnalyzerSv1) Call(ctx *context.Context, serviceMethod string,
-	args interface{}, reply interface{}) error {
+// Call implements rpcclient.ClientConnector interface for internal RPC
+func (aSv1 *AnalyzerSv1) Call(serviceMethod string,
+	args any, reply any) error {
 	return utils.APIerRPCCall(aSv1, serviceMethod, args, reply)
 }
 
 // Ping return pong if the service is active
-func (alSv1 *AnalyzerSv1) Ping(ign *utils.CGREvent, reply *string) error {
+func (aSv1 *AnalyzerSv1) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
+}
+
+// StringQuery returns a list of API that match the query
+func (aSv1 *AnalyzerSv1) StringQuery(search *analyzers.QueryArgs, reply *[]map[string]any) error {
+	return aSv1.aS.V1StringQuery(search, reply)
 }

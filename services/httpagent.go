@@ -19,10 +19,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package services
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/cgrates/cgrates/agents"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/utils"
@@ -30,12 +32,14 @@ import (
 
 // NewHTTPAgent returns the HTTP Agent
 func NewHTTPAgent(cfg *config.CGRConfig, filterSChan chan *engine.FilterS,
-	server *utils.Server, connMgr *engine.ConnManager) servmanager.Service {
+	server *cores.Server, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &HTTPAgent{
 		cfg:         cfg,
 		filterSChan: filterSChan,
 		server:      server,
 		connMgr:     connMgr,
+		srvDep:      srvDep,
 	}
 }
 
@@ -44,10 +48,13 @@ type HTTPAgent struct {
 	sync.RWMutex
 	cfg         *config.CGRConfig
 	filterSChan chan *engine.FilterS
-	server      *utils.Server
+	server      *cores.Server
 
-	ha      *agents.HTTPAgent
+	// we can realy stop the HTTPAgent so keep a flag
+	// if we registerd the handlers
+	started bool
 	connMgr *engine.ConnManager
+	srvDep  map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -60,14 +67,15 @@ func (ha *HTTPAgent) Start() (err error) {
 	ha.filterSChan <- filterS
 
 	ha.Lock()
-	defer ha.Unlock()
-	utils.Logger.Info("Starting HTTP agent")
-	for _, agntCfg := range ha.cfg.HttpAgentCfg() {
-		ha.server.RegisterHttpHandler(agntCfg.Url,
+	ha.started = true
+	utils.Logger.Info(fmt.Sprintf("<%s> successfully started HTTPAgent", utils.HTTPAgent))
+	for _, agntCfg := range ha.cfg.HTTPAgentCfg() {
+		ha.server.RegisterHttpHandler(agntCfg.URL,
 			agents.NewHTTPAgent(ha.connMgr, agntCfg.SessionSConns, filterS,
 				ha.cfg.GeneralCfg().DefaultTenant, agntCfg.RequestPayload,
 				agntCfg.ReplyPayload, agntCfg.RequestProcessors))
 	}
+	ha.Unlock()
 	return
 }
 
@@ -78,6 +86,9 @@ func (ha *HTTPAgent) Reload() (err error) {
 
 // Shutdown stops the service
 func (ha *HTTPAgent) Shutdown() (err error) {
+	ha.Lock()
+	ha.started = false
+	ha.Unlock()
 	return // no shutdown for the momment
 }
 
@@ -85,7 +96,7 @@ func (ha *HTTPAgent) Shutdown() (err error) {
 func (ha *HTTPAgent) IsRunning() bool {
 	ha.RLock()
 	defer ha.RUnlock()
-	return ha != nil && ha.ha != nil
+	return ha != nil && ha.started
 }
 
 // ServiceName returns the service name
@@ -95,5 +106,5 @@ func (ha *HTTPAgent) ServiceName() string {
 
 // ShouldRun returns if the service should be running
 func (ha *HTTPAgent) ShouldRun() bool {
-	return len(ha.cfg.HttpAgentCfg()) != 0
+	return len(ha.cfg.HTTPAgentCfg()) != 0
 }

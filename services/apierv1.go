@@ -19,25 +19,26 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package services
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 
-	"github.com/cgrates/birpc"
 	v1 "github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/cores"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
+	"github.com/cgrates/rpcclient"
 )
 
 // NewAPIerSv1Service returns the APIerSv1 Service
 func NewAPIerSv1Service(cfg *config.CGRConfig, dm *DataDBService,
 	storDB *StorDBService, filterSChan chan *engine.FilterS,
-	server *utils.Server,
+	server *cores.Server,
 	schedService *SchedulerService,
 	responderService *ResponderService,
-	internalAPIerSv1Chan chan birpc.ClientConnector,
-	connMgr *engine.ConnManager) *APIerSv1Service {
+	internalAPIerSv1Chan chan rpcclient.ClientConnector,
+	connMgr *engine.ConnManager, anz *AnalyzerService,
+	srvDep map[string]*sync.WaitGroup) *APIerSv1Service {
 	return &APIerSv1Service{
 		connChan:         internalAPIerSv1Chan,
 		cfg:              cfg,
@@ -49,6 +50,8 @@ func NewAPIerSv1Service(cfg *config.CGRConfig, dm *DataDBService,
 		responderService: responderService,
 		connMgr:          connMgr,
 		APIerSv1Chan:     make(chan *v1.APIerSv1, 1),
+		anz:              anz,
+		srvDep:           srvDep,
 	}
 }
 
@@ -59,17 +62,19 @@ type APIerSv1Service struct {
 	dm               *DataDBService
 	storDB           *StorDBService
 	filterSChan      chan *engine.FilterS
-	server           *utils.Server
+	server           *cores.Server
 	schedService     *SchedulerService
 	responderService *ResponderService
 	connMgr          *engine.ConnManager
 
 	api      *v1.APIerSv1
-	connChan chan birpc.ClientConnector
+	connChan chan rpcclient.ClientConnector
 
-	syncStop chan struct{}
+	stopChan chan struct{}
 
 	APIerSv1Chan chan *v1.APIerSv1
+	anz          *AnalyzerService
+	srvDep       map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -85,47 +90,41 @@ func (apiService *APIerSv1Service) Start() (err error) {
 	datadb := <-dbchan
 	dbchan <- datadb
 
-	apiService.Lock()
-	defer apiService.Unlock()
-
 	storDBChan := make(chan engine.StorDB, 1)
-	apiService.syncStop = make(chan struct{})
+	apiService.stopChan = make(chan struct{})
 	apiService.storDB.RegisterSyncChan(storDBChan)
 	stordb := <-storDBChan
+
+	respChan := make(chan *engine.Responder, 1)
+	apiService.responderService.RegisterSyncChan(apiService.ServiceName(), respChan)
+	apiService.Lock()
+	defer apiService.Unlock()
 
 	apiService.api = &v1.APIerSv1{
 		DataManager:      datadb,
 		CdrDb:            stordb,
 		StorDb:           stordb,
 		Config:           apiService.cfg,
-		Responder:        apiService.responderService.GetResponder(),
 		SchedulerService: apiService.schedService,
 		FilterS:          filterS,
 		ConnMgr:          apiService.connMgr,
 		StorDBChan:       storDBChan,
+
+		Responder:     apiService.responderService.GetResponder(), // if already started use it
+		ResponderChan: respChan,                                   // if not wait in listenAndServe
 	}
 
-	go func(api *v1.APIerSv1, stopChan chan struct{}) {
-		if err := api.ListenAndServe(stopChan); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.CDRServer, err.Error()))
-			// erS.exitChan <- true
-		}
-	}(apiService.api, apiService.syncStop)
+	go apiService.api.ListenAndServe(apiService.stopChan)
 	runtime.Gosched()
 
 	if !apiService.cfg.DispatcherSCfg().Enabled {
 		apiService.server.RpcRegister(apiService.api)
 		apiService.server.RpcRegisterName(utils.ApierV1, apiService.api)
-		apiService.server.RpcRegister(v1.NewReplicatorSv1(datadb))
+		apiService.server.RpcRegister(v1.NewReplicatorSv1(datadb, apiService.api))
 	}
 
-	utils.RegisterRpcParams("", &v1.CDRsV1{})
-	utils.RegisterRpcParams("", &v1.SMGenericV1{})
-	utils.RegisterRpcParams("", apiService.api)
-	utils.RegisterRpcParams(utils.ApierV1, apiService.api)
 	//backwards compatible
-
-	apiService.connChan <- apiService.api
+	apiService.connChan <- apiService.anz.GetInternalCodec(apiService.api, utils.APIerSv1)
 
 	apiService.APIerSv1Chan <- apiService.api
 	return
@@ -139,9 +138,10 @@ func (apiService *APIerSv1Service) Reload() (err error) {
 // Shutdown stops the service
 func (apiService *APIerSv1Service) Shutdown() (err error) {
 	apiService.Lock()
-	close(apiService.syncStop)
+	close(apiService.stopChan)
 	apiService.api = nil
 	<-apiService.connChan
+	apiService.responderService.UnregisterSyncChan(apiService.ServiceName())
 	apiService.Unlock()
 	return
 }
@@ -170,7 +170,7 @@ func (apiService *APIerSv1Service) ShouldRun() bool {
 	return apiService.cfg.ApierCfg().Enabled
 }
 
-// GetDMChan returns the DataManager chanel
+// GetAPIerSv1Chan returns the DataManager chanel
 func (apiService *APIerSv1Service) GetAPIerSv1Chan() chan *v1.APIerSv1 {
 	apiService.RLock()
 	defer apiService.RUnlock()

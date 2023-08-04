@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -36,7 +35,6 @@ var sTestsDspSts = []func(t *testing.T){
 	testDspStsGetStatFailover,
 
 	testDspStsPing,
-	testDspStsPingEmptyCGREventWIthArgDispatcher,
 	testDspStsTestAuthKey,
 	testDspStsTestAuthKey2,
 	testDspStsTestAuthKey3,
@@ -76,12 +74,10 @@ func testDspStsPingFailover(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	ev := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+	ev := utils.CGREvent{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.StatSv1Ping, &ev, &reply); err != nil {
@@ -97,7 +93,7 @@ func testDspStsPingFailover(t *testing.T) {
 	}
 	allEngine2.stopEngine(t)
 	if err := dispEngine.RPC.Call(utils.StatSv1Ping, &ev, &reply); err == nil {
-		t.Errorf("Expected error but recived %v and reply %v\n", err, reply)
+		t.Errorf("Expected error but received %v and reply %v\n", err, reply)
 	}
 	allEngine.startEngine(t)
 	allEngine2.startEngine(t)
@@ -107,21 +103,21 @@ func testDspStsGetStatFailover(t *testing.T) {
 	var reply []string
 	var metrics map[string]string
 	expected := []string{"Stats1"}
-	args := engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME:  "Event1",
-				utils.Account:     "1001",
-				utils.AnswerTime:  time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:       time.Duration(135 * time.Second),
-				utils.COST:        123.0,
-				utils.RunID:       utils.MetaDefault,
-				utils.Destination: "1002"},
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventName:    "Event1",
+			utils.AccountField: "1001",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        135 * time.Second,
+			utils.Cost:         123.0,
+			utils.RunID:        utils.MetaDefault,
+			utils.Destination:  "1002",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.StatSv1ProcessEvent, args, &reply); err != nil {
@@ -130,9 +126,9 @@ func testDspStsGetStatFailover(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 
-	args2 := utils.TenantIDWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+	args2 := utils.TenantIDWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 		TenantID: &utils.TenantID{
 			Tenant: "cgrates.org",
@@ -150,7 +146,7 @@ func testDspStsGetStatFailover(t *testing.T) {
 
 	if err := dispEngine.RPC.Call(utils.StatSv1GetQueueStringMetrics,
 		args2, &metrics); err == nil || err.Error() != utils.ErrNotFound.Error() {
-		t.Errorf("Expected error NOT_FOUND but recived %v and reply %v\n", err, reply)
+		t.Errorf("Expected error NOT_FOUND but received %v and reply %v\n", err, reply)
 	}
 	allEngine2.startEngine(t)
 }
@@ -162,12 +158,10 @@ func testDspStsPing(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := dispEngine.RPC.Call(utils.StatSv1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+	if err := dispEngine.RPC.Call(utils.StatSv1Ping, &utils.CGREvent{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 	}, &reply); err != nil {
 		t.Error(err)
@@ -176,30 +170,19 @@ func testDspStsPing(t *testing.T) {
 	}
 }
 
-func testDspStsPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	var reply string
-	if err := dispEngine.RPC.Call(utils.StatSv1Ping,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
-	}
-}
-
 func testDspStsTestAuthKey(t *testing.T) {
 	var reply []string
-	args := engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.Account:    "1001",
-				utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:      time.Duration(135 * time.Second),
-				utils.COST:       123.0,
-				utils.PDD:        time.Duration(12 * time.Second)},
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("12345"),
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        135 * time.Second,
+			utils.Cost:         123.0,
+			utils.PDD:          12 * time.Second},
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.StatSv1ProcessEvent,
@@ -207,9 +190,9 @@ func testDspStsTestAuthKey(t *testing.T) {
 		t.Error(err)
 	}
 
-	args2 := utils.TenantIDWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("12345"),
+	args2 := utils.TenantIDWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "12345",
 		},
 		TenantID: &utils.TenantID{
 			Tenant: "cgrates.org",
@@ -228,20 +211,18 @@ func testDspStsTestAuthKey2(t *testing.T) {
 	var reply []string
 	var metrics map[string]string
 	expected := []string{"Stats2"}
-	args := engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.Account:     "1001",
-				utils.AnswerTime:  time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:       time.Duration(135 * time.Second),
-				utils.COST:        123.0,
-				utils.RunID:       utils.MetaDefault,
-				utils.Destination: "1002"},
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+	args := &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1001",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        135 * time.Second,
+			utils.Cost:         123.0,
+			utils.RunID:        utils.MetaDefault,
+			utils.Destination:  "1002"},
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.StatSv1ProcessEvent, args, &reply); err != nil {
@@ -250,9 +231,9 @@ func testDspStsTestAuthKey2(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 
-	args2 := utils.TenantIDWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+	args2 := utils.TenantIDWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 		TenantID: &utils.TenantID{
 			Tenant: "cgrates.org",
@@ -271,21 +252,19 @@ func testDspStsTestAuthKey2(t *testing.T) {
 		t.Errorf("expecting: %+v, received reply: %s", expectedMetrics, metrics)
 	}
 
-	args = engine.StatsArgsProcessEvent{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.Account:     "1002",
-				utils.AnswerTime:  time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				utils.Usage:       time.Duration(45 * time.Second),
-				utils.RunID:       utils.MetaDefault,
-				utils.COST:        10.0,
-				utils.Destination: "1001",
-			},
+	args = &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.RunID:        utils.MetaDefault,
+			utils.Cost:         10.0,
+			utils.Destination:  "1001",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.StatSv1ProcessEvent, args, &reply); err != nil {
@@ -310,9 +289,9 @@ func testDspStsTestAuthKey3(t *testing.T) {
 	var reply []string
 	var metrics map[string]float64
 
-	args2 := utils.TenantIDWithArgDispatcher{
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("stat12345"),
+	args2 := utils.TenantIDWithAPIOpts{
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
 		},
 		TenantID: &utils.TenantID{
 			Tenant: "cgrates.org",
@@ -321,7 +300,7 @@ func testDspStsTestAuthKey3(t *testing.T) {
 	}
 	expectedMetrics := map[string]float64{
 		utils.MetaTCC: 133,
-		utils.MetaTCD: 180,
+		utils.MetaTCD: 180 * 1e9,
 	}
 
 	if err := dispEngine.RPC.Call(utils.StatSv1GetQueueFloatMetrics,
@@ -333,12 +312,10 @@ func testDspStsTestAuthKey3(t *testing.T) {
 
 	estats := []string{"Stats2", "Stats2_1"}
 	if err := dispEngine.RPC.Call(utils.StatSv1GetQueueIDs,
-		&utils.TenantWithArgDispatcher{
-			TenantArg: &utils.TenantArg{
-				Tenant: "cgrates.org",
-			},
-			ArgDispatcher: &utils.ArgDispatcher{
-				APIKey: utils.StringPointer("stat12345"),
+		&utils.TenantWithAPIOpts{
+			Tenant: "cgrates.org",
+			APIOpts: map[string]any{
+				utils.OptsAPIKey: "stat12345",
 			},
 		}, &reply); err != nil {
 		t.Error(err)
@@ -350,24 +327,21 @@ func testDspStsTestAuthKey3(t *testing.T) {
 	}
 
 	estats = []string{"Stats2"}
-	if err := dispEngine.RPC.Call(utils.StatSv1GetStatQueuesForEvent,
-		&engine.StatsArgsProcessEvent{
-			CGREvent: &utils.CGREvent{
-				Tenant: "cgrates.org",
-				ID:     "GetStats",
-				Event: map[string]interface{}{
-					utils.Account:     "1002",
-					utils.AnswerTime:  time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-					utils.Usage:       time.Duration(45 * time.Second),
-					utils.RunID:       utils.MetaDefault,
-					utils.COST:        10.0,
-					utils.Destination: "1001",
-				},
-			},
-			ArgDispatcher: &utils.ArgDispatcher{
-				APIKey: utils.StringPointer("stat12345"),
-			},
-		}, &reply); err != nil {
+	if err := dispEngine.RPC.Call(utils.StatSv1GetStatQueuesForEvent, &utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "GetStats",
+		Event: map[string]any{
+			utils.AccountField: "1002",
+			utils.AnswerTime:   time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:        45 * time.Second,
+			utils.RunID:        utils.MetaDefault,
+			utils.Cost:         10.0,
+			utils.Destination:  "1001",
+		},
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "stat12345",
+		},
+	}, &reply); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(estats, reply) {
 		t.Errorf("expecting: %+v, received reply: %v", estats, reply)

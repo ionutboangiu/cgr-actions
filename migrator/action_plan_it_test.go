@@ -54,7 +54,8 @@ func TestActionPlanITRedis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actPlnCfgOut, err = config.NewCGRConfigFromPath(actPlnPathIn)
+	actPlnPathOut = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	actPlnCfgOut, err = config.NewCGRConfigFromPath(actPlnPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,8 @@ func TestActionPlanITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actPlnCfgOut, err = config.NewCGRConfigFromPath(actPlnPathIn)
+	actPlnPathOut = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	actPlnCfgOut, err = config.NewCGRConfigFromPath(actPlnPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,25 +162,29 @@ func TestActionPlanITMoveEncoding2(t *testing.T) {
 }
 
 func testActPlnITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(actPlnCfgIn.DataDbCfg().DataDbType,
-		actPlnCfgIn.DataDbCfg().DataDbHost, actPlnCfgIn.DataDbCfg().DataDbPort,
-		actPlnCfgIn.DataDbCfg().DataDbName, actPlnCfgIn.DataDbCfg().DataDbUser,
-		actPlnCfgIn.DataDbCfg().DataDbPass, actPlnCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", actPlnCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(actPlnCfgIn.DataDbCfg().Type,
+		actPlnCfgIn.DataDbCfg().Host, actPlnCfgIn.DataDbCfg().Port,
+		actPlnCfgIn.DataDbCfg().Name, actPlnCfgIn.DataDbCfg().User,
+		actPlnCfgIn.DataDbCfg().Password, actPlnCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), actPlnCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(actPlnCfgOut.DataDbCfg().DataDbType,
-		actPlnCfgOut.DataDbCfg().DataDbHost, actPlnCfgOut.DataDbCfg().DataDbPort,
-		actPlnCfgOut.DataDbCfg().DataDbName, actPlnCfgOut.DataDbCfg().DataDbUser,
-		actPlnCfgOut.DataDbCfg().DataDbPass, actPlnCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", actPlnCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(actPlnCfgOut.DataDbCfg().Type,
+		actPlnCfgOut.DataDbCfg().Host, actPlnCfgOut.DataDbCfg().Port,
+		actPlnCfgOut.DataDbCfg().Name, actPlnCfgOut.DataDbCfg().User,
+		actPlnCfgOut.DataDbCfg().Password, actPlnCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), actPlnCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	actPlnMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(actPlnPathIn, actPlnPathOut) {
+		actPlnMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		actPlnMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -257,13 +263,15 @@ func testActPlnITMigrateAndMove(t *testing.T) {
 			t.Errorf("Expecting: %+v, received: %+v", actPln.AccountIDs, result.AccountIDs)
 		} else if !reflect.DeepEqual(actPln.ActionTimings[0].Timing, result.ActionTimings[0].Timing) {
 			t.Errorf("Expecting: %+v, received: %+v", actPln.ActionTimings[0].Timing, result.ActionTimings[0].Timing)
+		} else if actPlnMigrator.stats[utils.ActionPlans] != 1 {
+			t.Errorf("Expecting: 1, received: %+v", actPlnMigrator.stats[utils.ActionPlans])
 		}
 	case utils.Move:
 		if err := actPlnMigrator.dmIN.DataManager().SetActionPlan((*v1actPln)[0].Id, actPln, true, utils.NonTransactional); err != nil {
 			t.Error("Error when setting ActionPlan ", err.Error())
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := actPlnMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := actPlnMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for ActionPlan ", err.Error())
 		}
@@ -286,6 +294,8 @@ func testActPlnITMigrateAndMove(t *testing.T) {
 		result, err = actPlnMigrator.dmIN.DataManager().GetActionPlan((*v1actPln)[0].Id, false, false, utils.NonTransactional)
 		if err != utils.ErrNotFound {
 			t.Error(err)
+		} else if actPlnMigrator.stats[utils.ActionPlans] != 1 {
+			t.Errorf("Expecting: 1, received: %+v", actPlnMigrator.stats[utils.ActionPlans])
 		}
 	}
 }

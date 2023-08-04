@@ -25,115 +25,77 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-func (dS *DispatcherService) ThresholdSv1Ping(args *utils.CGREventWithArgDispatcher, reply *string) (err error) {
-	if args == nil || (args.CGREvent == nil && args.ArgDispatcher == nil) {
-		args = utils.NewCGREventWithArgDispatcher()
-	} else if args.CGREvent == nil {
-		args.CGREvent = new(utils.CGREvent)
+func (dS *DispatcherService) ThresholdSv1Ping(args *utils.CGREvent, reply *string) (err error) {
+	if args == nil {
+		args = new(utils.CGREvent)
 	}
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.ThresholdSv1Ping,
-			args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+		if err = dS.authorize(utils.ThresholdSv1Ping, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaThresholds, routeID,
-		utils.ThresholdSv1Ping, args, reply)
+	return dS.Dispatch(args, utils.MetaThresholds, utils.ThresholdSv1Ping, args, reply)
 }
 
-func (dS *DispatcherService) ThresholdSv1GetThresholdsForEvent(args *engine.ArgsProcessEvent,
+func (dS *DispatcherService) ThresholdSv1GetThresholdsForEvent(args *utils.CGREvent,
 	t *engine.Thresholds) (err error) {
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ThresholdSv1GetThresholdsForEvent,
-			args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+			args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaThresholds, routeID,
-		utils.ThresholdSv1GetThresholdsForEvent, args, t)
+	return dS.Dispatch(args, utils.MetaThresholds, utils.ThresholdSv1GetThresholdsForEvent, args, t)
 }
 
-func (dS *DispatcherService) ThresholdSv1ProcessEvent(args *engine.ArgsProcessEvent,
+func (dS *DispatcherService) ThresholdSv1ProcessEvent(args *utils.CGREvent,
 	tIDs *[]string) (err error) {
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ThresholdSv1ProcessEvent,
-			args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+			args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaThresholds, routeID,
-		utils.ThresholdSv1ProcessEvent, args, tIDs)
+	return dS.Dispatch(args, utils.MetaThresholds, utils.ThresholdSv1ProcessEvent, args, tIDs)
 }
 
-func (dS *DispatcherService) ThresholdSv1GetThresholdIDs(args *utils.TenantWithArgDispatcher, tIDs *[]string) (err error) {
+func (dS *DispatcherService) ThresholdSv1GetThresholdIDs(args *utils.TenantWithAPIOpts, tIDs *[]string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.TenantArg != nil && args.TenantArg.Tenant != utils.EmptyString {
-		tnt = args.TenantArg.Tenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ThresholdSv1GetThresholdIDs,
-			tnt, args.APIKey, utils.TimePointer(time.Now())); err != nil {
+			tnt, utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tnt}, utils.MetaThresholds, routeID,
-		utils.ThresholdSv1GetThresholdIDs, args, tIDs)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaThresholds, utils.ThresholdSv1GetThresholdIDs, args, tIDs)
 }
 
-func (dS *DispatcherService) ThresholdSv1GetThreshold(args *utils.TenantIDWithArgDispatcher, th *engine.Threshold) (err error) {
+func (dS *DispatcherService) ThresholdSv1GetThreshold(args *utils.TenantIDWithAPIOpts, th *engine.Threshold) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
 	if args.TenantID != nil && args.TenantID.Tenant != utils.EmptyString {
 		tnt = args.TenantID.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.ThresholdSv1GetThreshold, tnt,
-			args.APIKey, utils.TimePointer(time.Now())); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
 	return dS.Dispatch(&utils.CGREvent{
-		Tenant: tnt,
-		ID:     args.ID,
-	}, utils.MetaThresholds, routeID, utils.ThresholdSv1GetThreshold, args, th)
+		Tenant:  tnt,
+		ID:      args.ID,
+		APIOpts: args.APIOpts,
+	}, utils.MetaThresholds, utils.ThresholdSv1GetThreshold, args, th)
 }

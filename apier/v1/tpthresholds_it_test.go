@@ -38,7 +38,6 @@ var (
 	tpThresholdCfgPath   string
 	tpThresholdCfg       *config.CGRConfig
 	tpThresholdRPC       *rpc.Client
-	tpThresholdDataDir   = "/usr/share/cgrates"
 	tpThreshold          *utils.TPThresholdProfile
 	tpThresholdDelay     int
 	tpThresholdConfigDIR string //run tests for specific configuration
@@ -81,13 +80,11 @@ func TestTPThresholdIT(t *testing.T) {
 
 func testTPThreholdInitCfg(t *testing.T) {
 	var err error
-	tpThresholdCfgPath = path.Join(tpThresholdDataDir, "conf", "samples", tpThresholdConfigDIR)
+	tpThresholdCfgPath = path.Join(*dataDir, "conf", "samples", tpThresholdConfigDIR)
 	tpThresholdCfg, err = config.NewCGRConfigFromPath(tpThresholdCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpThresholdCfg.DataFolderPath = tpThresholdDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpThresholdCfg)
 	tpThresholdDelay = 1000
 
 }

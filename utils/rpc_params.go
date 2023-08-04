@@ -25,16 +25,16 @@ import (
 
 var (
 	rpcParamsMap  = make(map[string]*RpcParams)
-	rpcParamsLock sync.RWMutex
+	rpcParamsLock sync.Mutex
 )
 
 type RpcParams struct {
-	Object   interface{}
-	InParam  interface{}
-	OutParam interface{}
+	Object   any
+	InParam  any
+	OutParam any
 }
 
-func RegisterRpcParams(name string, obj interface{}) {
+func RegisterRpcParams(name string, obj any) {
 	objType := reflect.TypeOf(obj)
 	if name == "" {
 		val := reflect.ValueOf(obj)
@@ -62,12 +62,12 @@ func RegisterRpcParams(name string, obj interface{}) {
 	}
 }
 
-func GetRpcParams(method string) (*RpcParams, error) {
+func GetRpcParams(method string) (params *RpcParams, err error) {
+	var found bool
 	rpcParamsLock.Lock()
-	x, found := rpcParamsMap[method]
-	rpcParamsLock.Unlock()
-	if !found {
+	defer rpcParamsLock.Unlock()
+	if params, found = rpcParamsMap[method]; !found {
 		return nil, ErrNotFound
 	}
-	return x, nil
+	return
 }

@@ -49,7 +49,7 @@ func (m *Migrator) migrateCurrentSessionSCost() (err error) {
 func (m *Migrator) migrateSessionSCosts() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentStorDBVersions()
-	vrs, err = m.storDBOut.StorDB().GetVersions("")
+	vrs, err = m.storDBIn.StorDB().GetVersions("")
 	if err != nil {
 		return utils.NewCGRError(utils.Migrator,
 			utils.ServerErrorCaps,
@@ -61,7 +61,9 @@ func (m *Migrator) migrateSessionSCosts() (err error) {
 			utils.UndefinedVersion,
 			"version number is not defined for SessionsCosts model")
 	}
-	switch vrs[utils.SessionSCosts] {
+	switch version := vrs[utils.SessionSCosts]; version {
+	default:
+		return fmt.Errorf("Unsupported version %v", version)
 	case 0, 1:
 		if err = m.migrateV1SessionSCosts(); err != nil {
 			return err
@@ -115,18 +117,14 @@ func (m *Migrator) migrateV2SessionSCosts() (err error) {
 		if err = m.storDBIn.remV2SMCost(v2Cost); err != nil {
 			return err
 		}
-		m.stats[utils.SessionSCosts] += 1
+		m.stats[utils.SessionSCosts]++
 	}
 	if m.dryRun {
 		return
 	}
 	// All done, update version wtih current one
-	vrs := engine.Versions{utils.SessionSCosts: engine.CurrentStorDBVersions()[utils.SessionSCosts]}
-	if err = m.storDBOut.StorDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating SessionSCosts version into StorDB", err.Error()))
+	if err = m.setVersions(utils.SessionSCosts); err != nil {
+		return err
 	}
 	return
 }

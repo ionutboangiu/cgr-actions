@@ -25,110 +25,173 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-func TestRalsCfgFromJsonCfg(t *testing.T) {
-	var ralscfg, expected RalsCfg
-	if err := ralscfg.loadFromJsonCfg(nil); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(ralscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, ralscfg)
-	}
-	if err := ralscfg.loadFromJsonCfg(new(RalsJsonCfg)); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(ralscfg, expected) {
-		t.Errorf("Expected: %+v ,recived: %+v", expected, ralscfg)
-	}
-	cfgJSONStr := `{
-"rals": {
-	"enabled": false,						// enable Rater service: <true|false>
-	"thresholds_conns": [],					// address where to reach the thresholds service, empty to disable thresholds functionality: <""|*internal|x.y.z.y:1234>
-	"stats_conns": [],						// address where to reach the stat service, empty to disable stats functionality: <""|*internal|x.y.z.y:1234>
-	"users_conns": [],						// address where to reach the user service, empty to disable user profile functionality: <""|*internal|x.y.z.y:1234>
-	"rp_subject_prefix_matching": false,	// enables prefix matching for the rating profile subject
-	"max_computed_usage": {					// do not compute usage higher than this, prevents memory overload
-		"*any": "189h",
-		"*voice": "72h",
-		"*data": "107374182400",
-		"*sms": "10000"
-	},
-},
-}`
-	ralscfg.MaxComputedUsage = make(map[string]time.Duration)
-	expected = RalsCfg{
-		Enabled:                 false,
-		ThresholdSConns:         []string{},
-		StatSConns:              []string{},
-		RpSubjectPrefixMatching: false,
-		MaxComputedUsage: map[string]time.Duration{
-			utils.ANY:   time.Duration(189 * time.Hour),
-			utils.VOICE: time.Duration(72 * time.Hour),
-			utils.DATA:  time.Duration(107374182400),
-			utils.SMS:   time.Duration(10000),
+func TestRalsCfgFromJsonCfgCase1(t *testing.T) {
+	cfgJSON := &RalsJsonCfg{
+		Enabled:                    utils.BoolPointer(true),
+		Thresholds_conns:           &[]string{utils.MetaInternal, "*conn1"},
+		Stats_conns:                &[]string{utils.MetaInternal, "*conn1"},
+		Rp_subject_prefix_matching: utils.BoolPointer(true),
+		Remove_expired:             utils.BoolPointer(true),
+		Max_computed_usage: &map[string]string{
+			utils.MetaAny:   "189h0m0s",
+			utils.MetaVoice: "72h0m0s",
+			utils.MetaData:  "107374182400",
+			utils.MetaSMS:   "5000",
+			utils.MetaMMS:   "10000",
+		},
+		Max_increments: utils.IntPointer(1000000),
+		Balance_rating_subject: &map[string]string{
+			utils.MetaAny:   "*zero1ns",
+			utils.MetaVoice: "*zero1s",
 		},
 	}
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
+	expected := &RalsCfg{
+		Enabled:                 true,
+		ThresholdSConns:         []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds), "*conn1"},
+		StatSConns:              []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats), "*conn1"},
+		RpSubjectPrefixMatching: true,
+		RemoveExpired:           true,
+		MaxComputedUsage: map[string]time.Duration{
+			utils.MetaAny:   189 * time.Hour,
+			utils.MetaVoice: 72 * time.Hour,
+			utils.MetaData:  107374182400,
+			utils.MetaSMS:   5000,
+			utils.MetaMMS:   10000,
+		},
+		MaxIncrements: 1000000,
+		BalanceRatingSubject: map[string]string{
+			utils.MetaAny:   "*zero1ns",
+			utils.MetaVoice: "*zero1s",
+		},
+	}
+	cfg := NewDefaultCGRConfig()
+	if err = cfg.ralsCfg.loadFromJSONCfg(cfgJSON); err != nil {
 		t.Error(err)
-	} else if jsnRalsCfg, err := jsnCfg.RalsJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = ralscfg.loadFromJsonCfg(jsnRalsCfg); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(expected, ralscfg) {
-		t.Errorf("Expected: %+v , recived: %+v", utils.ToJSON(expected), utils.ToJSON(ralscfg))
+	} else if !reflect.DeepEqual(expected, cfg.ralsCfg) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(expected), utils.ToJSON(cfg.ralsCfg))
 	}
 }
 
-func TestRalsCfgAsMapInterface(t *testing.T) {
-	var ralscfg RalsCfg
-	ralscfg.BalanceRatingSubject = make(map[string]string)
-	ralscfg.MaxComputedUsage = make(map[string]time.Duration)
+func TestRalsCfgFromJsonCfgCase2(t *testing.T) {
+	cfgJSON := &RalsJsonCfg{
+		Max_computed_usage: &map[string]string{
+			utils.MetaAny: "189hh",
+		},
+	}
+	expected := "time: unknown unit \"hh\" in duration \"189hh\""
+	jsonCfg := NewDefaultCGRConfig()
+	if err = jsonCfg.ralsCfg.loadFromJSONCfg(cfgJSON); err == nil || err.Error() != expected {
+		t.Errorf("Expected %+v, received %+v", expected, err)
+	}
+}
+
+func TestRalsCfgAsMapInterfaceCase1(t *testing.T) {
 	cfgJSONStr := `{
 	"rals": {
-		"enabled": false,						
-		"thresholds_conns": [],					
-		"stats_conns": [],									
-		"rp_subject_prefix_matching": false,	
-		"remove_expired":true,					
-		"max_computed_usage": {					
-			"*any": "189h",
-			"*voice": "72h",
-			"*data": "107374182400",
-			"*sms": "10000",
-			"*mms": "10000"
-		},
-		"max_increments": 1000000,
-		"balance_rating_subject":{				
-			"*any": "*zero1ns",
-			"*voice": "*zero1s"
-		},
-		"dynaprepaid_actionplans": [],			
-	},
+        "enabled": true,						
+	    "thresholds_conns": ["*internal:*thresholds", "*conn1"],					
+	    "caches_conns": ["*internal:*caches", "*conn1"],						
+	    "stats_conns": ["*internal:*stats", "*conn1"],						
+	    "rp_subject_prefix_matching": true,	
+	    "max_computed_usage": {					// do not compute usage higher than this, prevents memory overload
+		   "*voice": "48h",
+		   "*sms": "5000"
+        }, 
+    },
 }`
-	eMap := map[string]interface{}{
-		"enabled":                    false,
-		"thresholds_conns":           []string{},
-		"stats_conns":                []string{},
-		"rp_subject_prefix_matching": false,
-		"remove_expired":             true,
-		"max_computed_usage": map[string]interface{}{
+	eMap := map[string]any{
+		utils.EnabledCfg:                 true,
+		utils.ThresholdSConnsCfg:         []string{utils.MetaInternal, "*conn1"},
+		utils.StatSConnsCfg:              []string{utils.MetaInternal, "*conn1"},
+		utils.RpSubjectPrefixMatchingCfg: true,
+		utils.RemoveExpiredCfg:           true,
+		utils.MaxComputedUsageCfg: map[string]any{
+			"*any":   "189h0m0s",
+			"*voice": "48h0m0s",
+			"*data":  "107374182400",
+			"*sms":   "5000",
+			"*mms":   "10000",
+		},
+		utils.MaxIncrementsCfg: 1000000,
+		utils.BalanceRatingSubjectCfg: map[string]string{
+			"*any":   "*zero1ns",
+			"*voice": "*zero1s",
+		},
+	}
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
+		t.Error(err)
+	} else if rcv := cgrCfg.ralsCfg.AsMapInterface(); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+}
+
+func TestRalsCfgAsMapInterfaceCase2(t *testing.T) {
+	cfgJSONStr := `{
+     "rals": {
+           "caches_conns": ["*conn1"],
+           "stats_conns": ["*internal:*stats"],
+     }
+}`
+	eMap := map[string]any{
+		utils.EnabledCfg:                 false,
+		utils.ThresholdSConnsCfg:         []string{},
+		utils.StatSConnsCfg:              []string{utils.MetaInternal},
+		utils.RpSubjectPrefixMatchingCfg: false,
+		utils.RemoveExpiredCfg:           true,
+		utils.MaxComputedUsageCfg: map[string]any{
 			"*any":   "189h0m0s",
 			"*voice": "72h0m0s",
 			"*data":  "107374182400",
 			"*sms":   "10000",
 			"*mms":   "10000",
 		},
-		"max_increments": 1000000,
-		"balance_rating_subject": map[string]interface{}{
+		utils.MaxIncrementsCfg: 1000000,
+		utils.BalanceRatingSubjectCfg: map[string]string{
 			"*any":   "*zero1ns",
 			"*voice": "*zero1s",
 		},
 	}
+	if cgrCfg, err := NewCGRConfigFromJSONStringWithDefaults(cfgJSONStr); err != nil {
+		t.Error(err)
+	} else if rcv := cgrCfg.ralsCfg.AsMapInterface(); !reflect.DeepEqual(rcv, eMap) {
+		t.Errorf("Expected %+v \n, received %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+	}
+}
 
-	if jsnCfg, err := NewCgrJsonCfgFromBytes([]byte(cfgJSONStr)); err != nil {
-		t.Error(err)
-	} else if jsnRalsCfg, err := jsnCfg.RalsJsonCfg(); err != nil {
-		t.Error(err)
-	} else if err = ralscfg.loadFromJsonCfg(jsnRalsCfg); err != nil {
-		t.Error(err)
-	} else if rcv := ralscfg.AsMapInterface(); !reflect.DeepEqual(eMap, rcv) {
-		t.Errorf("Expected: %+v ,\n recived: %+v", utils.ToJSON(eMap), utils.ToJSON(rcv))
+func TestRalsCfgClone(t *testing.T) {
+	ban := &RalsCfg{
+		Enabled:                 true,
+		ThresholdSConns:         []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds), "*conn1"},
+		StatSConns:              []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats), "*conn1"},
+		RpSubjectPrefixMatching: true,
+		RemoveExpired:           true,
+		MaxComputedUsage: map[string]time.Duration{
+			utils.MetaAny:   189 * time.Hour,
+			utils.MetaVoice: 72 * time.Hour,
+			utils.MetaData:  107374182400,
+			utils.MetaSMS:   5000,
+			utils.MetaMMS:   10000,
+		},
+		MaxIncrements: 1000000,
+		BalanceRatingSubject: map[string]string{
+			utils.MetaAny:   "*zero1ns",
+			utils.MetaVoice: "*zero1s",
+		},
+	}
+	rcv := ban.Clone()
+	if !reflect.DeepEqual(ban, rcv) {
+		t.Errorf("Expected: %+v\nReceived: %+v", utils.ToJSON(ban), utils.ToJSON(rcv))
+	}
+	if rcv.ThresholdSConns[1] = ""; ban.ThresholdSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.StatSConns[1] = ""; ban.StatSConns[1] != "*conn1" {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.MaxComputedUsage[utils.MetaAny] = 0; ban.MaxComputedUsage[utils.MetaAny] != 189*time.Hour {
+		t.Errorf("Expected clone to not modify the cloned")
+	}
+	if rcv.BalanceRatingSubject[utils.MetaAny] = ""; ban.BalanceRatingSubject[utils.MetaAny] != "*zero1ns" {
+		t.Errorf("Expected clone to not modify the cloned")
 	}
 }

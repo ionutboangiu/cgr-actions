@@ -29,7 +29,7 @@ func init() {
 	c := &CmdAttributesProcessEvent{
 		name:      "attributes_process_event",
 		rpcMethod: utils.AttributeSv1ProcessEvent,
-		rpcParams: &engine.AttrArgsProcessEvent{},
+		rpcParams: &utils.CGREvent{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -38,7 +38,7 @@ func init() {
 type CmdAttributesProcessEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *engine.AttrArgsProcessEvent
+	rpcParams *utils.CGREvent
 	*CommandExecuter
 }
 
@@ -50,9 +50,9 @@ func (self *CmdAttributesProcessEvent) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdAttributesProcessEvent) RpcParams(reset bool) interface{} {
+func (self *CmdAttributesProcessEvent) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.AttrArgsProcessEvent{ArgDispatcher: new(utils.ArgDispatcher)}
+		self.rpcParams = new(utils.CGREvent)
 	}
 	return self.rpcParams
 }
@@ -64,13 +64,13 @@ func (self *CmdAttributesProcessEvent) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdAttributesProcessEvent) RpcResult() interface{} {
+func (self *CmdAttributesProcessEvent) RpcResult() any {
 	var atr engine.AttrSProcessEventReply
 	return &atr
 }
 
-func (self *CmdAttributesProcessEvent) GetFormatedResult(result interface{}) string {
-	return GetFormatedResult(result, map[string]struct{}{
-		"Usage": {},
+func (self *CmdAttributesProcessEvent) GetFormatedResult(result any) string {
+	return GetFormatedResult(result, utils.StringSet{
+		utils.Usage: {},
 	})
 }

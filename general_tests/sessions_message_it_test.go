@@ -136,9 +136,9 @@ func testSesMFDItAddVoiceBalance(t *testing.T) {
 	if err := sesMFDRPC.Call(utils.APIerSv2SetBalance, utils.AttrSetBalance{
 		Tenant:      "cgrates.org",
 		Account:     "1001",
-		BalanceType: utils.SMS,
+		BalanceType: utils.MetaSMS,
 		Value:       1,
-		Balance: map[string]interface{}{
+		Balance: map[string]any{
 			utils.ID:            "TestSesBal1",
 			utils.RatingSubject: "*zero1",
 		},
@@ -157,7 +157,7 @@ func testSesMFDItAddVoiceBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := 1.
-	if rply := acnt.BalanceMap[utils.SMS].GetTotalValue(); rply != expected {
+	if rply := acnt.BalanceMap[utils.MetaSMS].GetTotalValue(); rply != expected {
 		t.Errorf("Expected: %v, received: %v", expected, rply)
 	}
 }
@@ -170,17 +170,17 @@ func testSesMFDItProcessMessage(t *testing.T) {
 			CGREvent: &utils.CGREvent{
 				Tenant: "cgrates.org",
 				ID:     utils.UUIDSha1Prefix(),
-				Event: map[string]interface{}{
-					utils.OriginID:    utils.UUIDSha1Prefix(),
-					utils.ToR:         utils.SMS,
-					utils.Category:    utils.SMS,
-					utils.Tenant:      "cgrates.org",
-					utils.Account:     "1001",
-					utils.Subject:     "1001",
-					utils.Destination: "1002",
-					utils.RequestType: utils.META_PREPAID,
-					utils.Usage:       1,
-					utils.AnswerTime:  time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
+				Event: map[string]any{
+					utils.OriginID:     utils.UUIDSha1Prefix(),
+					utils.ToR:          utils.MetaSMS,
+					utils.Category:     utils.MetaSMS,
+					utils.Tenant:       "cgrates.org",
+					utils.AccountField: "1001",
+					utils.Subject:      "1001",
+					utils.Destination:  "1002",
+					utils.RequestType:  utils.MetaPrepaid,
+					utils.Usage:        1,
+					utils.AnswerTime:   time.Date(2016, time.January, 5, 18, 31, 05, 0, time.UTC),
 				},
 			},
 		}, &initRpl); err == nil || err.Error() != utils.NewErrRALs(utils.ErrRatingPlanNotFound).Error() {
@@ -199,7 +199,7 @@ func testSesMFDItGetAccountAfter(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := 1.
-	if rply := acnt.BalanceMap[utils.SMS].GetTotalValue(); rply != expected {
+	if rply := acnt.BalanceMap[utils.MetaSMS].GetTotalValue(); rply != expected {
 		t.Errorf("Expected: %v, received: %v", expected, rply)
 	}
 }

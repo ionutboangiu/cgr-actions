@@ -46,7 +46,7 @@ func TestAttrSetActionTriggerUpdateActionTrigger(t *testing.T) {
 	ast = AttrSetActionTrigger{
 		GroupID:  "GroupID",
 		UniqueID: "ID",
-		ActionTrigger: map[string]interface{}{
+		ActionTrigger: map[string]any{
 			utils.ThresholdType:         "THR",
 			utils.ThresholdValue:        10,
 			utils.Recurrent:             false,
@@ -56,12 +56,12 @@ func TestAttrSetActionTriggerUpdateActionTrigger(t *testing.T) {
 			utils.ActivationDate:        tNow,
 			utils.BalanceID:             "*default",
 			utils.BalanceType:           "*call",
-			utils.BalanceDestinationIds: []interface{}{"DST1", "DST2"},
+			utils.BalanceDestinationIds: []any{"DST1", "DST2"},
 			utils.BalanceWeight:         10,
 			utils.BalanceExpirationDate: tNow,
 			utils.BalanceTimingTags:     []string{"*asap"},
 			utils.BalanceRatingSubject:  "*zero",
-			utils.BalanceCategories:     []string{utils.CALL},
+			utils.BalanceCategories:     []string{utils.Call},
 			utils.BalanceSharedGroups:   []string{"SHRGroup"},
 			utils.BalanceBlocker:        true,
 			utils.BalanceDisabled:       false,
@@ -85,7 +85,7 @@ func TestAttrSetActionTriggerUpdateActionTrigger(t *testing.T) {
 			Weight:         utils.Float64Pointer(10),
 			DestinationIDs: utils.StringMapPointer(utils.NewStringMap("DST1", "DST2")),
 			RatingSubject:  utils.StringPointer("*zero"),
-			Categories:     utils.StringMapPointer(utils.NewStringMap(utils.CALL)),
+			Categories:     utils.StringMapPointer(utils.NewStringMap(utils.Call)),
 			SharedGroups:   utils.StringMapPointer(utils.NewStringMap("SHRGroup")),
 			TimingIDs:      utils.StringMapPointer(utils.NewStringMap("*asap")),
 			Disabled:       utils.BoolPointer(false),

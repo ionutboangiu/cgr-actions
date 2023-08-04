@@ -123,10 +123,10 @@ func testApierSetActions(t *testing.T) {
 	if err := accRPC.Call(utils.APIerSv1SetActions, &v1.V1AttrSetActions{
 		ActionsId: "TestAccountAction",
 		Actions: []*v1.V1TPAction{{
-			Identifier:  utils.TOPUP_RESET,
-			BalanceType: utils.MONETARY,
+			Identifier:  utils.MetaTopUpReset,
+			BalanceType: utils.MetaMonetary,
 			Units:       75.0,
-			ExpiryTime:  utils.UNLIMITED,
+			ExpiryTime:  utils.MetaUnlimited,
 			Weight:      20.0,
 		}},
 	}, &reply); err != nil {

@@ -31,12 +31,14 @@ import (
 
 // NewRadiusAgent returns the Radius Agent
 func NewRadiusAgent(cfg *config.CGRConfig, filterSChan chan *engine.FilterS,
-	exitChan chan bool, connMgr *engine.ConnManager) servmanager.Service {
+	shdChan *utils.SyncedChan, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &RadiusAgent{
 		cfg:         cfg,
 		filterSChan: filterSChan,
-		exitChan:    exitChan,
+		shdChan:     shdChan,
 		connMgr:     connMgr,
+		srvDep:      srvDep,
 	}
 }
 
@@ -45,11 +47,16 @@ type RadiusAgent struct {
 	sync.RWMutex
 	cfg         *config.CGRConfig
 	filterSChan chan *engine.FilterS
+	shdChan     *utils.SyncedChan
 	stopChan    chan struct{}
-	exitChan    chan bool
 
 	rad     *agents.RadiusAgent
 	connMgr *engine.ConnManager
+	srvDep  map[string]*sync.WaitGroup
+
+	lnet  string
+	lauth string
+	lacct string
 }
 
 // Start should handle the sercive start
@@ -64,32 +71,52 @@ func (rad *RadiusAgent) Start() (err error) {
 	rad.Lock()
 	defer rad.Unlock()
 
+	rad.lnet = rad.cfg.RadiusAgentCfg().ListenNet
+	rad.lauth = rad.cfg.RadiusAgentCfg().ListenAuth
+	rad.lacct = rad.cfg.RadiusAgentCfg().ListenAcct
+
 	if rad.rad, err = agents.NewRadiusAgent(rad.cfg, filterS, rad.connMgr); err != nil {
 		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.RadiusAgent, err.Error()))
 		return
 	}
 	rad.stopChan = make(chan struct{})
-	go func() {
-		if err = rad.rad.ListenAndServe(rad.stopChan); err != nil {
-			utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.RadiusAgent, err.Error()))
-		}
-		rad.exitChan <- true
-	}()
+
+	go rad.listenAndServe(rad.rad)
+
+	return
+}
+
+func (rad *RadiusAgent) listenAndServe(r *agents.RadiusAgent) (err error) {
+	if err = r.ListenAndServe(rad.stopChan); err != nil {
+		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s>", utils.RadiusAgent, err.Error()))
+		rad.shdChan.CloseOnce()
+	}
 	return
 }
 
 // Reload handles the change of config
 func (rad *RadiusAgent) Reload() (err error) {
-	return
+	if rad.lnet == rad.cfg.RadiusAgentCfg().ListenNet &&
+		rad.lauth == rad.cfg.RadiusAgentCfg().ListenAuth &&
+		rad.lacct == rad.cfg.RadiusAgentCfg().ListenAcct {
+		return
+	}
+
+	rad.shutdown()
+	return rad.Start()
 }
 
 // Shutdown stops the service
 func (rad *RadiusAgent) Shutdown() (err error) {
+	rad.shutdown()
+	return // no shutdown for the momment
+}
+
+func (rad *RadiusAgent) shutdown() {
 	rad.Lock()
 	close(rad.stopChan)
 	rad.rad = nil
 	rad.Unlock()
-	return
 }
 
 // IsRunning returns if the service is running

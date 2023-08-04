@@ -74,6 +74,12 @@ func (v1ms *mongoStorDBMigrator) setV1CDR(v1Cdr *v1Cdrs) (err error) {
 	return
 }
 
+// rem
+func (v1ms *mongoStorDBMigrator) remV1CDRs(v1Cdr *v1Cdrs) (err error) {
+	_, err = v1ms.mgoDB.DB().Collection(engine.ColCDRs).DeleteOne(v1ms.mgoDB.GetContext(), v1Cdr)
+	return
+}
+
 // SMCost methods
 // rename
 func (v1ms *mongoStorDBMigrator) renameV1SMCosts() (err error) {
@@ -81,14 +87,14 @@ func (v1ms *mongoStorDBMigrator) renameV1SMCosts() (err error) {
 		return err
 	}
 	return v1ms.mgoDB.DB().RunCommand(v1ms.mgoDB.GetContext(),
-		bson.D{{"create", utils.SessionCostsTBL}}).Err()
+		bson.D{{Key: "create", Value: utils.SessionCostsTBL}}).Err()
 }
 
 func (v1ms *mongoStorDBMigrator) createV1SMCosts() (err error) {
 	v1ms.mgoDB.DB().Collection(utils.OldSMCosts).Drop(v1ms.mgoDB.GetContext())
 	v1ms.mgoDB.DB().Collection(utils.SessionCostsTBL).Drop(v1ms.mgoDB.GetContext())
 	return v1ms.mgoDB.DB().RunCommand(v1ms.mgoDB.GetContext(),
-		bson.D{{"create", utils.OldSMCosts}, {"size", 1024}, {"capped", true}}).Err()
+		bson.D{{Key: "create", Value: utils.OldSMCosts}, {Key: "size", Value: 1024}, {Key: "capped", Value: true}}).Err()
 }
 
 // get

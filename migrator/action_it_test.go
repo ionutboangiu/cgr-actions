@@ -54,7 +54,8 @@ func TestActionITRedis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actCfgOut, err = config.NewCGRConfigFromPath(actPathIn)
+	actPathOut = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	actCfgOut, err = config.NewCGRConfigFromPath(actPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,8 @@ func TestActionITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actCfgOut, err = config.NewCGRConfigFromPath(actPathIn)
+	actPathOut = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	actCfgOut, err = config.NewCGRConfigFromPath(actPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,25 +162,29 @@ func TestActionITMoveEncoding2(t *testing.T) {
 }
 
 func testActITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(actCfgIn.DataDbCfg().DataDbType,
-		actCfgIn.DataDbCfg().DataDbHost, actCfgIn.DataDbCfg().DataDbPort,
-		actCfgIn.DataDbCfg().DataDbName, actCfgIn.DataDbCfg().DataDbUser,
-		actCfgIn.DataDbCfg().DataDbPass, actCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", actCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(actCfgIn.DataDbCfg().Type,
+		actCfgIn.DataDbCfg().Host, actCfgIn.DataDbCfg().Port,
+		actCfgIn.DataDbCfg().Name, actCfgIn.DataDbCfg().User,
+		actCfgIn.DataDbCfg().Password, actCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), actCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(actCfgOut.DataDbCfg().DataDbType,
-		actCfgOut.DataDbCfg().DataDbHost, actCfgOut.DataDbCfg().DataDbPort,
-		actCfgOut.DataDbCfg().DataDbName, actCfgOut.DataDbCfg().DataDbUser,
-		actCfgOut.DataDbCfg().DataDbPass, actCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", accCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(actCfgOut.DataDbCfg().Type,
+		actCfgOut.DataDbCfg().Host, actCfgOut.DataDbCfg().Port,
+		actCfgOut.DataDbCfg().Name, actCfgOut.DataDbCfg().User,
+		actCfgOut.DataDbCfg().Password, actCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), actCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	actMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(actPathIn, actPathOut) {
+		actMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		actMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -262,13 +268,15 @@ func testActITMigrateAndMove(t *testing.T) {
 		}
 		if !reflect.DeepEqual(act, &result) {
 			t.Errorf("Expecting: %+v, received: %+v", act, &result)
+		} else if actMigrator.stats[utils.Actions] != 1 {
+			t.Errorf("Expecting: 1, received: %+v", actMigrator.stats[utils.Actions])
 		}
 	case utils.Move:
-		if err := actMigrator.dmIN.DataManager().SetActions(v1act.Id, *act, utils.NonTransactional); err != nil {
+		if err := actMigrator.dmIN.DataManager().SetActions(v1act.Id, *act); err != nil {
 			t.Error("Error when setting ActionPlan ", err.Error())
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := actMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := actMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for Actions ", err.Error())
 		}
@@ -282,6 +290,8 @@ func testActITMigrateAndMove(t *testing.T) {
 		}
 		if !reflect.DeepEqual(act, &result) {
 			t.Errorf("Expecting: %+v, received: %+v", act, &result)
+		} else if actMigrator.stats[utils.Actions] != 1 {
+			t.Errorf("Expecting: 1, received: %+v", actMigrator.stats[utils.Actions])
 		}
 	}
 }

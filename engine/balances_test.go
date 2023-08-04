@@ -18,11 +18,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
+	"bytes"
+	"log"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -119,6 +122,12 @@ func TestBalanceMatchFilter(t *testing.T) {
 	if !mb1.MatchFilter(mb2, false, false) {
 		t.Errorf("Match filter failure: %+v == %+v", mb1, mb2)
 	}
+
+	mb1.Uuid, mb2.Uuid = "id", utils.StringPointer("id")
+	if !mb1.MatchFilter(mb2, false, false) {
+		t.Errorf("Match filter failure: %+v == %+v", mb1, mb2)
+	}
+
 }
 
 func TestBalanceMatchFilterEmpty(t *testing.T) {
@@ -146,7 +155,12 @@ func TestBalanceMatchFilterDiffId(t *testing.T) {
 }
 
 func TestBalanceClone(t *testing.T) {
-	mb1 := &Balance{Value: 1, Weight: 2, RatingSubject: "test", DestinationIDs: utils.NewStringMap("5")}
+	var mb1 *Balance
+	if mb2 := mb1.Clone(); mb2 != nil {
+		t.Errorf("Balance should be %v", mb2)
+	}
+
+	mb1 = &Balance{Value: 1, Weight: 2, RatingSubject: "test", DestinationIDs: utils.NewStringMap("5")}
 	mb2 := mb1.Clone()
 	if mb1 == mb2 || !mb1.Equal(mb2) {
 		t.Errorf("Cloning failure: \n%+v\n%+v", mb1, mb2)
@@ -217,6 +231,7 @@ func TestBalanceMatchActionTriggerWeight(t *testing.T) {
 }
 
 func TestBalanceMatchActionTriggerRatingSubject(t *testing.T) {
+
 	at := &ActionTrigger{Balance: &BalanceFilter{RatingSubject: utils.StringPointer("test")}}
 	b := &Balance{RatingSubject: "test"}
 	if !b.MatchActionTrigger(at) {
@@ -292,147 +307,783 @@ func TestBalanceIsExpiredAt(t *testing.T) {
 	if rcv := balance.IsExpiredAt(date3); rcv {
 		t.Errorf("Expecting: false , received: %+v", rcv)
 	}
+
 }
 
-func TestBalancesSaveDirtyBalances(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	tmpDm := dm
-	tmpConn := connMgr
-	defer func() {
-		cfg2, _ := config.NewDefaultCGRConfig()
-		config.SetCgrConfig(cfg2)
-		dm = tmpDm
-		connMgr = tmpConn
-	}()
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+func TestBalanceAsInterface(t *testing.T) {
 
-	cfg.RalsCfg().ThresholdSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)}
-	clientConn := make(chan birpc.ClientConnector, 1)
-	clientConn <- &ccMock{
-		calls: map[string]func(ctx *context.Context, args interface{}, reply interface{}) error{
-			utils.ThresholdSv1ProcessEvent: func(ctx *context.Context, args, reply interface{}) error {
-				return nil
+	b := &Balance{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          2.21,
+		ExpirationDate: time.Date(2022, 11, 22, 9, 0, 0, 0, time.UTC),
+		Weight:         2.88,
+		DestinationIDs: utils.StringMap{
+			"destId1": true,
+			"destId2": true,
+		},
+		RatingSubject: "rating",
+		Categories: utils.StringMap{
+			"ctg1": true,
+			"ctg2": false,
+		},
+		SharedGroups: utils.StringMap{
+			"shgp1": false,
+			"shgp2": true,
+		},
+		Timings: []*RITiming{
+			{
+				ID:    "id",
+				Years: utils.Years{2, 3},
 			},
 		},
-	}
-	connMgr := NewConnManager(cfg, map[string]chan birpc.ClientConnector{
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds): clientConn,
-	})
-	acc := &Account{
-		ID: "cgrates.org:cond",
-		BalanceMap: map[string]Balances{
-			utils.MONETARY: {
-				&Balance{
-					Uuid:   utils.GenUUID(),
-					Value:  1,
-					Weight: 10,
-				},
-				&Balance{
-					Uuid:   utils.GenUUID(),
-					Value:  6,
-					Weight: 20,
-				},
-			},
-			utils.VOICE: {
-				&Balance{
-					Uuid:   utils.GenUUID(),
-					Value:  10,
-					Weight: 10,
-				},
-				&Balance{
-					Uuid:   utils.GenUUID(),
-					Value:  100,
-					Weight: 20,
-				},
-			},
-		}}
-	bAcc := &Account{
-		ID: "cgrates.org:max",
-		BalanceMap: map[string]Balances{
-			utils.MONETARY: {
-				&Balance{Value: 11, Weight: 20},
-			}},
-	}
-	bc := Balances{
-		&Balance{Value: 200 * float64(time.Second),
-			DestinationIDs: utils.NewStringMap("NAT"), Weight: 10,
-			dirty:   true,
-			account: bAcc,
+		TimingIDs: utils.StringMap{
+			"timingid1": true,
+			"timingid2": false,
+		},
+		Factor: ValueFactor{
+			"factor1": 2.21,
+			"factor2": 1.34,
 		},
 	}
-	config.SetCgrConfig(cfg)
-	SetDataStorage(dm)
-	SetConnManager(connMgr)
-	bc.SaveDirtyBalances(acc)
-	if _, err := dm.GetAccount("cgrates.org:max"); err != nil {
+
+	if _, err := b.FieldAsInterface([]string{}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"value"}); err == nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"DestinationIDs[destId1]", "secondVal"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Categories[ctg1]", "secondVal"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"SharedGroups[shgp1]", "secondVal"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"TimingIDs[timingid1]", "secondVal"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Timings[zero]"}); err == nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Timings[2]"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Timings[2]", "val"}); err == nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Factor[factor1]", "secondVal"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
+
+	if _, err = b.FieldAsInterface([]string{"DestinationIDs[destId1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Categories[ctg1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"SharedGroups[shgp1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"TimingIDs[timingid1]"}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Timings[0]"}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{"Factor[factor1]"}); err != nil {
+		t.Error(err)
+	}
+	if _, err = b.FieldAsInterface([]string{utils.Uuid}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.ExpirationDate}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Weight}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.DestinationIDs}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.DestinationIDs}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.RatingSubject}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Categories}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.SharedGroups}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Timings}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Disabled}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Factor}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Blocker}); err != nil {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.TimingIDs}); err != nil {
+		t.Error(err)
+	}
+
+	if _, err = b.FieldAsInterface([]string{utils.TimingIDs, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Uuid, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.ID, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Value, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.ExpirationDate, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Weight, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.DestinationIDs, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.RatingSubject, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.Categories, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = b.FieldAsInterface([]string{utils.SharedGroups, "val"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	}
+
+}
+
+func TestValueFactorFieldAsInterface(t *testing.T) {
+	v := &ValueFactor{
+		"FACT_VAL": 20.22,
+	}
+	if _, err := v.FieldAsInterface([]string{}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = v.FieldAsInterface([]string{"TEST"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if _, err = v.FieldAsInterface([]string{"FACT_VAL"}); err != nil {
+		t.Error(err)
+	}
+}
+func TestValueFactorFieldAsString(t *testing.T) {
+	v := &ValueFactor{
+		"FACT_VAL": 20.22,
+	}
+	if _, err = v.FieldAsString([]string{"TEST"}); err == nil {
+		t.Error(err)
+	} else if _, err = v.FieldAsString([]string{"FACT_VAL"}); err != nil {
 		t.Error(err)
 	}
 }
 
-func TestBalancePublish(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	tmpDm := dm
-	tmpConn := connMgr
-	defer func() {
-		cfg2, _ := config.NewDefaultCGRConfig()
-		config.SetCgrConfig(cfg2)
-		SetDataStorage(tmpDm)
-		SetConnManager(tmpConn)
-	}()
-	cfg.RalsCfg().StatSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats)}
-	cfg.RalsCfg().ThresholdSConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds)}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	clientConn := make(chan birpc.ClientConnector, 1)
-	clientConn <- clMock(func(ctx *context.Context, serviceMethod string, _, _ interface{}) error {
-		if serviceMethod == utils.StatSv1ProcessEvent {
-
-			return nil
-		} else if serviceMethod == utils.ThresholdSv1ProcessEvent {
-
-			return nil
-		}
-		return utils.ErrNotImplemented
-	})
-	connMgr := NewConnManager(cfg, map[string]chan birpc.ClientConnector{
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaStats):      clientConn,
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaThresholds): clientConn,
-	})
-	SetConnManager(connMgr)
-	at := &ActionTrigger{
-		UniqueID:      "TestTR5",
-		ThresholdType: utils.TRIGGER_MAX_BALANCE,
-		Balance: &BalanceFilter{
-			Type:   utils.StringPointer(utils.VOICE),
-			Weight: utils.Float64Pointer(10),
+func TestBalancesHasBalance(t *testing.T) {
+	bc := Balances{
+		{
+			Uuid:           "uuid",
+			ID:             "id",
+			Value:          12.22,
+			ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+			Blocker:        true,
+			Disabled:       true,
+			precision:      2,
 		},
-		ActionsID: "ACT_1",
+		{
+			Uuid:           "uuid2",
+			ID:             "id2",
+			Value:          133.22,
+			ExpirationDate: time.Date(2023, 3, 21, 5, 0, 0, 0, time.UTC),
+			Blocker:        true,
+			Disabled:       true,
+			precision:      2,
+		},
+	}
+	balance := &Balance{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       true,
+		precision:      2,
+	}
+
+	if !bc.HasBalance(balance) {
+		t.Error("should be true")
+	}
+
+}
+
+func TestBalanceDebitUnits(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, nil)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	cd := &CallDescriptor{
+		Category:      "postpaid",
+		ToR:           utils.MetaVoice,
+		Tenant:        "foehn",
+		Subject:       "foehn",
+		Account:       "foehn",
+		Destination:   "0034678096720",
+		TimeStart:     time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:       time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		LoopIndex:     0,
+		DurationIndex: 17 * time.Second,
+
+		FallbackSubject: "",
+		RatingInfos: RatingInfos{
+			&RatingInfo{
+				MatchedSubject: "*out:foehn:postpaid:foehn",
+				MatchedPrefix:  "0034678",
+				MatchedDestId:  "SPN_MOB",
+				ActivationTime: time.Date(2015, 4, 23, 0, 0, 0, 0, time.UTC),
+				RateIntervals: []*RateInterval{
+					{
+						Timing: &RITiming{
+							WeekDays:  []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
+							StartTime: "08:00:00",
+						},
+						Rating: &RIRate{
+							ConnectFee:       0,
+							RoundingMethod:   "*up",
+							RoundingDecimals: 6,
+							Rates: RateGroups{
+								&RGRate{Value: 1, RateIncrement: time.Second, RateUnit: time.Second},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	ub := &Account{
-		ID: "cgrates.org:1001",
+		ID: "vdf:broker",
 		BalanceMap: map[string]Balances{
-			utils.VOICE: {
+			utils.MetaVoice: {
+				&Balance{Value: 20 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("NAT"),
+					Weight:         10, RatingSubject: "rif"},
+				&Balance{Value: 100 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("RET"), Weight: 20},
+			}},
+	}
+
+	moneyBalances := Balances{{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       true,
+		precision:      2,
+	}}
+	b := &Balance{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       false,
+		precision:      2,
+		RatingSubject:  "*zero34",
+	}
+	fltrs := FilterS{cfg, dm, nil}
+	config.SetCgrConfig(cfg)
+	exp := &CallCost{Category: "postpaid",
+		Tenant:  "foehn",
+		Subject: "foehn", Account: "foehn",
+		Destination: "0034678096720", ToR: "*voice",
+		Cost: 0,
+		Timespans: TimeSpans{
+			{TimeStart: time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+				TimeEnd: time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+				Cost:    0,
+				RateInterval: &RateInterval{
+					Rating: &RIRate{
+						ConnectFee:       0,
+						RoundingDecimals: 0,
+						MaxCost:          0,
+						Rates: RateGroups{
+							{
+								GroupIntervalStart: 0,
+								Value:              0,
+								RateIncrement:      34,
+								RateUnit:           34},
+						}},
+					Weight: 0},
+				DurationIndex:  26,
+				MatchedSubject: "uuid",
+				MatchedPrefix:  "0034678096720",
+				MatchedDestId:  "*any",
+				RatingPlanId:   "*none",
+				CompressFactor: 0}},
+		RatedUsage: 0,
+	}
+
+	if val, err := b.debitUnits(cd, ub, moneyBalances, true, false, true, &fltrs); err != nil {
+		t.Errorf("received %v", err)
+	} else if reflect.DeepEqual(val, exp) {
+		t.Errorf("expected %+v ,received  %+v", utils.ToJSON(exp), utils.ToJSON(val))
+	}
+}
+func TestBalanceDebitMoneyMaxCostFree(t *testing.T) {
+	utils.Logger.SetLogLevel(3)
+	utils.Logger.SetSyslog(nil)
+	buf := new(bytes.Buffer)
+	log.SetOutput(buf)
+	defer func() {
+		utils.Logger.SetLogLevel(0)
+		log.SetOutput(os.Stderr)
+	}()
+	cd := &CallDescriptor{
+		Category:     "postpaid",
+		ToR:          utils.MetaVoice,
+		Tenant:       "foehn",
+		TimeStart:    time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:      time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		MaxCostSoFar: 33,
+		testCallcost: &CallCost{
+			Category:         "generic",
+			Tenant:           "cgrates.org",
+			Subject:          "1001",
+			Account:          "1001",
+			Destination:      "data",
+			ToR:              "*data",
+			Cost:             0,
+			deductConnectFee: true,
+			Timespans: TimeSpans{
 				{
-					Value:          10,
-					DestinationIDs: utils.NewStringMap("DEST"),
+					TimeStart:     time.Date(2013, 9, 24, 10, 48, 0, 0, time.UTC),
+					TimeEnd:       time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+					DurationIndex: 0,
+					Increments: Increments{
+						{Cost: 2, BalanceInfo: &DebitInfo{
+							Monetary: &MonetaryInfo{UUID: "moneya"}},
+						}},
+					RateInterval: &RateInterval{
+						Rating: &RIRate{
+							ConnectFee:      0.15,
+							MaxCost:         23.2,
+							MaxCostStrategy: utils.MetaMaxCostFree,
+							Rates: RateGroups{&RGRate{GroupIntervalStart: 0,
+								Value: 0.1, RateIncrement: time.Second,
+								RateUnit: time.Second}}}},
 				},
 			},
 		},
+		FallbackSubject: "",
 	}
-	dm.SetActions("ACT_1", Actions{
-		&Action{
-			ActionType: utils.MetaPublishBalance,
-			Balance: &BalanceFilter{
-				Type:  utils.StringPointer(utils.VOICE),
-				Value: &utils.ValueFormula{Static: 15},
-			},
+	ub := &Account{
+		ID: "vdf:broker",
+		BalanceMap: map[string]Balances{
+			utils.MetaVoice: {
+				&Balance{Value: 20 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("NAT"),
+					Weight:         10, RatingSubject: "rif"},
+				&Balance{Value: 100 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("RET"), Weight: 20},
+			}},
+	}
+	moneyBalances := Balances{}
+	b := &Balance{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       false,
+		precision:      2,
+		RatingSubject:  "*val34",
+		Factor: ValueFactor{
+			"FACT_VAL": 20.22,
 		},
-	}, utils.NonTransactional)
-	config.SetCgrConfig(cfg)
-	SetDataStorage(dm)
-	if err := at.Execute(ub); err != nil {
-		t.Error(err)
 	}
 
+	if _, err := b.debitMoney(cd, ub, moneyBalances, true, true, true, nil); err != nil {
+		t.Error(err)
+	}
+}
+func TestBalanceDebitMoneyMaxCostDisconnect(t *testing.T) {
+	utils.Logger.SetLogLevel(3)
+	utils.Logger.SetSyslog(nil)
+	buf := new(bytes.Buffer)
+	log.SetOutput(buf)
+	defer func() {
+		utils.Logger.SetLogLevel(0)
+		log.SetOutput(os.Stderr)
+	}()
+	cd := &CallDescriptor{
+		Category:     "postpaid",
+		ToR:          utils.MetaVoice,
+		Tenant:       "foehn",
+		TimeStart:    time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:      time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		MaxCostSoFar: 33,
+		testCallcost: &CallCost{
+			Category:         "generic",
+			Tenant:           "cgrates.org",
+			Subject:          "1001",
+			Account:          "1001",
+			Destination:      "data",
+			ToR:              "*data",
+			Cost:             0,
+			deductConnectFee: true,
+			Timespans: TimeSpans{
+				{
+					TimeStart:     time.Date(2013, 9, 24, 10, 48, 0, 0, time.UTC),
+					TimeEnd:       time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+					DurationIndex: 0,
+					Increments: Increments{
+						{Cost: 2, BalanceInfo: &DebitInfo{
+							Monetary: &MonetaryInfo{UUID: "moneya"}},
+						}},
+				},
+			},
+		},
+		FallbackSubject: "",
+	}
+	ub := &Account{
+		ID: "vdf:broker",
+		BalanceMap: map[string]Balances{
+			utils.MetaVoice: {
+				&Balance{Value: 20 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("NAT"),
+					Weight:         10, RatingSubject: "rif"},
+				&Balance{Value: 100 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("RET"), Weight: 20},
+			}},
+	}
+	moneyBalances := Balances{}
+	b := &Balance{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       false,
+		precision:      2,
+		RatingSubject:  "*val34",
+		Factor: ValueFactor{
+			"FACT_VAL": 20.22,
+		},
+	}
+	expLog := `Nil RateInterval ERROR on TS:`
+	if _, err := b.debitMoney(cd, ub, moneyBalances, true, true, true, nil); err == nil {
+		t.Error(err)
+	} else if rcvLog := buf.String(); !strings.Contains(rcvLog, expLog) {
+		t.Errorf("Logger %v,doesn't contain %v", rcvLog, expLog)
+	}
+	cd.testCallcost.Timespans[0].RateInterval = &RateInterval{
+		Rating: &RIRate{
+			ConnectFee:      0.15,
+			MaxCost:         23.2,
+			MaxCostStrategy: utils.MetaMaxCostDisconnect,
+			Rates: RateGroups{&RGRate{GroupIntervalStart: 0,
+				Value: 0.1, RateIncrement: time.Second,
+				RateUnit: time.Second}}}}
+	if _, err := b.debitMoney(cd, ub, moneyBalances, true, true, true, nil); err != nil {
+		t.Error(err)
+	}
+}
+func TestBalanceDebitMoney(t *testing.T) {
+	utils.Logger.SetLogLevel(3)
+	utils.Logger.SetSyslog(nil)
+	buf := new(bytes.Buffer)
+	log.SetOutput(buf)
+	defer func() {
+		utils.Logger.SetLogLevel(0)
+		log.SetOutput(os.Stderr)
+	}()
+	cd := &CallDescriptor{
+		Category:     "postpaid",
+		ToR:          utils.MetaVoice,
+		Tenant:       "foehn",
+		TimeStart:    time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:      time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		MaxCostSoFar: 33,
+		testCallcost: &CallCost{
+			Category:         "generic",
+			Tenant:           "cgrates.org",
+			Subject:          "1001",
+			Account:          "1001",
+			Destination:      "data",
+			ToR:              "*data",
+			Cost:             0,
+			deductConnectFee: true,
+			Timespans: TimeSpans{
+				{
+					TimeStart:     time.Date(2013, 9, 24, 10, 48, 0, 0, time.UTC),
+					TimeEnd:       time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+					DurationIndex: 0,
+					Increments: Increments{
+						{Cost: 2, BalanceInfo: &DebitInfo{
+							Monetary: &MonetaryInfo{UUID: "moneya"}},
+						}},
+					RateInterval: &RateInterval{
+						Rating: &RIRate{
+							ConnectFee: 0.15,
+							MaxCost:    23.2,
+
+							Rates: RateGroups{&RGRate{GroupIntervalStart: 0,
+								Value: 0.1, RateIncrement: time.Second,
+								RateUnit: time.Second}}}},
+				},
+			},
+		},
+		FallbackSubject: "",
+	}
+	ub := &Account{
+		ID: "vdf:broker",
+		BalanceMap: map[string]Balances{
+			utils.MetaVoice: {
+				&Balance{Value: 20 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("NAT"),
+					Weight:         10, RatingSubject: "rif"},
+				&Balance{Value: 100 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("RET"), Weight: 20},
+			}},
+	}
+	moneyBalances := Balances{}
+	b := &Balance{
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		precision:      2,
+		RatingSubject:  "*val34",
+		Factor: ValueFactor{
+			"FACT_VAL": 20.22,
+		},
+	}
+	if _, err := b.debitMoney(cd, ub, moneyBalances, true, true, true, nil); err != nil {
+		t.Error(err)
+	}
+}
+func TestBalanceDebitUnits2(t *testing.T) {
+	cfg := config.NewDefaultCGRConfig()
+	db := NewInternalDB(nil, nil, true, nil)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	cd := &CallDescriptor{
+		Category:     "postpaid",
+		ToR:          utils.MetaVoice,
+		Tenant:       "foehn",
+		TimeStart:    time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:      time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		MaxCostSoFar: 23.8,
+		testCallcost: &CallCost{
+			Category: "generic",
+			Tenant:   "cgrates.org",
+			Subject:  "1001",
+			Account:  "1001",
+
+			Destination:      "data",
+			ToR:              "*data",
+			Cost:             0,
+			deductConnectFee: true,
+			Timespans: TimeSpans{
+				{
+					TimeStart:     time.Date(2013, 9, 24, 10, 48, 0, 0, time.UTC),
+					TimeEnd:       time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+					DurationIndex: 0,
+					Increments: Increments{
+						{Cost: 2, BalanceInfo: &DebitInfo{
+							Monetary: &MonetaryInfo{UUID: "moneya"}},
+						}},
+					RateInterval: &RateInterval{
+						Rating: &RIRate{
+							ConnectFee:      0.15,
+							MaxCost:         23.2,
+							MaxCostStrategy: utils.MetaMaxCostDisconnect,
+							Rates: RateGroups{&RGRate{GroupIntervalStart: 0,
+								Value: 0.1, RateIncrement: time.Second,
+								RateUnit: time.Second}}}},
+				},
+			},
+		},
+		FallbackSubject: "",
+	}
+	ub := &Account{
+		ID: "vdf:broker",
+		BalanceMap: map[string]Balances{
+			utils.MetaVoice: {
+				&Balance{Value: 20 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("NAT"),
+					Weight:         10, RatingSubject: "rif"},
+				&Balance{Value: 100 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("RET"), Weight: 20},
+			}},
+	}
+
+	moneyBalances := Balances{{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       true,
+		precision:      2,
+	}}
+	b := &Balance{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       false,
+		precision:      2,
+		RatingSubject:  "*val34",
+		Factor: ValueFactor{
+			"FACT_VAL": 20.22,
+		},
+	}
+	fltrs := FilterS{cfg, dm, nil}
+	config.SetCgrConfig(cfg)
+
+	if _, err := b.debitUnits(cd, ub, moneyBalances, true, true, true, &fltrs); err != nil {
+		t.Errorf("received %v", err)
+	}
+}
+
+func TestGetMinutesForCredi(t *testing.T) {
+	utils.Logger.SetLogLevel(4)
+	utils.Logger.SetSyslog(nil)
+	buf := new(bytes.Buffer)
+	log.SetOutput(buf)
+	defer func() {
+		utils.Logger.SetLogLevel(0)
+		log.SetOutput(os.Stderr)
+	}()
+	b := &Balance{
+		Value:          20 * float64(time.Second),
+		DestinationIDs: utils.NewStringMap("NAT"),
+		Weight:         10, RatingSubject: "rif",
+	}
+	cd := &CallDescriptor{
+		Category:      "postpaid",
+		ToR:           utils.MetaVoice,
+		Tenant:        "foehn",
+		Subject:       "foehn",
+		Account:       "foehn",
+		Destination:   "0034678096720",
+		TimeStart:     time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:       time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		LoopIndex:     0,
+		DurationIndex: 176 * time.Second,
+	}
+	if dur, _ := b.GetMinutesForCredit(cd, 12); dur != 0 {
+		t.Error(err)
+	}
+	expLog := `Error getting new cost for balance subject:`
+	if rcvLog := buf.String(); !strings.Contains(rcvLog, expLog) {
+		t.Errorf("expected %v,received %v", utils.ToJSON(expLog), utils.ToJSON(rcvLog))
+	}
+}
+
+func TestBalanceDebitUnits3(t *testing.T) {
+	cc := &CallCost{
+		Destination: "0723045326",
+		Timespans: []*TimeSpan{
+			{
+				TimeStart:     time.Date(2013, 9, 24, 10, 48, 0, 0, time.UTC),
+				TimeEnd:       time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+				DurationIndex: 0,
+				RateInterval: &RateInterval{
+					Rating: &RIRate{Rates: RateGroups{
+						&RGRate{GroupIntervalStart: 0, Value: 1,
+							RateIncrement: 10 * time.Second,
+							RateUnit:      time.Second}}}},
+			},
+			{
+				TimeStart:     time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+				TimeEnd:       time.Date(2013, 9, 24, 10, 49, 20, 0, time.UTC),
+				DurationIndex: 10 * time.Second,
+				RateInterval: &RateInterval{
+					Rating: &RIRate{Rates: RateGroups{
+						&RGRate{GroupIntervalStart: 0,
+							Value:         1,
+							RateIncrement: 10 * time.Second,
+							RateUnit:      time.Second}}}},
+			},
+		},
+		ToR: utils.MetaVoice,
+	}
+	b1 := &Balance{
+		Uuid: "testb", Value: 10 * float64(time.Second), Weight: 10,
+		DestinationIDs: utils.StringMap{"NAT": true},
+		RatingSubject:  "*zero1s"}
+	cd := &CallDescriptor{
+		TimeStart:     cc.Timespans[0].TimeStart,
+		TimeEnd:       cc.Timespans[1].TimeEnd,
+		Destination:   cc.Destination,
+		ToR:           cc.ToR,
+		DurationIndex: cc.GetDuration(),
+		testCallcost:  cc,
+	}
+	rifsBalance := &Account{ID: "other", BalanceMap: map[string]Balances{
+		utils.MetaVoice:    {b1},
+		utils.MetaMonetary: {{Uuid: "moneya", Value: 110}},
+	}}
+	moneyBalances := Balances{
+		{Uuid: "moneyc", Value: 130, SharedGroups: utils.NewStringMap("SG_TEST")},
+	}
+	if _, err := b1.debitUnits(cd, rifsBalance, moneyBalances, true, true, true, nil); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestBalanceDebitUnits5(t *testing.T) {
+	utils.Logger.SetLogLevel(3)
+	utils.Logger.SetSyslog(nil)
+	buf := new(bytes.Buffer)
+	log.SetOutput(buf)
+	defer func() {
+		utils.Logger.SetLogLevel(0)
+		log.SetOutput(os.Stderr)
+	}()
+	cd := &CallDescriptor{
+		Category:     "postpaid",
+		ToR:          utils.MetaVoice,
+		Tenant:       "foehn",
+		TimeStart:    time.Date(2015, 4, 24, 7, 59, 4, 0, time.UTC),
+		TimeEnd:      time.Date(2015, 4, 24, 8, 2, 0, 0, time.UTC),
+		MaxCostSoFar: 23.8,
+		testCallcost: &CallCost{
+			Category:         "generic",
+			Tenant:           "cgrates.org",
+			Subject:          "1001",
+			Account:          "1001",
+			Destination:      "data",
+			ToR:              "*data",
+			Cost:             0,
+			deductConnectFee: true,
+			Timespans: TimeSpans{
+				{
+					TimeStart:     time.Date(2013, 9, 24, 10, 48, 0, 0, time.UTC),
+					TimeEnd:       time.Date(2013, 9, 24, 10, 48, 10, 0, time.UTC),
+					DurationIndex: 0,
+					Increments: Increments{
+						{Cost: 2, BalanceInfo: &DebitInfo{
+							Monetary: &MonetaryInfo{UUID: "moneya"}},
+						}},
+				},
+			},
+		},
+		FallbackSubject: "",
+	}
+	ub := &Account{
+		ID: "vdf:broker",
+		BalanceMap: map[string]Balances{
+			utils.MetaVoice: {
+				&Balance{Value: 20 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("NAT"),
+					Weight:         10, RatingSubject: "rif"},
+				&Balance{Value: 100 * float64(time.Second),
+					DestinationIDs: utils.NewStringMap("RET"), Weight: 20},
+			}},
+	}
+	moneyBalances := Balances{{
+		Uuid:           "uuid",
+		ID:             "id",
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       true,
+		precision:      2,
+	}}
+	b := &Balance{
+		Value:          12.22,
+		ExpirationDate: time.Date(2022, 11, 1, 20, 0, 0, 0, time.UTC),
+		Blocker:        true,
+		Disabled:       false,
+		precision:      2,
+		RatingSubject:  "*val34",
+		Factor: ValueFactor{
+			"FACT_VAL": 20.22,
+		},
+	}
+	expLog := `Nil RateInterval ERROR on TS`
+	if _, err := b.debitUnits(cd, ub, moneyBalances, true, true, true, nil); err == nil || err.Error() != "timespan with no rate interval assigned" {
+		t.Error(err)
+	} else if rcvLog := buf.String(); !strings.Contains(rcvLog, expLog) {
+		t.Errorf("Logger %v doesn't contain %v", rcvLog, expLog)
+	}
 }

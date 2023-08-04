@@ -22,14 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/rpcclient"
-
-	"github.com/cgrates/cgrates/sessions"
 )
 
 func TestDAsSessionSClientIface(t *testing.T) {
@@ -37,32 +34,34 @@ func TestDAsSessionSClientIface(t *testing.T) {
 }
 
 type testMockSessionConn struct {
-	calls map[string]func(ctx *context.Context, arg interface{}, rply interface{}) error
+	calls map[string]func(arg any, rply any) error
 }
 
-func (s *testMockSessionConn) Call(ctx *context.Context, method string, arg interface{}, rply interface{}) error {
-	if call, has := s.calls[method]; !has {
-		return rpcclient.ErrUnsupporteServiceMethod
-	} else {
-		return call(ctx, arg, rply)
+func (s *testMockSessionConn) Call(method string, arg any, rply any) error {
+	if call, has := s.calls[method]; has {
+		return call(arg, rply)
 	}
+	return rpcclient.ErrUnsupporteServiceMethod
 }
 
-func (s *testMockSessionConn) CallBiRPC(_ birpc.ClientConnector, method string, arg interface{}, rply interface{}) error {
-	if call, has := s.calls[method]; !has {
-		return rpcclient.ErrUnsupporteServiceMethod
-	} else {
-		return call(context.TODO(), arg, rply)
+func (s *testMockSessionConn) CallBiRPC(_ rpcclient.ClientConnector, method string, arg any, rply any) error {
+	return s.Call(method, arg, rply)
+}
+
+func (s *testMockSessionConn) Handlers() (b map[string]any) {
+	b = make(map[string]any)
+	for n, f := range s.calls {
+		b[n] = f
 	}
+	return
 }
 
 func TestProcessRequest(t *testing.T) {
-	dfltCfg, _ := config.NewDefaultCGRConfig()
-	data := engine.NewInternalDB(nil, nil, true, dfltCfg.DataDbCfg().Items)
+	data := engine.NewInternalDB(nil, nil, true, config.CgrConfig().DataDbCfg().Items)
 	dm := engine.NewDataManager(data, config.CgrConfig().CacheCfg(), nil)
 	filters := engine.NewFilterS(config.CgrConfig(), nil, dm) // no need for filterS but still try to configure the dm :D
 
-	cgrRplyNM := utils.NavigableMap2{}
+	cgrRplyNM := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 	rply := utils.NewOrderedNavigableMap()
 	diamDP := utils.MapStorage{
 		"SessionId":   "123456",
@@ -72,37 +71,38 @@ func TestProcessRequest(t *testing.T) {
 	}
 	reqProcessor := &config.RequestProcessor{
 		ID:      "Default",
-		Tenant:  config.NewRSRParsersMustCompile("cgrates.org", true, utils.INFIELD_SEP),
+		Tenant:  config.NewRSRParsersMustCompile("cgrates.org", utils.InfieldSep),
 		Filters: []string{},
 		RequestFields: []*config.FCTemplate{
 			{Tag: utils.ToR,
-				Type: utils.META_CONSTANT, Path: utils.MetaCgreq + utils.NestingSep + utils.ToR,
-				Value: config.NewRSRParsersMustCompile(utils.VOICE, true, utils.INFIELD_SEP)},
+				Type: utils.MetaConstant, Path: utils.MetaCgreq + utils.NestingSep + utils.ToR,
+				Value: config.NewRSRParsersMustCompile(utils.MetaVoice, utils.InfieldSep)},
 			{Tag: utils.OriginID,
-				Type: utils.META_COMPOSED, Path: utils.MetaCgreq + utils.NestingSep + utils.OriginID,
-				Value: config.NewRSRParsersMustCompile("~*req.SessionId", true, utils.INFIELD_SEP), Mandatory: true},
+				Type: utils.MetaComposed, Path: utils.MetaCgreq + utils.NestingSep + utils.OriginID,
+				Value: config.NewRSRParsersMustCompile("~*req.SessionId", utils.InfieldSep), Mandatory: true},
 			{Tag: utils.OriginHost,
-				Type: utils.MetaRemoteHost, Path: utils.MetaCgreq + utils.NestingSep + utils.OriginHost, Mandatory: true},
+				Type: utils.MetaVariable, Path: utils.MetaCgreq + utils.NestingSep + utils.OriginHost,
+				Value: config.NewRSRParsersMustCompile("~*vars.RemoteHost", utils.InfieldSep), Mandatory: true},
 			{Tag: utils.Category,
-				Type: utils.META_CONSTANT, Path: utils.MetaCgreq + utils.NestingSep + utils.Category,
-				Value: config.NewRSRParsersMustCompile(utils.CALL, true, utils.INFIELD_SEP)},
-			{Tag: utils.Account,
-				Type: utils.META_COMPOSED, Path: utils.MetaCgreq + utils.NestingSep + utils.Account,
-				Value: config.NewRSRParsersMustCompile("~*req.Account", true, utils.INFIELD_SEP), Mandatory: true},
+				Type: utils.MetaConstant, Path: utils.MetaCgreq + utils.NestingSep + utils.Category,
+				Value: config.NewRSRParsersMustCompile(utils.Call, utils.InfieldSep)},
+			{Tag: utils.AccountField,
+				Type: utils.MetaComposed, Path: utils.MetaCgreq + utils.NestingSep + utils.AccountField,
+				Value: config.NewRSRParsersMustCompile("~*req.Account", utils.InfieldSep), Mandatory: true},
 			{Tag: utils.Destination,
-				Type: utils.META_COMPOSED, Path: utils.MetaCgreq + utils.NestingSep + utils.Destination,
-				Value: config.NewRSRParsersMustCompile("~*req.Destination", true, utils.INFIELD_SEP), Mandatory: true},
+				Type: utils.MetaComposed, Path: utils.MetaCgreq + utils.NestingSep + utils.Destination,
+				Value: config.NewRSRParsersMustCompile("~*req.Destination", utils.InfieldSep), Mandatory: true},
 			{Tag: utils.Usage,
-				Type: utils.META_COMPOSED, Path: utils.MetaCgreq + utils.NestingSep + utils.Usage,
-				Value: config.NewRSRParsersMustCompile("~*req.Usage", true, utils.INFIELD_SEP), Mandatory: true},
+				Type: utils.MetaComposed, Path: utils.MetaCgreq + utils.NestingSep + utils.Usage,
+				Value: config.NewRSRParsersMustCompile("~*req.Usage", utils.InfieldSep), Mandatory: true},
 		},
 		ReplyFields: []*config.FCTemplate{
 			{Tag: "ResultCode",
-				Type: utils.META_CONSTANT, Path: utils.MetaRep + utils.NestingSep + "ResultCode",
-				Value: config.NewRSRParsersMustCompile("2001", true, utils.INFIELD_SEP)},
+				Type: utils.MetaConstant, Path: utils.MetaRep + utils.NestingSep + "ResultCode",
+				Value: config.NewRSRParsersMustCompile("2001", utils.InfieldSep)},
 			{Tag: "GrantedUnits",
 				Type: utils.MetaVariable, Path: utils.MetaRep + utils.NestingSep + "Granted-Service-Unit.CC-Time",
-				Value:     config.NewRSRParsersMustCompile("~*cgrep.MaxUsage{*duration_seconds}", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("~*cgrep.MaxUsage{*duration_seconds}", utils.InfieldSep),
 				Mandatory: true},
 		},
 	}
@@ -112,20 +112,21 @@ func TestProcessRequest(t *testing.T) {
 	for _, v := range reqProcessor.ReplyFields {
 		v.ComputePath()
 	}
-	reqVars := utils.NavigableMap2{
-		utils.OriginHost:  utils.NewNMData(config.CgrConfig().DiameterAgentCfg().OriginHost),
-		utils.OriginRealm: utils.NewNMData(config.CgrConfig().DiameterAgentCfg().OriginRealm),
-		utils.ProductName: utils.NewNMData(config.CgrConfig().DiameterAgentCfg().ProductName),
-		utils.MetaApp:     utils.NewNMData("appName"),
-		utils.MetaAppID:   utils.NewNMData("appID"),
-		utils.MetaCmd:     utils.NewNMData("cmdR"),
-	}
+	reqVars := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{
+		utils.OriginHost:  utils.NewLeafNode(config.CgrConfig().DiameterAgentCfg().OriginHost),
+		utils.OriginRealm: utils.NewLeafNode(config.CgrConfig().DiameterAgentCfg().OriginRealm),
+		utils.ProductName: utils.NewLeafNode(config.CgrConfig().DiameterAgentCfg().ProductName),
+		utils.MetaApp:     utils.NewLeafNode("appName"),
+		utils.MetaAppID:   utils.NewLeafNode("appID"),
+		utils.MetaCmd:     utils.NewLeafNode("cmdR"),
+		utils.RemoteHost:  utils.NewLeafNode(utils.LocalAddr().String()),
+	}}
 
-	sS := &testMockSessionConn{calls: map[string]func(ctx *context.Context, arg interface{}, rply interface{}) error{
-		utils.SessionSv1RegisterInternalBiJSONConn: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+	sS := &testMockSessionConn{calls: map[string]func(arg any, rply any) error{
+		utils.SessionSv1RegisterInternalBiJSONConn: func(arg any, rply any) error {
 			return nil
 		},
-		utils.SessionSv1AuthorizeEvent: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+		utils.SessionSv1AuthorizeEvent: func(arg any, rply any) error {
 			var tm *time.Time
 			var id string
 			if arg == nil {
@@ -142,7 +143,7 @@ func TestProcessRequest(t *testing.T) {
 					Tenant: "cgrates.org",
 					ID:     id,
 					Time:   tm,
-					Event: map[string]interface{}{
+					Event: map[string]any{
 						"Account":     "1001",
 						"Category":    "call",
 						"Destination": "1003",
@@ -151,6 +152,7 @@ func TestProcessRequest(t *testing.T) {
 						"ToR":         "*voice",
 						"Usage":       "10s",
 					},
+					APIOpts: map[string]any{},
 				},
 			}
 			if !reflect.DeepEqual(expargs, arg) {
@@ -162,11 +164,11 @@ func TestProcessRequest(t *testing.T) {
 				return nil
 			}
 			*prply = sessions.V1AuthorizeReply{
-				MaxUsage: time.Duration(-1),
+				MaxUsage: utils.DurationPointer(-1),
 			}
 			return nil
 		},
-		utils.SessionSv1InitiateSession: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+		utils.SessionSv1InitiateSession: func(arg any, rply any) error {
 			var tm *time.Time
 			var id string
 			if arg == nil {
@@ -184,7 +186,7 @@ func TestProcessRequest(t *testing.T) {
 					Tenant: "cgrates.org",
 					ID:     id,
 					Time:   tm,
-					Event: map[string]interface{}{
+					Event: map[string]any{
 						"Account":     "1001",
 						"Category":    "call",
 						"Destination": "1003",
@@ -193,6 +195,7 @@ func TestProcessRequest(t *testing.T) {
 						"ToR":         "*voice",
 						"Usage":       "10s",
 					},
+					APIOpts: map[string]any{},
 				},
 			}
 			if !reflect.DeepEqual(expargs, arg) {
@@ -210,7 +213,7 @@ func TestProcessRequest(t *testing.T) {
 					CGREvent: &utils.CGREvent{
 						Tenant: "cgrates.org",
 						ID:     "e7d35bf",
-						Event: map[string]interface{}{
+						Event: map[string]any{
 							"Account":       "1001",
 							"CGRID":         "1133dc80896edf5049b46aa911cb9085eeb27f4c",
 							"Category":      "call",
@@ -226,11 +229,11 @@ func TestProcessRequest(t *testing.T) {
 						},
 					},
 				},
-				MaxUsage: 10 * time.Second,
+				MaxUsage: utils.DurationPointer(10 * time.Second),
 			}
 			return nil
 		},
-		utils.SessionSv1UpdateSession: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+		utils.SessionSv1UpdateSession: func(arg any, rply any) error {
 			var tm *time.Time
 			var id string
 			if arg == nil {
@@ -248,7 +251,7 @@ func TestProcessRequest(t *testing.T) {
 					Tenant: "cgrates.org",
 					ID:     id,
 					Time:   tm,
-					Event: map[string]interface{}{
+					Event: map[string]any{
 						"Account":     "1001",
 						"Category":    "call",
 						"Destination": "1003",
@@ -257,6 +260,7 @@ func TestProcessRequest(t *testing.T) {
 						"ToR":         "*voice",
 						"Usage":       "10s",
 					},
+					APIOpts: map[string]any{},
 				},
 			}
 			if !reflect.DeepEqual(expargs, arg) {
@@ -274,7 +278,7 @@ func TestProcessRequest(t *testing.T) {
 					CGREvent: &utils.CGREvent{
 						Tenant: "cgrates.org",
 						ID:     "e7d35bf",
-						Event: map[string]interface{}{
+						Event: map[string]any{
 							"Account":       "1001",
 							"CGRID":         "1133dc80896edf5049b46aa911cb9085eeb27f4c",
 							"Category":      "call",
@@ -290,36 +294,35 @@ func TestProcessRequest(t *testing.T) {
 						},
 					},
 				},
-				MaxUsage: 10 * time.Second,
+				MaxUsage: utils.DurationPointer(10 * time.Second),
 			}
 			return nil
 		},
-		utils.SessionSv1ProcessCDR: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+		utils.SessionSv1ProcessCDR: func(arg any, rply any) error {
 			var tm *time.Time
 			var id string
 			if arg == nil {
 				t.Errorf("args is nil")
-			} else if rargs, can := arg.(*utils.CGREventWithArgDispatcher); !can {
-				t.Errorf("args is not of utils.CGREventWithArgDispatcher type")
+			} else if rargs, can := arg.(*utils.CGREvent); !can {
+				t.Errorf("args is not of utils.CGREventWithOpts type")
 			} else {
 				tm = rargs.Time // need time
 				id = rargs.ID
 			}
-			expargs := &utils.CGREventWithArgDispatcher{
-				CGREvent: &utils.CGREvent{
-					Tenant: "cgrates.org",
-					ID:     id,
-					Time:   tm,
-					Event: map[string]interface{}{
-						"Account":     "1001",
-						"Category":    "call",
-						"Destination": "1003",
-						"OriginHost":  "local",
-						"OriginID":    "123456",
-						"ToR":         "*voice",
-						"Usage":       "10s",
-					},
+			expargs := &utils.CGREvent{
+				Tenant: "cgrates.org",
+				ID:     id,
+				Time:   tm,
+				Event: map[string]any{
+					"Account":     "1001",
+					"Category":    "call",
+					"Destination": "1003",
+					"OriginHost":  "local",
+					"OriginID":    "123456",
+					"ToR":         "*voice",
+					"Usage":       "10s",
 				},
+				APIOpts: make(map[string]any),
 			}
 			if !reflect.DeepEqual(expargs, arg) {
 				t.Errorf("Expected:%s ,received: %s", utils.ToJSON(expargs), utils.ToJSON(arg))
@@ -332,7 +335,7 @@ func TestProcessRequest(t *testing.T) {
 			*prply = utils.OK
 			return nil
 		},
-		utils.SessionSv1TerminateSession: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+		utils.SessionSv1TerminateSession: func(arg any, rply any) error {
 			var tm *time.Time
 			var id string
 			if arg == nil {
@@ -345,11 +348,12 @@ func TestProcessRequest(t *testing.T) {
 			}
 			expargs := &sessions.V1TerminateSessionArgs{
 				TerminateSession: true,
+
 				CGREvent: &utils.CGREvent{
 					Tenant: "cgrates.org",
 					ID:     id,
 					Time:   tm,
-					Event: map[string]interface{}{
+					Event: map[string]any{
 						"Account":     "1001",
 						"Category":    "call",
 						"Destination": "1003",
@@ -358,6 +362,7 @@ func TestProcessRequest(t *testing.T) {
 						"ToR":         "*voice",
 						"Usage":       "10s",
 					},
+					APIOpts: map[string]any{},
 				},
 			}
 			if !reflect.DeepEqual(expargs, arg) {
@@ -371,7 +376,7 @@ func TestProcessRequest(t *testing.T) {
 			*prply = utils.OK
 			return nil
 		},
-		utils.SessionSv1ProcessMessage: func(ctx *context.Context, arg interface{}, rply interface{}) error {
+		utils.SessionSv1ProcessMessage: func(arg any, rply any) error {
 			var tm *time.Time
 			var id string
 			if arg == nil {
@@ -389,7 +394,7 @@ func TestProcessRequest(t *testing.T) {
 					Tenant: "cgrates.org",
 					ID:     id,
 					Time:   tm,
-					Event: map[string]interface{}{
+					Event: map[string]any{
 						"Account":     "1001",
 						"Category":    "call",
 						"Destination": "1003",
@@ -398,6 +403,7 @@ func TestProcessRequest(t *testing.T) {
 						"ToR":         "*voice",
 						"Usage":       "10s",
 					},
+					APIOpts: map[string]any{},
 				},
 			}
 			if !reflect.DeepEqual(expargs, arg) {
@@ -415,7 +421,7 @@ func TestProcessRequest(t *testing.T) {
 					CGREvent: &utils.CGREvent{
 						Tenant: "cgrates.org",
 						ID:     "e7d35bf",
-						Event: map[string]interface{}{
+						Event: map[string]any{
 							"Account":       "1001",
 							"CGRID":         "1133dc80896edf5049b46aa911cb9085eeb27f4c",
 							"Category":      "call",
@@ -431,27 +437,28 @@ func TestProcessRequest(t *testing.T) {
 						},
 					},
 				},
-				MaxUsage: 10 * time.Second,
+				MaxUsage: utils.DurationPointer(10 * time.Second),
 			}
 			return nil
 		},
 	}}
-	reqProcessor.Flags, _ = utils.FlagsWithParamsFromSlice([]string{utils.MetaAuth, utils.MetaAccounts})
-	agReq := NewAgentRequest(diamDP, reqVars, &cgrRplyNM, rply,
+	reqProcessor.Flags = utils.FlagsWithParamsFromSlice([]string{utils.MetaAuthorize, utils.MetaAccounts})
+	agReq := NewAgentRequest(diamDP, reqVars, cgrRplyNM, rply, nil,
 		reqProcessor.Tenant, config.CgrConfig().GeneralCfg().DefaultTenant,
-		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil, nil)
+		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil)
 
-	internalSessionSChan := make(chan birpc.ClientConnector, 1)
+	internalSessionSChan := make(chan rpcclient.ClientConnector, 1)
 	internalSessionSChan <- sS
-	connMgr := engine.NewConnManager(config.CgrConfig(), map[string]chan birpc.ClientConnector{
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS): internalSessionSChan,
+	connMgr := engine.NewConnManager(config.CgrConfig(), map[string]chan rpcclient.ClientConnector{
+		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaSessionS):      internalSessionSChan,
+		utils.ConcatenatedKey(rpcclient.BiRPCInternal, utils.MetaSessionS): internalSessionSChan,
 	})
 	da := &DiameterAgent{
 		cgrCfg:  config.CgrConfig(),
 		filterS: filters,
 		connMgr: connMgr,
 	}
-	pr, err := da.processRequest(reqProcessor, agReq)
+	pr, err := processRequest(reqProcessor, agReq, utils.DiameterAgent, connMgr, da.cgrCfg.DiameterAgentCfg().SessionSConns, da, da.filterS)
 	if err != nil {
 		t.Error(err)
 	} else if !pr {
@@ -460,15 +467,15 @@ func TestProcessRequest(t *testing.T) {
 		t.Errorf("Expected the reply to have 2 values received: %s", rply.String())
 	}
 
-	reqProcessor.Flags, _ = utils.FlagsWithParamsFromSlice([]string{utils.MetaInitiate, utils.MetaAccounts, utils.MetaAttributes})
-	cgrRplyNM = utils.NavigableMap2{}
+	reqProcessor.Flags = utils.FlagsWithParamsFromSlice([]string{utils.MetaInitiate, utils.MetaAccounts, utils.MetaAttributes})
+	cgrRplyNM = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 	rply = utils.NewOrderedNavigableMap()
 
-	agReq = NewAgentRequest(diamDP, reqVars, &cgrRplyNM, rply,
+	agReq = NewAgentRequest(diamDP, reqVars, cgrRplyNM, rply, nil,
 		reqProcessor.Tenant, config.CgrConfig().GeneralCfg().DefaultTenant,
-		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil, nil)
+		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil)
 
-	pr, err = da.processRequest(reqProcessor, agReq)
+	pr, err = processRequest(reqProcessor, agReq, utils.DiameterAgent, connMgr, da.cgrCfg.DiameterAgentCfg().SessionSConns, da, da.filterS)
 	if err != nil {
 		t.Error(err)
 	} else if !pr {
@@ -477,15 +484,15 @@ func TestProcessRequest(t *testing.T) {
 		t.Errorf("Expected the reply to have 2 values received: %s", rply.String())
 	}
 
-	reqProcessor.Flags, _ = utils.FlagsWithParamsFromSlice([]string{utils.MetaUpdate, utils.MetaAccounts, utils.MetaAttributes})
-	cgrRplyNM = utils.NavigableMap2{}
+	reqProcessor.Flags = utils.FlagsWithParamsFromSlice([]string{utils.MetaUpdate, utils.MetaAccounts, utils.MetaAttributes})
+	cgrRplyNM = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 	rply = utils.NewOrderedNavigableMap()
 
-	agReq = NewAgentRequest(diamDP, reqVars, &cgrRplyNM, rply,
+	agReq = NewAgentRequest(diamDP, reqVars, cgrRplyNM, rply, nil,
 		reqProcessor.Tenant, config.CgrConfig().GeneralCfg().DefaultTenant,
-		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil, nil)
+		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil)
 
-	pr, err = da.processRequest(reqProcessor, agReq)
+	pr, err = processRequest(reqProcessor, agReq, utils.DiameterAgent, connMgr, da.cgrCfg.DiameterAgentCfg().SessionSConns, da, da.filterS)
 	if err != nil {
 		t.Error(err)
 	} else if !pr {
@@ -494,21 +501,21 @@ func TestProcessRequest(t *testing.T) {
 		t.Errorf("Expected the reply to have 2 values received: %s", rply.String())
 	}
 
-	reqProcessor.Flags, _ = utils.FlagsWithParamsFromSlice([]string{utils.MetaTerminate, utils.MetaAccounts, utils.MetaAttributes, utils.MetaCDRs})
+	reqProcessor.Flags = utils.FlagsWithParamsFromSlice([]string{utils.MetaTerminate, utils.MetaAccounts, utils.MetaAttributes, utils.MetaCDRs})
 	reqProcessor.ReplyFields = []*config.FCTemplate{{Tag: "ResultCode",
-		Type: utils.META_CONSTANT, Path: utils.MetaRep + utils.NestingSep + "ResultCode",
-		Value: config.NewRSRParsersMustCompile("2001", true, utils.INFIELD_SEP)}}
+		Type: utils.MetaConstant, Path: utils.MetaRep + utils.NestingSep + "ResultCode",
+		Value: config.NewRSRParsersMustCompile("2001", utils.InfieldSep)}}
 	for _, v := range reqProcessor.ReplyFields {
 		v.ComputePath()
 	}
-	cgrRplyNM = utils.NavigableMap2{}
+	cgrRplyNM = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 	rply = utils.NewOrderedNavigableMap()
 
-	agReq = NewAgentRequest(diamDP, reqVars, &cgrRplyNM, rply,
+	agReq = NewAgentRequest(diamDP, reqVars, cgrRplyNM, rply, nil,
 		reqProcessor.Tenant, config.CgrConfig().GeneralCfg().DefaultTenant,
-		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil, nil)
+		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil)
 
-	pr, err = da.processRequest(reqProcessor, agReq)
+	pr, err = processRequest(reqProcessor, agReq, utils.DiameterAgent, connMgr, da.cgrCfg.DiameterAgentCfg().SessionSConns, da, da.filterS)
 	if err != nil {
 		t.Error(err)
 	} else if !pr {
@@ -517,15 +524,15 @@ func TestProcessRequest(t *testing.T) {
 		t.Errorf("Expected the reply to have one value received: %s", rply.String())
 	}
 
-	reqProcessor.Flags, _ = utils.FlagsWithParamsFromSlice([]string{utils.MetaMessage, utils.MetaAccounts, utils.MetaAttributes})
-	cgrRplyNM = utils.NavigableMap2{}
+	reqProcessor.Flags = utils.FlagsWithParamsFromSlice([]string{utils.MetaMessage, utils.MetaAccounts, utils.MetaAttributes})
+	cgrRplyNM = &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{}}
 	rply = utils.NewOrderedNavigableMap()
 
-	agReq = NewAgentRequest(diamDP, reqVars, &cgrRplyNM, rply,
+	agReq = NewAgentRequest(diamDP, reqVars, cgrRplyNM, rply, nil,
 		reqProcessor.Tenant, config.CgrConfig().GeneralCfg().DefaultTenant,
-		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil, nil)
+		config.CgrConfig().GeneralCfg().DefaultTimezone, filters, nil)
 
-	pr, err = da.processRequest(reqProcessor, agReq)
+	pr, err = processRequest(reqProcessor, agReq, utils.DiameterAgent, connMgr, da.cgrCfg.DiameterAgentCfg().SessionSConns, da, da.filterS)
 	if err != nil {
 		t.Error(err)
 	} else if !pr {

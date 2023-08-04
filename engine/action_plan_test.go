@@ -23,8 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc"
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -112,18 +110,23 @@ func TestActionPlanClone(t *testing.T) {
 	}
 	at1Cloned := clned.(*ActionPlan)
 	if !reflect.DeepEqual(at1, at1Cloned) {
-		t.Errorf("\nExpecting: %+v,\n received: %+v", at1, at1Cloned)
+		t.Errorf("Expecting: %+v,\n received: %+v", at1, at1Cloned)
 	}
 }
 
 func TestActionTimingClone(t *testing.T) {
-	at := &ActionTiming{
+	var at *ActionTiming
+	val := at.Clone()
+	if val != nil {
+		t.Errorf("expected nil ,received %v", val)
+	}
+	at = &ActionTiming{
 		Uuid:      "Uuid_test",
 		ActionsID: "ActionsID_test",
 		Weight:    0.7,
 	}
 	if cloned := at.Clone(); !reflect.DeepEqual(at, cloned) {
-		t.Errorf("\nExpecting: %+v,\n received: %+v", at, cloned)
+		t.Errorf("Expecting: %+v,\n received: %+v", at, cloned)
 	}
 }
 
@@ -131,8 +134,8 @@ func TestActionTimindSetActions(t *testing.T) {
 	actionTiming := new(ActionTiming)
 
 	actions := Actions{
-		&Action{ActionType: "test", Filter: "test"},
-		&Action{ActionType: "test1", Filter: "test1"},
+		&Action{ActionType: "test"},
+		&Action{ActionType: "test1"},
 	}
 	actionTiming.SetActions(actions)
 	if !reflect.DeepEqual(actions, actionTiming.actions) {
@@ -253,7 +256,9 @@ func TestCacheGetCloned(t *testing.T) {
 		Id:         "test",
 		AccountIDs: utils.StringMap{"one": true, "two": true, "three": true},
 	}
-	Cache.Set(utils.CacheActionPlans, "MYTESTAPL", at1, nil, true, "")
+	if err := Cache.Set(utils.CacheActionPlans, "MYTESTAPL", at1, nil, true, ""); err != nil {
+		t.Errorf("Expecting nil, received: %s", err)
+	}
 	clned, err := Cache.GetCloned(utils.CacheActionPlans, "MYTESTAPL")
 	if err != nil {
 		t.Error(err)
@@ -264,79 +269,215 @@ func TestCacheGetCloned(t *testing.T) {
 	}
 }
 
-func TestATExecute(t *testing.T) {
-	cfg, _ := config.NewDefaultCGRConfig()
-	cfg.SchedulerCfg().CDRsConns = []string{utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCDRs)}
-	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
-	tmpDm := dm
-	tmpConn := connMgr
-	defer func() {
-		cfg2, _ := config.NewDefaultCGRConfig()
-		config.SetCgrConfig(cfg2)
-		SetDataStorage(tmpDm)
-		SetConnManager(tmpConn)
-	}()
-	dm := NewDataManager(db, cfg.CacheCfg(), nil)
-	clientConn := make(chan birpc.ClientConnector, 1)
-	clientConn <- clMock(func(ctx *context.Context, serviceMethod string, _, _ interface{}) error {
-		if serviceMethod == utils.CDRsV1ProcessEvent {
-
-			return nil
-		}
-		return utils.ErrNotImplemented
-	})
-	connMgr := NewConnManager(cfg, map[string]chan birpc.ClientConnector{
-		utils.ConcatenatedKey(utils.MetaInternal, utils.MetaCDRs): clientConn,
-	})
-	acs := Actions{{
-		Id:               "MINI",
-		ActionType:       utils.CDRLOG,
-		ExpirationString: utils.UNLIMITED,
-		Weight:           10,
-		Balance: &BalanceFilter{
-			Type: utils.StringPointer(utils.MONETARY),
-			Uuid: utils.StringPointer(utils.GenUUID()),
-			Value: &utils.ValueFormula{Static: 10,
-				Params: make(map[string]interface{})},
-			Weight:   utils.Float64Pointer(10),
-			Disabled: utils.BoolPointer(false),
-			Timings: []*RITiming{
-				{
-					Years:     utils.Years{2016, 2017},
-					Months:    utils.Months{time.January, time.February, time.March},
-					MonthDays: utils.MonthDays{1, 2, 3, 4},
-					WeekDays:  utils.WeekDays{1, 2, 3},
-					StartTime: utils.ASAP,
-				},
-			},
-			Blocker: utils.BoolPointer(false),
-		},
-	},
-		{ActionType: utils.TOPUP,
-			Balance: &BalanceFilter{Type: utils.StringPointer(utils.MONETARY),
-				Value:          &utils.ValueFormula{Static: 25},
-				DestinationIDs: utils.StringMapPointer(utils.NewStringMap("RET")),
-				Weight:         utils.Float64Pointer(20)}},
-	}
-	dm.SetActions("MINI", acs, utils.NonTransactional)
+func TestActionTimingGetNextStartTime(t *testing.T) {
+	t1 := time.Date(2020, 2, 7, 14, 25, 0, 0, time.UTC)
 	at := &ActionTiming{
-		Uuid: utils.GenUUID(),
 		Timing: &RateInterval{
 			Timing: &RITiming{
-				Years:     utils.Years{2012},
-				Months:    utils.Months{},
-				MonthDays: utils.MonthDays{},
-				WeekDays:  utils.WeekDays{},
-				StartTime: utils.ASAP,
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "00:00:00"}}}
+	exp := time.Date(2020, 2, 29, 0, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 2, 17, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{16},
+				StartTime: "00:00:00"}}}
+	exp = time.Date(2020, 3, 16, 0, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 12, 17, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{16},
+				StartTime: "00:00:00"}}}
+	exp = time.Date(2021, 1, 16, 0, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 12, 17, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "00:00:00"}}}
+	exp = time.Date(2020, 12, 31, 0, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 7, 31, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "15:00:00"}}}
+	exp = time.Date(2020, 7, 31, 15, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 2, 17, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{17},
+				StartTime: "15:00:00"}}}
+	exp = time.Date(2020, 2, 17, 15, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 2, 17, 15, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{17},
+				StartTime: "10:00:00"}}}
+	exp = time.Date(2020, 3, 17, 10, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+	t1 = time.Date(2020, 9, 29, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "00:00:00"}}}
+	exp = time.Date(2020, 9, 30, 0, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+	t1 = time.Date(2020, 9, 30, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "00:00:00"}}}
+	exp = time.Date(2020, 10, 31, 0, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 9, 30, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "15:00:00",
+			}}}
+	exp = time.Date(2020, 9, 30, 15, 0, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+
+	t1 = time.Date(2020, 9, 30, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "14:25:01"}}}
+	exp = time.Date(2020, 9, 30, 14, 25, 1, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+	t1 = time.Date(2020, 12, 31, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "14:25:01"}}}
+	exp = time.Date(2020, 12, 31, 14, 25, 1, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+	t1 = time.Date(2020, 12, 31, 14, 25, 0, 0, time.UTC)
+	at = &ActionTiming{
+		Timing: &RateInterval{
+			Timing: &RITiming{
+				ID:        utils.MetaMonthlyEstimated,
+				MonthDays: utils.MonthDays{31},
+				StartTime: "14:25:00"}}}
+	exp = time.Date(2021, 1, 31, 14, 25, 0, 0, time.UTC)
+	if st := at.GetNextStartTime(t1); !st.Equal(exp) {
+		t.Errorf("Expecting: %+v, received: %+v", exp, st)
+	}
+}
+
+func TestActionTimingExErr(t *testing.T) {
+	tmpDm := dm
+	tmp := Cache
+	cfg := config.NewDefaultCGRConfig()
+	defer func() {
+		dm = tmpDm
+		Cache = tmp
+		config.SetCgrConfig(config.NewDefaultCGRConfig())
+	}()
+	db := NewInternalDB(nil, nil, true, cfg.DataDbCfg().Items)
+	dm := NewDataManager(db, cfg.CacheCfg(), nil)
+	at := &ActionTiming{
+		Timing: &RateInterval{},
+		actions: []*Action{
+			{
+				Filters:          []string{},
+				ExpirationString: "*yearly",
+				ActionType:       "test",
+				Id:               "ZeroMonetary",
+				Balance: &BalanceFilter{
+					Type: utils.StringPointer(utils.MetaMonetary),
+
+					Value:  &utils.ValueFormula{Static: 11},
+					Weight: utils.Float64Pointer(30),
+				},
 			},
 		},
-		Weight:    10,
-		ActionsID: "MINI",
 	}
-	config.SetCgrConfig(cfg)
-	SetDataStorage(dm)
-	SetConnManager(connMgr)
-	if err := at.Execute(nil, nil); err == nil || err != utils.ErrPartiallyExecuted {
+	fltrs := NewFilterS(cfg, nil, dm)
+	if err := at.Execute(nil); err == nil || err != utils.ErrPartiallyExecuted {
 		t.Error(err)
+	}
+	at.actions[0].ActionType = utils.MetaDebitReset
+	if err := at.Execute(nil); err == nil || err != utils.ErrPartiallyExecuted {
+		t.Error(err)
+	}
+	at.accountIDs = utils.StringMap{"cgrates.org:zeroNegative": true}
+	at.actions[0].ActionType = utils.MetaResetStatQueue
+	if err := at.Execute(nil); err == nil || err != utils.ErrPartiallyExecuted {
+		t.Error(err)
+	}
+	Cache.Set(utils.CacheFilters, "cgrates.org:*string:~*req.BalanceMap.*monetary[0].ID:*default", nil, []string{}, true, utils.NonTransactional)
+	at.actions[0].Filters = []string{"*string:~*req.BalanceMap.*monetary[0].ID:*default"}
+	if err := at.Execute(fltrs); err != nil {
+		t.Error(err)
+	}
+	SetDataStorage(nil)
+	if err := at.Execute(nil); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestGetDayOrEndOfMonth(t *testing.T) {
+	if val := getDayOrEndOfMonth(31, time.Date(2022, 12, 22, 12, 0, 0, 0, time.UTC)); val != 31 {
+		t.Errorf("Should Receive Last Day %v", val)
 	}
 }

@@ -18,70 +18,51 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 package utils
 
-import "time"
+import (
+	"time"
+)
 
 var (
-	CDRExportFormats = NewStringSet([]string{DRYRUN, MetaFileCSV, MetaFileFWV, MetaHTTPjsonCDR, MetaHTTPjsonMap,
-		MetaHTTPjson, MetaHTTPPost, MetaAMQPjsonCDR, MetaAMQPjsonMap, MetaAMQPV1jsonMap, MetaSQSjsonMap,
-		MetaKafkajsonMap, MetaS3jsonMap})
 	MainCDRFields = NewStringSet([]string{CGRID, Source, OriginHost, OriginID, ToR, RequestType, Tenant, Category,
-		Account, Subject, Destination, SetupTime, AnswerTime, Usage, COST, RATED, Partial, RunID,
+		AccountField, Subject, Destination, SetupTime, AnswerTime, Usage, Cost, Rated, Partial, RunID,
 		PreRated, CostSource, CostDetails, ExtraInfo, OrderID})
-	PostPaidRatedSlice = []string{META_POSTPAID, META_RATED}
-	ItemList           = NewStringSet([]string{MetaAccounts, MetaAttributes, MetaChargers, MetaDispatchers, MetaDispatcherHosts,
-		MetaFilters, MetaResources, MetaStats, MetaThresholds, MetaSuppliers,
-	})
-	AttrInlineTypes = NewStringSet([]string{META_CONSTANT, MetaVariable, META_COMPOSED, META_USAGE_DIFFERENCE,
-		MetaSum, MetaValueExponent})
+	PostPaidRatedSlice = []string{MetaPostpaid, MetaRated}
 
-	GitLastLog                  string // If set, it will be processed as part of versioning
-	PosterTransportContentTypes = map[string]string{
-		MetaHTTPjsonCDR:   CONTENT_JSON,
-		MetaHTTPjsonMap:   CONTENT_JSON,
-		MetaHTTPjson:      CONTENT_JSON,
-		MetaHTTPPost:      CONTENT_FORM,
-		MetaAMQPjsonCDR:   CONTENT_JSON,
-		MetaAMQPjsonMap:   CONTENT_JSON,
-		MetaAMQPV1jsonMap: CONTENT_JSON,
-		MetaSQSjsonMap:    CONTENT_JSON,
-		MetaKafkajsonMap:  CONTENT_JSON,
-		MetaS3jsonMap:     CONTENT_JSON,
-	}
-	CDREFileSuffixes = map[string]string{
-		MetaHTTPjsonCDR:   JSNSuffix,
-		MetaHTTPjsonMap:   JSNSuffix,
-		MetaAMQPjsonCDR:   JSNSuffix,
-		MetaAMQPjsonMap:   JSNSuffix,
-		MetaAMQPV1jsonMap: JSNSuffix,
-		MetaSQSjsonMap:    JSNSuffix,
-		MetaKafkajsonMap:  JSNSuffix,
-		MetaS3jsonMap:     JSNSuffix,
-		MetaHTTPPost:      FormSuffix,
-		MetaFileCSV:       CSVSuffix,
-		MetaFileFWV:       FWVSuffix,
-	}
+	GitLastLog string // If set, it will be processed as part of versioning
+
+	extraDBPartition = NewStringSet([]string{CacheDispatchers,
+		CacheDispatcherRoutes, CacheDispatcherLoads, CacheDiameterMessages, CacheRPCResponses, CacheClosedSessions,
+		CacheCDRIDs, CacheRPCConnections, CacheUCH, CacheSTIR, CacheEventCharges, MetaAPIBan, MetaSentryPeer,
+		CacheRatingProfilesTmp, CacheCapsEvents, CacheReplicationHosts})
+
+	DataDBPartitions = NewStringSet([]string{CacheDestinations, CacheReverseDestinations, CacheRatingPlans,
+		CacheRatingProfiles, CacheDispatcherProfiles, CacheDispatcherHosts, CacheChargerProfiles, CacheActions, CacheActionTriggers, CacheSharedGroups, CacheTimings,
+		CacheResourceProfiles, CacheResources, CacheEventResources, CacheStatQueueProfiles, CacheStatQueues,
+		CacheThresholdProfiles, CacheThresholds, CacheFilters, CacheRouteProfiles, CacheAttributeProfiles,
+		CacheResourceFilterIndexes, CacheStatFilterIndexes, CacheThresholdFilterIndexes, CacheRouteFilterIndexes,
+		CacheAttributeFilterIndexes, CacheChargerFilterIndexes, CacheDispatcherFilterIndexes, CacheLoadIDs,
+		CacheReverseFilterIndexes, CacheActionPlans, CacheAccountActionPlans, CacheAccounts, CacheVersions})
+
+	StorDBPartitions = NewStringSet([]string{CacheTBLTPTimings, CacheTBLTPDestinations, CacheTBLTPRates, CacheTBLTPDestinationRates,
+		CacheTBLTPRatingPlans, CacheTBLTPRatingProfiles, CacheTBLTPSharedGroups, CacheTBLTPActions,
+		CacheTBLTPActionPlans, CacheTBLTPActionTriggers, CacheTBLTPAccountActions, CacheTBLTPResources,
+		CacheTBLTPStats, CacheTBLTPThresholds, CacheTBLTPFilters, CacheSessionCostsTBL, CacheCDRsTBL,
+		CacheTBLTPRoutes, CacheTBLTPAttributes, CacheTBLTPChargers, CacheTBLTPDispatchers,
+		CacheTBLTPDispatcherHosts, CacheVersions})
+
 	// CachePartitions enables creation of cache partitions
-	CachePartitions = NewStringSet([]string{CacheDestinations, CacheReverseDestinations,
-		CacheRatingPlans, CacheRatingProfiles, CacheActions, CacheActionPlans,
-		CacheAccountActionPlans, CacheActionTriggers, CacheSharedGroups, CacheTimings,
-		CacheResourceProfiles, CacheResources, CacheEventResources, CacheStatQueueProfiles,
-		CacheStatQueues, CacheThresholdProfiles, CacheThresholds, CacheFilters,
-		CacheSupplierProfiles, CacheAttributeProfiles, CacheChargerProfiles,
-		CacheDispatcherProfiles, CacheDispatcherHosts, CacheResourceFilterIndexes,
-		CacheStatFilterIndexes, CacheThresholdFilterIndexes, CacheSupplierFilterIndexes,
-		CacheAttributeFilterIndexes, CacheChargerFilterIndexes, CacheDispatcherFilterIndexes, CacheReverseFilterIndexes,
-		CacheDispatcherRoutes, CacheDiameterMessages, CacheRPCResponses, CacheClosedSessions,
-		CacheCDRIDs, CacheLoadIDs, CacheRPCConnections, CacheRatingProfilesTmp})
+	CachePartitions = JoinStringSet(extraDBPartition, DataDBPartitions)
+
 	CacheInstanceToPrefix = map[string]string{
-		CacheDestinations:            DESTINATION_PREFIX,
-		CacheReverseDestinations:     REVERSE_DESTINATION_PREFIX,
-		CacheRatingPlans:             RATING_PLAN_PREFIX,
-		CacheRatingProfiles:          RATING_PROFILE_PREFIX,
-		CacheActions:                 ACTION_PREFIX,
-		CacheActionPlans:             ACTION_PLAN_PREFIX,
+		CacheDestinations:            DestinationPrefix,
+		CacheReverseDestinations:     ReverseDestinationPrefix,
+		CacheRatingPlans:             RatingPlanPrefix,
+		CacheRatingProfiles:          RatingProfilePrefix,
+		CacheActions:                 ActionPrefix,
+		CacheActionPlans:             ActionPlanPrefix,
 		CacheAccountActionPlans:      AccountActionPlansPrefix,
-		CacheActionTriggers:          ACTION_TRIGGER_PREFIX,
-		CacheSharedGroups:            SHARED_GROUP_PREFIX,
+		CacheActionTriggers:          ActionTriggerPrefix,
+		CacheSharedGroups:            SharedGroupPrefix,
 		CacheResourceProfiles:        ResourceProfilesPrefix,
 		CacheResources:               ResourcesPrefix,
 		CacheTimings:                 TimingsPrefix,
@@ -90,7 +71,7 @@ var (
 		CacheThresholdProfiles:       ThresholdProfilePrefix,
 		CacheThresholds:              ThresholdPrefix,
 		CacheFilters:                 FilterPrefix,
-		CacheSupplierProfiles:        SupplierProfilePrefix,
+		CacheRouteProfiles:           RouteProfilePrefix,
 		CacheAttributeProfiles:       AttributeProfilePrefix,
 		CacheChargerProfiles:         ChargerProfilePrefix,
 		CacheDispatcherProfiles:      DispatcherProfilePrefix,
@@ -98,580 +79,847 @@ var (
 		CacheResourceFilterIndexes:   ResourceFilterIndexes,
 		CacheStatFilterIndexes:       StatFilterIndexes,
 		CacheThresholdFilterIndexes:  ThresholdFilterIndexes,
-		CacheSupplierFilterIndexes:   SupplierFilterIndexes,
+		CacheRouteFilterIndexes:      RouteFilterIndexes,
 		CacheAttributeFilterIndexes:  AttributeFilterIndexes,
 		CacheChargerFilterIndexes:    ChargerFilterIndexes,
 		CacheDispatcherFilterIndexes: DispatcherFilterIndexes,
-		CacheReverseFilterIndexes:    ReverseFilterIndexes,
-		CacheLoadIDs:                 LoadIDPrefix,
-		CacheAccounts:                ACCOUNT_PREFIX,
+
+		CacheLoadIDs:              LoadIDPrefix,
+		CacheAccounts:             AccountPrefix,
+		CacheReverseFilterIndexes: FilterIndexPrfx,
+		MetaSentryPeer:            MetaSentryPeer,
+		MetaAPIBan:                MetaAPIBan, // special case as it is not in a DB
+		CacheDispatchers:          MetaDispatchers,
 	}
-	CachePrefixToInstance map[string]string // will be built on init
-	PrefixToIndexCache    = map[string]string{
-		ThresholdProfilePrefix:  CacheThresholdFilterIndexes,
-		ResourceProfilesPrefix:  CacheResourceFilterIndexes,
-		StatQueueProfilePrefix:  CacheStatFilterIndexes,
-		SupplierProfilePrefix:   CacheSupplierFilterIndexes,
-		AttributeProfilePrefix:  CacheAttributeFilterIndexes,
-		ChargerProfilePrefix:    CacheChargerFilterIndexes,
-		DispatcherProfilePrefix: CacheDispatcherFilterIndexes,
-		ReverseFilterIndexes:    CacheReverseFilterIndexes,
+	CachePrefixToInstance map[string]string    // will be built on init
+	CacheIndexesToPrefix  = map[string]string{ // used by match index to get all the ids when index selects is disabled and for compute indexes
+		CacheThresholdFilterIndexes:  ThresholdProfilePrefix,
+		CacheResourceFilterIndexes:   ResourceProfilesPrefix,
+		CacheStatFilterIndexes:       StatQueueProfilePrefix,
+		CacheRouteFilterIndexes:      RouteProfilePrefix,
+		CacheAttributeFilterIndexes:  AttributeProfilePrefix,
+		CacheChargerFilterIndexes:    ChargerProfilePrefix,
+		CacheDispatcherFilterIndexes: DispatcherProfilePrefix,
+		CacheReverseFilterIndexes:    FilterPrefix,
 	}
-	CacheIndexesToPrefix map[string]string // will be built on init
+
+	CacheInstanceToCacheIndex = map[string]string{
+		CacheThresholdProfiles:  CacheThresholdFilterIndexes,
+		CacheResourceProfiles:   CacheResourceFilterIndexes,
+		CacheStatQueueProfiles:  CacheStatFilterIndexes,
+		CacheRouteProfiles:      CacheRouteFilterIndexes,
+		CacheAttributeProfiles:  CacheAttributeFilterIndexes,
+		CacheChargerProfiles:    CacheChargerFilterIndexes,
+		CacheDispatcherProfiles: CacheDispatcherFilterIndexes,
+		CacheFilters:            CacheReverseFilterIndexes,
+	}
 
 	// NonMonetaryBalances are types of balances which are not handled as monetary
-	NonMonetaryBalances = NewStringSet([]string{VOICE, SMS, DATA, GENERIC})
+	NonMonetaryBalances = NewStringSet([]string{MetaVoice, MetaSMS, MetaData, MetaGeneric})
 
 	// AccountableRequestTypes are the ones handled by Accounting subsystem
-	AccountableRequestTypes = NewStringSet([]string{META_PREPAID, META_POSTPAID, META_PSEUDOPREPAID})
+	AccountableRequestTypes = NewStringSet([]string{MetaPrepaid, MetaPostpaid, MetaPseudoPrepaid})
 
-	CacheDataDBPartitions = NewStringSet([]string{CacheDestinations, CacheReverseDestinations,
-		CacheRatingPlans, CacheRatingProfiles, CacheActions,
-		CacheActionPlans, CacheAccountActionPlans, CacheActionTriggers, CacheSharedGroups, CacheResourceProfiles, CacheResources,
-		CacheTimings, CacheStatQueueProfiles, CacheStatQueues, CacheThresholdProfiles, CacheThresholds,
-		CacheFilters, CacheSupplierProfiles, CacheAttributeProfiles, CacheChargerProfiles,
-		CacheDispatcherProfiles, CacheDispatcherHosts, CacheResourceFilterIndexes, CacheStatFilterIndexes,
-		CacheThresholdFilterIndexes, CacheSupplierFilterIndexes, CacheAttributeFilterIndexes, CacheReverseFilterIndexes,
-		CacheChargerFilterIndexes, CacheDispatcherFilterIndexes, CacheLoadIDs, CacheAccounts})
+	CacheStorDBPartitions = map[string]string{
+		TBLTPTimings:          CacheTBLTPTimings,
+		TBLTPDestinations:     CacheTBLTPDestinations,
+		TBLTPRates:            CacheTBLTPRates,
+		TBLTPDestinationRates: CacheTBLTPDestinationRates,
+		TBLTPRatingPlans:      CacheTBLTPRatingPlans,
+		TBLTPRatingProfiles:   CacheTBLTPRatingProfiles,
+		TBLTPSharedGroups:     CacheTBLTPSharedGroups,
+		TBLTPActions:          CacheTBLTPActions,
+		TBLTPActionPlans:      CacheTBLTPActionPlans,
+		TBLTPActionTriggers:   CacheTBLTPActionTriggers,
+		TBLTPAccountActions:   CacheTBLTPAccountActions,
+		TBLTPResources:        CacheTBLTPResources,
+		TBLTPStats:            CacheTBLTPStats,
+		TBLTPThresholds:       CacheTBLTPThresholds,
+		TBLTPFilters:          CacheTBLTPFilters,
+		SessionCostsTBL:       CacheSessionCostsTBL,
+		CDRsTBL:               CacheCDRsTBL,
+		TBLTPRoutes:           CacheTBLTPRoutes,
+		TBLTPAttributes:       CacheTBLTPAttributes,
+		TBLTPChargers:         CacheTBLTPChargers,
+		TBLTPDispatchers:      CacheTBLTPDispatchers,
+		TBLTPDispatcherHosts:  CacheTBLTPDispatcherHosts,
+	}
 
 	// ProtectedSFlds are the fields that sessions should not alter
 	ProtectedSFlds = NewStringSet([]string{CGRID, OriginHost, OriginID, Usage})
+
+	ConcurrentReqsLimit    int
+	ConcurrentReqsStrategy string
 )
 
 const (
-	CGRateS                      = "CGRateS"
-	VERSION                      = "v0.10.3~dev"
-	DIAMETER_FIRMWARE_REVISION   = 918
-	REDIS_MAX_CONNS              = 10
-	CGRATES                      = "cgrates"
-	POSTGRES                     = "postgres"
-	MYSQL                        = "mysql"
-	MONGO                        = "mongo"
-	REDIS                        = "redis"
-	INTERNAL                     = "internal"
-	DataManager                  = "DataManager"
-	LOCALHOST                    = "127.0.0.1"
-	PREPAID                      = "prepaid"
-	META_PREPAID                 = "*prepaid"
-	POSTPAID                     = "postpaid"
-	META_POSTPAID                = "*postpaid"
-	PSEUDOPREPAID                = "pseudoprepaid"
-	META_PSEUDOPREPAID           = "*pseudoprepaid"
-	META_RATED                   = "*rated"
-	META_NONE                    = "*none"
-	META_NOW                     = "*now"
-	ROUNDING_UP                  = "*up"
-	ROUNDING_MIDDLE              = "*middle"
-	ROUNDING_DOWN                = "*down"
-	ANY                          = "*any"
-	MetaAll                      = "*all"
-	ZERO                         = "*zero"
-	ASAP                         = "*asap"
-	COMMENT_CHAR                 = '#'
-	CSV_SEP                      = ','
-	FALLBACK_SEP                 = ';'
-	INFIELD_SEP                  = ";"
-	MetaPipe                     = "*|"
-	FIELDS_SEP                   = ","
-	InInFieldSep                 = ":"
-	STATIC_HDRVAL_SEP            = "::"
-	REGEXP_PREFIX                = "~"
-	FILTER_VAL_START             = "("
-	FILTER_VAL_END               = ")"
-	JSON                         = "json"
-	MSGPACK                      = "msgpack"
-	CSV_LOAD                     = "CSVLOAD"
-	CGRID                        = "CGRID"
-	ToR                          = "ToR"
-	OrderID                      = "OrderID"
-	OriginID                     = "OriginID"
-	InitialOriginID              = "InitialOriginID"
-	OriginIDPrefix               = "OriginIDPrefix"
-	Source                       = "Source"
-	OriginHost                   = "OriginHost"
-	RequestType                  = "RequestType"
-	Direction                    = "Direction"
-	Tenant                       = "Tenant"
-	Category                     = "Category"
-	Context                      = "Context"
-	Contexts                     = "Contexts"
-	Account                      = "Account"
-	Subject                      = "Subject"
-	Destination                  = "Destination"
-	SetupTime                    = "SetupTime"
-	AnswerTime                   = "AnswerTime"
-	Usage                        = "Usage"
-	Value                        = "Value"
-	LastUsed                     = "LastUsed"
-	PDD                          = "PDD"
-	SUPPLIER                     = "Supplier"
-	RunID                        = "RunID"
-	MetaReqRunID                 = "*req.RunID"
-	COST                         = "Cost"
-	CostDetails                  = "CostDetails"
-	RATED                        = "rated"
-	Partial                      = "Partial"
-	PreRated                     = "PreRated"
-	STATIC_VALUE_PREFIX          = "^"
-	CSV                          = "csv"
-	FWV                          = "fwv"
-	MetaPartialCSV               = "*partial_csv"
-	DRYRUN                       = "dry_run"
-	META_COMBIMED                = "*combimed"
-	MetaMongo                    = "*mongo"
-	MetaRedis                    = "*redis"
-	MetaPostgres                 = "*postgres"
-	MetaInternal                 = "*internal"
-	MetaLocalHost                = "*localhost"
-	ZERO_RATING_SUBJECT_PREFIX   = "*zero"
-	OK                           = "OK"
-	MetaFileXML                  = "*file_xml"
-	CDRE                         = "cdre"
-	MASK_CHAR                    = "*"
-	CONCATENATED_KEY_SEP         = ":"
-	UNIT_TEST                    = "UNIT_TEST"
-	HDR_VAL_SEP                  = "/"
-	MONETARY                     = "*monetary"
-	SMS                          = "*sms"
-	MMS                          = "*mms"
-	GENERIC                      = "*generic"
-	DATA                         = "*data"
-	VOICE                        = "*voice"
-	MAX_COST_FREE                = "*free"
-	MAX_COST_DISCONNECT          = "*disconnect"
-	SECONDS                      = "seconds"
-	META_OUT                     = "*out"
-	META_ANY                     = "*any"
-	ASR                          = "ASR"
-	ACD                          = "ACD"
-	TASKS_KEY                    = "tasks"
-	ACTION_PLAN_PREFIX           = "apl_"
-	AccountActionPlansPrefix     = "aap_"
-	ACTION_TRIGGER_PREFIX        = "atr_"
-	RATING_PLAN_PREFIX           = "rpl_"
-	RATING_PROFILE_PREFIX        = "rpf_"
-	ACTION_PREFIX                = "act_"
-	SHARED_GROUP_PREFIX          = "shg_"
-	ACCOUNT_PREFIX               = "acc_"
-	DESTINATION_PREFIX           = "dst_"
-	REVERSE_DESTINATION_PREFIX   = "rds_"
-	DERIVEDCHARGERS_PREFIX       = "dcs_"
-	USERS_PREFIX                 = "usr_"
-	ResourcesPrefix              = "res_"
-	ResourceProfilesPrefix       = "rsp_"
-	ThresholdPrefix              = "thd_"
-	TimingsPrefix                = "tmg_"
-	FilterPrefix                 = "ftr_"
-	CDR_STATS_PREFIX             = "cst_"
-	VERSION_PREFIX               = "ver_"
-	StatQueueProfilePrefix       = "sqp_"
-	SupplierProfilePrefix        = "spp_"
-	AttributeProfilePrefix       = "alp_"
-	ChargerProfilePrefix         = "cpp_"
-	DispatcherProfilePrefix      = "dpp_"
-	DispatcherHostPrefix         = "dph_"
-	ThresholdProfilePrefix       = "thp_"
-	StatQueuePrefix              = "stq_"
-	LoadIDPrefix                 = "lid_"
-	LOADINST_KEY                 = "load_history"
-	CREATE_CDRS_TABLES_SQL       = "create_cdrs_tables.sql"
-	CREATE_TARIFFPLAN_TABLES_SQL = "create_tariffplan_tables.sql"
-	TEST_SQL                     = "TEST_SQL"
-	META_CONSTANT                = "*constant"
-	META_FILLER                  = "*filler"
-	META_HANDLER                 = "*handler"
-	MetaHTTPPost                 = "*http_post"
-	MetaHTTPjson                 = "*http_json"
-	MetaHTTPjsonCDR              = "*http_json_cdr"
-	MetaHTTPjsonMap              = "*http_json_map"
-	MetaAMQPjsonCDR              = "*amqp_json_cdr"
-	MetaAMQPjsonMap              = "*amqp_json_map"
-	MetaAMQPV1jsonMap            = "*amqpv1_json_map"
-	MetaSQSjsonMap               = "*sqs_json_map"
-	MetaKafkajsonMap             = "*kafka_json_map"
-	MetaSQL                      = "*sql"
-	MetaMySQL                    = "*mysql"
-	MetaS3jsonMap                = "*s3_json_map"
-	CONFIG_PATH                  = "/etc/cgrates/"
-	DISCONNECT_CAUSE             = "DisconnectCause"
-	MetaFlatstore                = "*flatstore"
-	MetaRating                   = "*rating"
-	NOT_AVAILABLE                = "N/A"
-	CALL                         = "call"
-	EXTRA_FIELDS                 = "ExtraFields"
-	META_SURETAX                 = "*sure_tax"
-	MetaDynamic                  = "*dynamic"
-	COUNTER_EVENT                = "*event"
-	COUNTER_BALANCE              = "*balance"
-	EVENT_NAME                   = "EventName"
+	CGRateS                  = "CGRateS"
+	Version                  = "v0.11.0~dev"
+	DiameterFirmwareRevision = 918
+	CGRateSLwr               = "cgrates"
+	Postgres                 = "postgres"
+	MySQL                    = "mysql"
+	Mongo                    = "mongo"
+	Redis                    = "redis"
+	Internal                 = "internal"
+	DataManager              = "DataManager"
+	Localhost                = "127.0.0.1"
+	Prepaid                  = "prepaid"
+	MetaPrepaid              = "*prepaid"
+	Postpaid                 = "postpaid"
+	MetaPostpaid             = "*postpaid"
+	PseudoPrepaid            = "pseudoprepaid"
+	MetaPseudoPrepaid        = "*pseudoprepaid"
+	MetaRated                = "*rated"
+	MetaNone                 = "*none"
+	MetaNow                  = "*now"
+	MetaRoundingUp           = "*up"
+	MetaRoundingMiddle       = "*middle"
+	MetaRoundingDown         = "*down"
+	MetaAny                  = "*any"
+	MetaAll                  = "*all"
+	MetaSingle               = "*single"
+	MetaZero                 = "*zero"
+	MetaASAP                 = "*asap"
+	CommentChar              = '#'
+	CSVSep                   = ','
+	FallbackSep              = ';'
+	InfieldSep               = ";"
+	MetaPipe                 = "*|"
+	FieldsSep                = ","
+	InInFieldSep             = ":"
+	StaticHDRValSep          = "::"
+	FilterValStart           = "("
+	FilterValEnd             = ")"
+	PlusChar                 = "+"
+	JSON                     = "json"
+	JSONCaps                 = "JSON"
+	GOBCaps                  = "GOB"
+	MsgPack                  = "msgpack"
+	CSVLoad                  = "CSVLOAD"
+	CGRID                    = "CGRID"
+	ToR                      = "ToR"
+	OrderID                  = "OrderID"
+	OriginID                 = "OriginID"
+	InitialOriginID          = "InitialOriginID"
+	OriginIDPrefix           = "OriginIDPrefix"
+	Source                   = "Source"
+	OriginHost               = "OriginHost"
+	RequestType              = "RequestType"
+	Direction                = "Direction"
+	Tenant                   = "Tenant"
+	Category                 = "Category"
+	Contexts                 = "Contexts"
+	AccountField             = "Account"
+	BalancesFld              = "Balances"
+	Subject                  = "Subject"
+	Destination              = "Destination"
+	SetupTime                = "SetupTime"
+	AnswerTime               = "AnswerTime"
+	Usage                    = "Usage"
+	DurationIndex            = "DurationIndex"
+	MaxRateUnit              = "MaxRateUnit"
+	DebitInterval            = "DebitInterval"
+	TimeStart                = "TimeStart"
+	TimeEnd                  = "TimeEnd"
+	CallDuration             = "CallDuration"
+	FallbackSubject          = "FallbackSubject"
+	DryRun                   = "DryRun"
+
+	CustomValue             = "CustomValue"
+	Value                   = "Value"
+	Filter                  = "Filter"
+	LastUsed                = "LastUsed"
+	PDD                     = "PDD"
+	Route                   = "Route"
+	RunID                   = "RunID"
+	AttributeIDs            = "AttributeIDs"
+	MetaReqRunID            = "*req.RunID"
+	Cost                    = "Cost"
+	CostDetails             = "CostDetails"
+	EventCost               = "EventCost"
+	EeIDs                   = "EeIDs"
+	Rated                   = "rated"
+	Partial                 = "Partial"
+	PreRated                = "PreRated"
+	StaticValuePrefix       = "^"
+	CSV                     = "csv"
+	FWV                     = "fwv"
+	MetaCombimed            = "*combimed"
+	MetaMongo               = "*mongo"
+	MetaRedis               = "*redis"
+	MetaPostgres            = "*postgres"
+	MetaInternal            = "*internal"
+	MetaLocalHost           = "*localhost"
+	MetaBiJSONLocalHost     = "*bijson_localhost"
+	MetaRatingSubjectPrefix = "*zero"
+	OK                      = "OK"
+	MetaFileXML             = "*file_xml"
+	MetaFileJSON            = "*file_json"
+	MaskChar                = "*"
+	ConcatenatedKeySep      = ":"
+	UnitTest                = "UNIT_TEST"
+	HDRValSep               = "/"
+	MetaMonetary            = "*monetary"
+	MetaSMS                 = "*sms"
+	MetaMMS                 = "*mms"
+	MetaGeneric             = "*generic"
+	MetaData                = "*data"
+	MetaMaxCostFree         = "*free"
+	MetaMaxCostDisconnect   = "*disconnect"
+	MetaOut                 = "*out"
+	MetaPause               = "*pause"
+
+	MetaVoice                 = "*voice"
+	ACD                       = "ACD"
+	TasksKey                  = "tasks"
+	ActionPlanPrefix          = "apl_"
+	AccountActionPlansPrefix  = "aap_"
+	ActionTriggerPrefix       = "atr_"
+	RatingPlanPrefix          = "rpl_"
+	RatingProfilePrefix       = "rpf_"
+	ActionPrefix              = "act_"
+	SharedGroupPrefix         = "shg_"
+	AccountPrefix             = "acc_"
+	DestinationPrefix         = "dst_"
+	ReverseDestinationPrefix  = "rds_"
+	DerivedChargersPrefix     = "dcs_"
+	UsersPrefix               = "usr_"
+	ResourcesPrefix           = "res_"
+	ResourceProfilesPrefix    = "rsp_"
+	ThresholdPrefix           = "thd_"
+	TimingsPrefix             = "tmg_"
+	FilterPrefix              = "ftr_"
+	CDRsStatsPrefix           = "cst_"
+	VersionPrefix             = "ver_"
+	StatQueueProfilePrefix    = "sqp_"
+	RouteProfilePrefix        = "rpp_"
+	RatePrefix                = "rep_"
+	AttributeProfilePrefix    = "alp_"
+	ChargerProfilePrefix      = "cpp_"
+	DispatcherProfilePrefix   = "dpp_"
+	DispatcherHostPrefix      = "dph_"
+	ThresholdProfilePrefix    = "thp_"
+	StatQueuePrefix           = "stq_"
+	LoadIDPrefix              = "lid_"
+	LoadInstKey               = "load_history"
+	CreateCDRsTablesSQL       = "create_cdrs_tables.sql"
+	CreateTariffPlanTablesSQL = "create_tariffplan_tables.sql"
+	TestSQL                   = "TEST_SQL"
+	MetaConstant              = "*constant"
+	MetaFiller                = "*filler"
+	MetaHTTPPost              = "*http_post"
+	MetaHTTPjsonCDR           = "*http_json_cdr"
+	MetaHTTPjsonMap           = "*http_json_map"
+	MetaAMQPjsonCDR           = "*amqp_json_cdr"
+	MetaAMQPjsonMap           = "*amqp_json_map"
+	MetaAMQPV1jsonMap         = "*amqpv1_json_map"
+	MetaRPC                   = "*rpc"
+	MetaSQSjsonMap            = "*sqs_json_map"
+	MetaKafkajsonMap          = "*kafka_json_map"
+	MetaNatsjsonMap           = "*nats_json_map"
+	MetaSQL                   = "*sql"
+	MetaMySQL                 = "*mysql"
+	MetaS3jsonMap             = "*s3_json_map"
+	ConfigPath                = "/etc/cgrates/"
+	DisconnectCause           = "DisconnectCause"
+	MetaRating                = "*rating"
+	NotAvailable              = "N/A"
+	Call                      = "call"
+	ExtraFields               = "ExtraFields"
+	MetaSureTax               = "*sure_tax"
+	MetaDynamic               = "*dynamic"
+	MetaCounterEvent          = "*event"
+	MetaBalance               = "*balance"
+	MetaAccount               = "*account"
+	EventName                 = "EventName"
 	// action trigger threshold types
-	TRIGGER_MIN_EVENT_COUNTER   = "*min_event_counter"
-	TRIGGER_MAX_EVENT_COUNTER   = "*max_event_counter"
-	TRIGGER_MAX_BALANCE_COUNTER = "*max_balance_counter"
-	TRIGGER_MIN_BALANCE         = "*min_balance"
-	TRIGGER_MAX_BALANCE         = "*max_balance"
-	TRIGGER_BALANCE_EXPIRED     = "*balance_expired"
-	HIERARCHY_SEP               = ">"
-	META_COMPOSED               = "*composed"
-	META_USAGE_DIFFERENCE       = "*usage_difference"
-	MetaSIPCID                  = "*sipcid"
-	MetaDifference              = "*difference"
-	MetaVariable                = "*variable"
-	MetaCCUsage                 = "*cc_usage"
-	MetaValueExponent           = "*value_exponent"
-	NegativePrefix              = "!"
-	MatchStartPrefix            = "^"
-	MatchGreaterThanOrEqual     = ">="
-	MatchLessThanOrEqual        = "<="
-	MatchGreaterThan            = ">"
-	MatchLessThan               = "<"
-	MatchEndPrefix              = "$"
-	MetaRaw                     = "*raw"
-	CreatedAt                   = "CreatedAt"
-	UpdatedAt                   = "UpdatedAt"
-	HandlerArgSep               = "|"
-	NodeID                      = "NodeID"
-	ActiveGoroutines            = "ActiveGoroutines"
-	MemoryUsage                 = "MemoryUsage"
-	RunningSince                = "RunningSince"
-	GoVersion                   = "GoVersion"
-	SessionTTL                  = "SessionTTL"
-	SessionTTLMaxDelay          = "SessionTTLMaxDelay"
-	SessionTTLLastUsed          = "SessionTTLLastUsed"
-	SessionTTLUsage             = "SessionTTLUsage"
-	SessionTTLLastUsage         = "SessionTTLLastUsage"
-	HandlerSubstractUsage       = "*substract_usage"
-	XML                         = "xml"
-	MetaGOB                     = "*gob"
-	MetaJSON                    = "*json"
-	MetaMSGPACK                 = "*msgpack"
-	MetaDateTime                = "*datetime"
-	MetaMaskedDestination       = "*masked_destination"
-	MetaUnixTimestamp           = "*unix_timestamp"
-	MetaPostCDR                 = "*post_cdr"
-	MetaDumpToFile              = "*dump_to_file"
-	NonTransactional            = ""
-	DataDB                      = "data_db"
-	StorDB                      = "stor_db"
-	NotFoundCaps                = "NOT_FOUND"
-	ServerErrorCaps             = "SERVER_ERROR"
-	MandatoryIEMissingCaps      = "MANDATORY_IE_MISSING"
-	UnsupportedCachePrefix      = "unsupported cache prefix"
-	CDRSCtx                     = "cdrs"
-	MandatoryInfoMissing        = "mandatory information missing"
-	UnsupportedServiceIDCaps    = "UNSUPPORTED_SERVICE_ID"
-	ServiceManager              = "service_manager"
-	ServiceAlreadyRunning       = "service already running"
-	RunningCaps                 = "RUNNING"
-	StoppedCaps                 = "STOPPED"
-	SchedulerNotRunningCaps     = "SCHEDULLER_NOT_RUNNING"
-	MetaScheduler               = "*scheduler"
-	MetaSessionsCosts           = "*sessions_costs"
-	MetaRALs                    = "*rals"
-	MetaRerate                  = "*rerate"
-	MetaRefund                  = "*refund"
-	MetaStats                   = "*stats"
-	MetaResponder               = "*responder"
-	MetaCore                    = "*core"
-	MetaServiceManager          = "*servicemanager"
-	MetaChargers                = "*chargers"
-	MetaConfig                  = "*config"
-	MetaDispatchers             = "*dispatchers"
-	MetaDispatcherHosts         = "*dispatcher_hosts"
-	MetaFilters                 = "*filters"
-	MetaCDRs                    = "*cdrs"
-	MetaCaches                  = "*caches"
-	MetaGuardian                = "*guardians"
-	MetaContinue                = "*continue"
-	Migrator                    = "migrator"
-	UnsupportedMigrationTask    = "unsupported migration task"
-	NoStorDBConnection          = "not connected to StorDB"
-	UndefinedVersion            = "undefined version"
-	TxtSuffix                   = ".txt"
-	JSNSuffix                   = ".json"
-	GOBSuffix                   = ".gob"
-	FormSuffix                  = ".form"
-	XMLSuffix                   = ".xml"
-	CSVSuffix                   = ".csv"
-	FWVSuffix                   = ".fwv"
-	CONTENT_JSON                = "json"
-	CONTENT_FORM                = "form"
-	CONTENT_TEXT                = "text"
-	FileLockPrefix              = "file_"
-	ActionsPoster               = "act"
-	CDRPoster                   = "cdr"
-	MetaFileCSV                 = "*file_csv"
-	MetaFileFWV                 = "*file_fwv"
-	MetaFScsv                   = "*freeswitch_csv"
-	Accounts                    = "Accounts"
-	AccountService              = "AccountS"
-	Actions                     = "Actions"
-	ActionPlans                 = "ActionPlans"
-	ActionTriggers              = "ActionTriggers"
-	SharedGroups                = "SharedGroups"
-	TimingIDs                   = "TimingIDs"
-	Timings                     = "Timings"
-	Rates                       = "Rates"
-	DestinationRates            = "DestinationRates"
-	RatingPlans                 = "RatingPlans"
-	RatingProfiles              = "RatingProfiles"
-	AccountActions              = "AccountActions"
-	Resources                   = "Resources"
-	Stats                       = "Stats"
-	Filters                     = "Filters"
-	DispatcherProfiles          = "DispatcherProfiles"
-	DispatcherHosts             = "DispatcherHosts"
-	MetaEveryMinute             = "*every_minute"
-	MetaHourly                  = "*hourly"
-	ID                          = "ID"
-	Thresholds                  = "Thresholds"
-	Suppliers                   = "Suppliers"
-	Attributes                  = "Attributes"
-	Chargers                    = "Chargers"
-	Dispatchers                 = "Dispatchers"
-	StatS                       = "Stats"
-	LoadIDsVrs                  = "LoadIDs"
-	RALService                  = "RALs"
-	CostSource                  = "CostSource"
-	ExtraInfo                   = "ExtraInfo"
-	Meta                        = "*"
-	MetaSysLog                  = "*syslog"
-	MetaStdLog                  = "*stdout"
-	EventType                   = "EventType"
-	EventSource                 = "EventSource"
-	AccountID                   = "AccountID"
-	ResourceID                  = "ResourceID"
-	TotalUsage                  = "TotalUsage"
-	StatID                      = "StatID"
-	BalanceType                 = "BalanceType"
-	BalanceID                   = "BalanceID"
-	BalanceDestinationIds       = "BalanceDestinationIds"
-	BalanceWeight               = "BalanceWeight"
-	BalanceExpirationDate       = "BalanceExpirationDate"
-	BalanceTimingTags           = "BalanceTimingTags"
-	BalanceRatingSubject        = "BalanceRatingSubject"
-	BalanceCategories           = "BalanceCategories"
-	BalanceSharedGroups         = "BalanceSharedGroups"
-	BalanceBlocker              = "BalanceBlocker"
-	BalanceDisabled             = "BalanceDisabled"
-	Units                       = "Units"
-	AccountUpdate               = "AccountUpdate"
-	BalanceUpdate               = "BalanceUpdate"
-	StatUpdate                  = "StatUpdate"
-	ResourceUpdate              = "ResourceUpdate"
-	CDR                         = "CDR"
-	CDRs                        = "CDRs"
-	ExpiryTime                  = "ExpiryTime"
-	AllowNegative               = "AllowNegative"
-	Disabled                    = "Disabled"
-	Action                      = "Action"
-	MetaNow                     = "*now"
-	SessionSCosts               = "SessionSCosts"
-	Timing                      = "Timing"
-	RQF                         = "RQF"
-	Resource                    = "Resource"
-	User                        = "User"
-	Subscribers                 = "Subscribers"
-	DerivedChargersV            = "DerivedChargers"
-	Destinations                = "Destinations"
-	ReverseDestinations         = "ReverseDestinations"
-	RatingPlan                  = "RatingPlan"
-	RatingProfile               = "RatingProfile"
-	MetaRatingPlans             = "*rating_plans"
-	MetaRatingProfiles          = "*rating_profiles"
-	MetaUsers                   = "*users"
-	MetaSubscribers             = "*subscribers"
-	MetaDerivedChargersV        = "*derivedchargers"
-	MetaStorDB                  = "*stordb"
-	MetaDataDB                  = "*datadb"
-	MetaWeight                  = "*weight"
-	MetaLC                      = "*lc"
-	MetaHC                      = "*hc"
-	MetaQOS                     = "*qos"
-	MetaReas                    = "*reas"
-	MetaReds                    = "*reds"
-	Weight                      = "Weight"
-	Cost                        = "Cost"
-	DestinationIDs              = "DestinationIDs"
-	RatingSubject               = "RatingSubject"
-	Categories                  = "Categories"
-	Blocker                     = "Blocker"
-	RatingPlanID                = "RatingPlanID"
-	StartTime                   = "StartTime"
-	AccountSummary              = "AccountSummary"
-	RatingFilters               = "RatingFilters"
-	RatingFilter                = "RatingFilter"
-	Accounting                  = "Accounting"
-	Rating                      = "Rating"
-	Charges                     = "Charges"
-	CompressFactor              = "CompressFactor"
-	Increments                  = "Increments"
-	Balance                     = "Balance"
-	BalanceSummaries            = "BalanceSummaries"
-	Type                        = "Type"
-	YearsFieldName              = "Years"
-	MonthsFieldName             = "Months"
-	MonthDaysFieldName          = "MonthDays"
-	WeekDaysFieldName           = "WeekDays"
-	GroupIntervalStart          = "GroupIntervalStart"
-	RateIncrement               = "RateIncrement"
-	RateUnit                    = "RateUnit"
-	BalanceUUID                 = "BalanceUUID"
-	RatingID                    = "RatingID"
-	ExtraChargeID               = "ExtraChargeID"
-	ConnectFee                  = "ConnectFee"
-	RoundingMethod              = "RoundingMethod"
-	RoundingDecimals            = "RoundingDecimals"
-	MaxCostStrategy             = "MaxCostStrategy"
-	TimingID                    = "TimingID"
-	RatesID                     = "RatesID"
-	RatingFiltersID             = "RatingFiltersID"
-	AccountingID                = "AccountingID"
-	MetaSessionS                = "*sessions"
-	MetaDefault                 = "*default"
-	Error                       = "Error"
-	MetaCgreq                   = "*cgreq"
-	MetaCgrep                   = "*cgrep"
-	MetaCGRAReq                 = "*cgrareq"
-	CGR_ACD                     = "cgr_acd"
-	FilterIDs                   = "FilterIDs"
-	FieldName                   = "FieldName"
-	Path                        = "Path"
-	MetaRound                   = "*round"
-	Pong                        = "Pong"
-	MetaEventCost               = "*event_cost"
-	MetaSuppliersMaxCost        = "*suppliers_maxcost"
-	MetaMaxCost                 = "*maxcost"
-	MetaSuppliersEventCost      = "*suppliers_event_cost"
-	MetaSuppliersIgnoreErrors   = "*suppliers_ignore_errors"
-	Freeswitch                  = "freeswitch"
-	Kamailio                    = "kamailio"
-	Opensips                    = "opensips"
-	Asterisk                    = "asterisk"
-	SchedulerS                  = "SchedulerS"
-	MetaMultiply                = "*multiply"
-	MetaDivide                  = "*divide"
-	MetaUrl                     = "*url"
-	MetaXml                     = "*xml"
-	ApiKey                      = "apikey"
-	MetaReq                     = "*req"
-	MetaVars                    = "*vars"
-	MetaRep                     = "*rep"
-	MetaExp                     = "*exp"
-	MetaHdr                     = "*hdr"
-	MetaTrl                     = "*trl"
-	MetaTmp                     = "*tmp"
-	CGROriginHost               = "cgr_originhost"
-	MetaInitiate                = "*initiate"
-	MetaFD                      = "*fd"
-	MetaUpdate                  = "*update"
-	MetaTerminate               = "*terminate"
-	MetaEvent                   = "*event"
-	MetaMessage                 = "*message"
-	MetaDryRun                  = "*dryrun"
-	Event                       = "Event"
-	EmptyString                 = ""
-	DynamicDataPrefix           = "~"
-	AttrValueSep                = "="
-	ANDSep                      = "&"
-	PipeSep                     = "|"
-	MetaApp                     = "*app"
-	MetaAppID                   = "*appid"
-	MetaCmd                     = "*cmd"
-	MetaEnv                     = "*env:" // use in config for describing enviormant variables
-	MetaTemplate                = "*template"
-	MetaCCA                     = "*cca"
-	MetaErr                     = "*err"
-	OriginRealm                 = "OriginRealm"
-	ProductName                 = "ProductName"
-	IdxStart                    = "["
-	IdxEnd                      = "]"
-	MetaLog                     = "*log"
-	MetaRemoteHost              = "*remote_host"
-	RemoteHost                  = "RemoteHost"
-	Local                       = "local"
-	TCP                         = "tcp"
-	CGRDebitInterval            = "CGRDebitInterval"
-	Version                     = "Version"
-	MetaTenant                  = "*tenant"
-	ResourceUsage               = "ResourceUsage"
-	MetaDuration                = "*duration"
-	MetaLibPhoneNumber          = "*libphonenumber"
-	MetaIP2Hex                  = "*ip2hex"
-	MetaString2Hex              = "*string2hex"
-	MetaReload                  = "*reload"
-	MetaLoad                    = "*load"
-	MetaRemove                  = "*remove"
-	MetaRemoveAll               = "*removeall"
-	MetaStore                   = "*store"
-	MetaClear                   = "*clear"
-	MetaExport                  = "*export"
-	LoadIDs                     = "load_ids"
-	DNSAgent                    = "DNSAgent"
-	TLSNoCaps                   = "tls"
-	MetaRouteID                 = "*route_id"
-	MetaApiKey                  = "*api_key"
-	UsageID                     = "UsageID"
-	Rcode                       = "Rcode"
-	Replacement                 = "Replacement"
-	Regexp                      = "Regexp"
-	Order                       = "Order"
-	Preference                  = "Preference"
-	Flags                       = "Flags"
-	Service                     = "Service"
-	MetaSuppliersLimit          = "*suppliers_limit"
-	MetaSuppliersOffset         = "*suppliers_offset"
-	ApierV                      = "ApierV"
-	MetaApier                   = "*apier"
-	MetaAnalyzer                = "*analyzer"
-	CGREventString              = "CGREvent"
-	MetaTextPlain               = "*text_plain"
-	MetaIgnoreErrors            = "*ignore_errors"
-	MetaRelease                 = "*release"
-	MetaAllocate                = "*allocate"
-	MetaAuthorize               = "*authorize"
-	MetaInit                    = "*init"
-	MetaRatingPlanCost          = "*rating_plan_cost"
-	RatingPlanIDs               = "RatingPlanIDs"
-	ERs                         = "ERs"
-	Ratio                       = "Ratio"
-	Load                        = "Load"
-	Slash                       = "/"
-	UUID                        = "UUID"
-	ActionsID                   = "ActionsID"
-	MetaAct                     = "*act"
-	DestinationPrefix           = "DestinationPrefix"
-	DestinationID               = "DestinationID"
-	ExportTemplate              = "ExportTemplate"
-	ExportFormat                = "ExportFormat"
-	Synchronous                 = "Synchronous"
-	Attempts                    = "Attempts"
-	FieldSeparator              = "FieldSeparator"
-	ExportPath                  = "ExportPath"
-	ExportID                    = "ExportID"
-	ExportFileName              = "ExportFileName"
-	GroupID                     = "GroupID"
-	ThresholdType               = "ThresholdType"
-	ThresholdValue              = "ThresholdValue"
-	Recurrent                   = "Recurrent"
-	Executed                    = "Executed"
-	MinSleep                    = "MinSleep"
-	ActivationDate              = "ActivationDate"
-	ExpirationDate              = "ExpirationDate"
-	MinQueuedItems              = "MinQueuedItems"
-	OrderIDStart                = "OrderIDStart"
-	OrderIDEnd                  = "OrderIDEnd"
-	MinCost                     = "MinCost"
-	MaxCost                     = "MaxCost"
-	MetaLoaders                 = "*loaders"
-	TmpSuffix                   = ".tmp"
-	MetaDiamreq                 = "*diamreq"
-	MetaGroup                   = "*group"
-	InternalRPCSet              = "InternalRPCSet"
-	MetaFileName                = "*fileName"
-	MetaBusy                    = "*busy"
-	MetaQueue                   = "*queue"
-	MetaRounding                = "*rounding"
+	TriggerMinEventCounter   = "*min_event_counter"
+	TriggerMaxEventCounter   = "*max_event_counter"
+	TriggerMaxBalanceCounter = "*max_balance_counter"
+	TriggerMinBalance        = "*min_balance"
+	TriggerMaxBalance        = "*max_balance"
+	TriggerBalanceExpired    = "*balance_expired"
+	HierarchySep             = ">"
+	MetaComposed             = "*composed"
+	MetaUsageDifference      = "*usage_difference"
+	MetaDifference           = "*difference"
+	MetaVariable             = "*variable"
+	MetaCCUsage              = "*cc_usage"
+	MetaSIPCID               = "*sipcid"
+	MetaValueExponent        = "*value_exponent"
+	NegativePrefix           = "!"
+	MatchStartPrefix         = "^"
+	MatchGreaterThanOrEqual  = ">="
+	MatchLessThanOrEqual     = "<="
+	MatchGreaterThan         = ">"
+	MatchLessThan            = "<"
+	MatchEndPrefix           = "$"
+	MetaRaw                  = "*raw"
+	CreatedAt                = "CreatedAt"
+	UpdatedAt                = "UpdatedAt"
+	NodeID                   = "NodeID"
+	ActiveGoroutines         = "ActiveGoroutines"
+	MemoryUsage              = "MemoryUsage"
+	RunningSince             = "RunningSince"
+	GoVersion                = "GoVersion"
+	HandlerSubstractUsage    = "*substract_usage"
+	XML                      = "xml"
+	MetaGOB                  = "*gob"
+	MetaJSON                 = "*json"
+	MetaMSGPACK              = "*msgpack"
+	MetaDateTime             = "*datetime"
+	MetaMaskedDestination    = "*masked_destination"
+	MetaUnixTimestamp        = "*unix_timestamp"
+	MetaPostCDR              = "*post_cdr"
+	MetaDumpToFile           = "*dump_to_file"
+	MetaDumpToJSON           = "*dump_to_json"
+	NonTransactional         = ""
+	DataDB                   = "data_db"
+	StorDB                   = "stor_db"
+	NotFoundCaps             = "NOT_FOUND"
+	ServerErrorCaps          = "SERVER_ERROR"
+	MandatoryIEMissingCaps   = "MANDATORY_IE_MISSING"
+	UnsupportedCachePrefix   = "unsupported cache prefix"
+	CDRsCtx                  = "cdrs"
+	MandatoryInfoMissing     = "mandatory information missing"
+	UnsupportedServiceIDCaps = "UNSUPPORTED_SERVICE_ID"
+	ServiceManager           = "service_manager"
+	ServiceAlreadyRunning    = "service already running"
+	RunningCaps              = "RUNNING"
+	StoppedCaps              = "STOPPED"
+	SchedulerNotRunningCaps  = "SCHEDULER_NOT_RUNNING"
+	MetaScheduler            = "*scheduler"
+	MetaSessionsCosts        = "*sessions_costs"
+	MetaRALs                 = "*rals"
+	MetaReplicator           = "*replicator"
+	MetaRerate               = "*rerate"
+	MetaRefund               = "*refund"
+	MetaStats                = "*stats"
+	MetaResponder            = "*responder"
+	MetaCore                 = "*core"
+	MetaServiceManager       = "*servicemanager"
+	MetaChargers             = "*chargers"
+	MetaBlockerError         = "*blocker_error"
+	MetaConfig               = "*config"
+	MetaDispatchers          = "*dispatchers"
+	MetaRegistrarC           = "*registrarc"
+	MetaDispatcherHosts      = "*dispatcher_hosts"
+	MetaFilters              = "*filters"
+	MetaCDRs                 = "*cdrs"
+	MetaDC                   = "*dc"
+	MetaCaches               = "*caches"
+	MetaUCH                  = "*uch"
+	MetaGuardian             = "*guardians"
+	MetaEEs                  = "*ees"
+	MetaContinue             = "*continue"
+	Migrator                 = "migrator"
+	UnsupportedMigrationTask = "unsupported migration task"
+	NoStorDBConnection       = "not connected to StorDB"
+	UndefinedVersion         = "undefined version"
+	TxtSuffix                = ".txt"
+	JSNSuffix                = ".json"
+	GOBSuffix                = ".gob"
+	XMLSuffix                = ".xml"
+	CSVSuffix                = ".csv"
+	FWVSuffix                = ".fwv"
+	ContentJSON              = "json"
+	ContentForm              = "form"
+	FileLockPrefix           = "file_"
+	ActionsPoster            = "act"
+	CDRPoster                = "cdr"
+	MetaFileCSV              = "*file_csv"
+	MetaVirt                 = "*virt"
+	MetaElastic              = "*els"
+	MetaFileFWV              = "*file_fwv"
+	MetaFile                 = "*file"
+	Accounts                 = "Accounts"
+	AccountService           = "AccountS"
+	AccountS                 = "AccountS"
+	Actions                  = "Actions"
+	ActionPlans              = "ActionPlans"
+	ActionTriggers           = "ActionTriggers"
+	BalanceMap               = "BalanceMap"
+	CounterType              = "CounterType"
+	Counters                 = "Counters"
+	UnitCounters             = "UnitCounters"
+	UpdateTime               = "UpdateTime"
+	SharedGroups             = "SharedGroups"
+	Timings                  = "Timings"
+	Rates                    = "Rates"
+	DestinationRates         = "DestinationRates"
+	RatingPlans              = "RatingPlans"
+	RatingProfiles           = "RatingProfiles"
+	AccountActions           = "AccountActions"
+	Resources                = "Resources"
+	Stats                    = "Stats"
+	Filters                  = "Filters"
+	DispatcherProfiles       = "DispatcherProfiles"
+	DispatcherHosts          = "DispatcherHosts"
+	MetaEveryMinute          = "*every_minute"
+	MetaHourly               = "*hourly"
+	ID                       = "ID"
+	UniqueID                 = "UniqueID"
+	Address                  = "Address"
+	Addresses                = "Addresses"
+	Transport                = "Transport"
+	TLS                      = "TLS"
+	Subsystems               = "Subsystems"
+	Strategy                 = "Strategy"
+	StrategyParameters       = "StrategyParameters"
+	ConnID                   = "ConnID"
+	ConnFilterIDs            = "ConnFilterIDs"
+	ConnWeight               = "ConnWeight"
+	ConnBlocker              = "ConnBlocker"
+	ConnParameters           = "ConnParameters"
+
+	Thresholds            = "Thresholds"
+	Routes                = "Routes"
+	Attributes            = "Attributes"
+	Chargers              = "Chargers"
+	Dispatchers           = "Dispatchers"
+	StatS                 = "Stats"
+	LoadIDsVrs            = "LoadIDs"
+	RALService            = "RALs"
+	GlobalVarS            = "GlobalVarS"
+	CostSource            = "CostSource"
+	ExtraInfo             = "ExtraInfo"
+	Meta                  = "*"
+	MetaSysLog            = "*syslog"
+	MetaStdLog            = "*stdout"
+	EventSource           = "EventSource"
+	AccountID             = "AccountID"
+	AccountIDs            = "AccountIDs"
+	ResourceID            = "ResourceID"
+	TotalUsage            = "TotalUsage"
+	StatID                = "StatID"
+	BalanceType           = "BalanceType"
+	BalanceID             = "BalanceID"
+	BalanceDestinationIds = "BalanceDestinationIds"
+	BalanceWeight         = "BalanceWeight"
+	BalanceExpirationDate = "BalanceExpirationDate"
+	BalanceTimingTags     = "BalanceTimingTags"
+	BalanceRatingSubject  = "BalanceRatingSubject"
+	BalanceCategories     = "BalanceCategories"
+	BalanceSharedGroups   = "BalanceSharedGroups"
+	BalanceBlocker        = "BalanceBlocker"
+	BalanceDisabled       = "BalanceDisabled"
+	Units                 = "Units"
+	AccountUpdate         = "AccountUpdate"
+	BalanceUpdate         = "BalanceUpdate"
+	StatUpdate            = "StatUpdate"
+	ResourceUpdate        = "ResourceUpdate"
+	CDR                   = "CDR"
+	CDRs                  = "CDRs"
+	ExpiryTime            = "ExpiryTime"
+	AllowNegative         = "AllowNegative"
+	Disabled              = "Disabled"
+	Initial               = "Initial"
+	Action                = "Action"
+
+	SessionSCosts            = "SessionSCosts"
+	Timing                   = "Timing"
+	RQF                      = "RQF"
+	Resource                 = "Resource"
+	User                     = "User"
+	Subscribers              = "Subscribers"
+	DerivedChargersV         = "DerivedChargers"
+	Destinations             = "Destinations"
+	ReverseDestinations      = "ReverseDestinations"
+	RatingPlan               = "RatingPlan"
+	RatingProfile            = "RatingProfile"
+	MetaRatingPlans          = "*rating_plans"
+	MetaRatingProfiles       = "*rating_profiles"
+	MetaUsers                = "*users"
+	MetaSubscribers          = "*subscribers"
+	MetaDerivedChargersV     = "*derivedchargers"
+	MetaStorDB               = "*stordb"
+	MetaDataDB               = "*datadb"
+	MetaWeight               = "*weight"
+	MetaLC                   = "*lc"
+	MetaHC                   = "*hc"
+	MetaQOS                  = "*qos"
+	MetaReas                 = "*reas"
+	MetaReds                 = "*reds"
+	Weight                   = "Weight"
+	Limit                    = "Limit"
+	UsageTTL                 = "UsageTTL"
+	AllocationMessage        = "AllocationMessage"
+	Stored                   = "Stored"
+	RatingSubject            = "RatingSubject"
+	Categories               = "Categories"
+	Blocker                  = "Blocker"
+	RatingPlanID             = "RatingPlanID"
+	StartTime                = "StartTime"
+	EndTime                  = "EndTime"
+	AccountSummary           = "AccountSummary"
+	RatingFilters            = "RatingFilters"
+	RatingFilter             = "RatingFilter"
+	Accounting               = "Accounting"
+	Rating                   = "Rating"
+	Charges                  = "Charges"
+	CompressFactor           = "CompressFactor"
+	Increments               = "Increments"
+	BalanceField             = "Balance"
+	BalanceSummaries         = "BalanceSummaries"
+	Type                     = "Type"
+	Element                  = "Element"
+	Values                   = "Values"
+	YearsFieldName           = "Years"
+	MonthsFieldName          = "Months"
+	MonthDaysFieldName       = "MonthDays"
+	WeekDaysFieldName        = "WeekDays"
+	GroupIntervalStart       = "GroupIntervalStart"
+	RateIncrement            = "RateIncrement"
+	RateUnit                 = "RateUnit"
+	BalanceUUID              = "BalanceUUID"
+	RatingID                 = "RatingID"
+	ExtraChargeID            = "ExtraChargeID"
+	ConnectFee               = "ConnectFee"
+	RoundingMethod           = "RoundingMethod"
+	RoundingDecimals         = "RoundingDecimals"
+	MaxCostStrategy          = "MaxCostStrategy"
+	RateID                   = "RateID"
+	RateIDs                  = "RateIDs"
+	RateFilterIDs            = "RateFilterIDs"
+	RateActivationStart      = "RateActivationStart"
+	RateWeight               = "RateWeight"
+	RateIntervalStart        = "RateIntervalStart"
+	RateFixedFee             = "RateFixedFee"
+	RateRecurrentFee         = "RateRecurrentFee"
+	RateBlocker              = "RateBlocker"
+	TimingID                 = "TimingID"
+	RatesID                  = "RatesID"
+	RatingFiltersID          = "RatingFiltersID"
+	AccountingID             = "AccountingID"
+	MetaSessionS             = "*sessions"
+	MetaDefault              = "*default"
+	Error                    = "Error"
+	MetaCgreq                = "*cgreq"
+	MetaCgrep                = "*cgrep"
+	CgrAcd                   = "cgr_acd"
+	ActivationIntervalString = "ActivationInterval"
+	MaxHits                  = "MaxHits"
+	MinHits                  = "MinHits"
+	Async                    = "Async"
+	Sorting                  = "Sorting"
+	SortingParameters        = "SortingParameters"
+	RouteAccountIDs          = "RouteAccountIDs"
+	RouteRatingplanIDs       = "RouteRatingplanIDs"
+	RouteStatIDs             = "RouteStatIDs"
+	RouteWeight              = "RouteWeight"
+	RouteParameters          = "RouteParameters"
+	RouteBlocker             = "RouteBlocker"
+	RouteResourceIDs         = "RouteResourceIDs"
+	RouteFilterIDs           = "RouteFilterIDs"
+	AttributeFilterIDs       = "AttributeFilterIDs"
+	QueueLength              = "QueueLength"
+	TTL                      = "TTL"
+	MinItems                 = "MinItems"
+	MetricIDs                = "MetricIDs"
+	MetricFilterIDs          = "MetricFilterIDs"
+	FieldName                = "FieldName"
+	Path                     = "Path"
+	MetaRound                = "*round"
+	Pong                     = "Pong"
+	MetaEventCost            = "*event_cost"
+	MetaEventUsage           = "*event_usage"
+	MetaVoiceUsage           = "*voice_usage"
+	MetaSMSUsage             = "*sms_usage"
+	MetaDataUsage            = "*data_usage"
+	MetaMMSUsage             = "*mms_usage"
+	MetaGenericUsage         = "*generic_usage"
+	MetaPositiveExports      = "*positive_exports"
+	MetaNegativeExports      = "*negative_exports"
+	MetaRoutesEventCost      = "*routes_event_cost"
+	MetaRoutesMaxCost        = "*routes_maxcost"
+	MetaMaxCost              = "*maxcost"
+	MetaRoutesIgnoreErrors   = "*routes_ignore_errors"
+	Freeswitch               = "freeswitch"
+	Kamailio                 = "kamailio"
+	Opensips                 = "opensips"
+	Asterisk                 = "asterisk"
+	SchedulerS               = "SchedulerS"
+	MetaMultiply             = "*multiply"
+	MetaDivide               = "*divide"
+	MetaUrl                  = "*url"
+	MetaXml                  = "*xml"
+	MetaReq                  = "*req"
+	MetaAsm                  = "*asm"
+	MetaVars                 = "*vars"
+	MetaRep                  = "*rep"
+	MetaExp                  = "*exp"
+	MetaHdr                  = "*hdr"
+	MetaTrl                  = "*trl"
+	MetaTmp                  = "*tmp"
+	MetaOpts                 = "*opts"
+	MetaCfg                  = "*cfg"
+	MetaDynReq               = "~*req"
+	MetaScPrefix             = "~*sc." // used for SMCostFilter
+	CGROriginHost            = "cgr_originhost"
+	MetaInitiate             = "*initiate"
+	MetaUpdate               = "*update"
+	MetaTerminate            = "*terminate"
+	MetaEvent                = "*event"
+	MetaMessage              = "*message"
+	MetaDryRun               = "*dryrun"
+	Event                    = "Event"
+	EmptyString              = ""
+	DynamicDataPrefix        = "~"
+	AttrValueSep             = "="
+	ANDSep                   = "&"
+	PipeSep                  = "|"
+	RSRConstSep              = "`"
+	RSRConstChar             = '`'
+	RSRDataConverterPrefix   = "{*"
+	RSRDataConverterSufix    = "}"
+	RSRDynStartChar          = '<'
+	RSRDynEndChar            = '>'
+	MetaApp                  = "*app"
+	MetaAppID                = "*appid"
+	MetaCmd                  = "*cmd"
+	MetaEnv                  = "*env:" // use in config for describing enviormant variables
+	MetaTemplate             = "*template"
+	MetaCCA                  = "*cca"
+	MetaErr                  = "*err"
+	OriginRealm              = "OriginRealm"
+	ProductName              = "ProductName"
+	IdxStart                 = "["
+	IdxEnd                   = "]"
+	IdxCombination           = "]["
+
+	RemoteHost              = "RemoteHost"
+	Local                   = "local"
+	TCP                     = "tcp"
+	UDP                     = "udp"
+	VersionName             = "Version"
+	MetaTenant              = "*tenant"
+	ResourceUsage           = "ResourceUsage"
+	MetaDuration            = "*duration"
+	MetaLibPhoneNumber      = "*libphonenumber"
+	MetaTimeString          = "*time_string"
+	MetaIP2Hex              = "*ip2hex"
+	MetaString2Hex          = "*string2hex"
+	MetaUnixTime            = "*unixtime"
+	MetaLen                 = "*len"
+	MetaSlice               = "*slice"
+	MetaSIPURIMethod        = "*sipuri_method"
+	MetaSIPURIHost          = "*sipuri_host"
+	MetaSIPURIUser          = "*sipuri_user"
+	E164DomainConverter     = "*e164Domain"
+	E164Converter           = "*e164"
+	MetaReload              = "*reload"
+	MetaLoad                = "*load"
+	MetaFloat64             = "*float64"
+	MetaRemove              = "*remove"
+	MetaRemoveAll           = "*removeall"
+	MetaStore               = "*store"
+	MetaClear               = "*clear"
+	MetaExport              = "*export"
+	MetaExportID            = "*export_id"
+	MetaTimeNow             = "*time_now"
+	MetaFirstEventATime     = "*first_event_atime"
+	MetaLastEventATime      = "*last_event_atime"
+	MetaEventNumber         = "*event_number"
+	LoadIDs                 = "load_ids"
+	DNSAgent                = "DNSAgent"
+	TLSNoCaps               = "tls"
+	UsageID                 = "UsageID"
+	Replacement             = "Replacement"
+	Regexp                  = "Regexp"
+	Order                   = "Order"
+	Preference              = "Preference"
+	Flags                   = "Flags"
+	Service                 = "Service"
+	ApierV                  = "ApierV"
+	MetaApier               = "*apier"
+	MetaAnalyzer            = "*analyzer"
+	CGREventString          = "CGREvent"
+	MetaTextPlain           = "*text_plain"
+	MetaIgnoreErrors        = "*ignore_errors"
+	MetaRelease             = "*release"
+	MetaAllocate            = "*allocate"
+	MetaAuthorize           = "*authorize"
+	MetaSTIRAuthenticate    = "*stir_authenticate"
+	MetaSTIRInitiate        = "*stir_initiate"
+	MetaInit                = "*init"
+	MetaRatingPlanCost      = "*rating_plan_cost"
+	ERs                     = "ERs"
+	EEs                     = "EEs"
+	Ratio                   = "Ratio"
+	Load                    = "Load"
+	Slash                   = "/"
+	UUID                    = "UUID"
+	Uuid                    = "Uuid"
+	ActionsID               = "ActionsID"
+	MetaAct                 = "*act"
+	MetaAcnt                = "*acnt"
+	DestinationPrefixName   = "DestinationPrefix"
+	DestinationID           = "DestinationID"
+	ExportTemplate          = "ExportTemplate"
+	ExportFormat            = "ExportFormat"
+	Synchronous             = "Synchronous"
+	Attempts                = "Attempts"
+	FieldSeparator          = "FieldSeparator"
+	ExportPath              = "ExportPath"
+	ExporterIDs             = "ExporterIDs"
+	TimeNow                 = "TimeNow"
+	ExportFileName          = "ExportFileName"
+	GroupID                 = "GroupID"
+	ThresholdType           = "ThresholdType"
+	ThresholdValue          = "ThresholdValue"
+	Recurrent               = "Recurrent"
+	Executed                = "Executed"
+	LastExecutionTime       = "LastExecutionTime"
+	MinSleep                = "MinSleep"
+	ActivationDate          = "ActivationDate"
+	ExpirationDate          = "ExpirationDate"
+	MinQueuedItems          = "MinQueuedItems"
+	OrderIDStart            = "OrderIDStart"
+	OrderIDEnd              = "OrderIDEnd"
+	MinCost                 = "MinCost"
+	MaxCost                 = "MaxCost"
+	MetaLoaders             = "*loaders"
+	TmpSuffix               = ".tmp"
+	MetaDiamreq             = "*diamreq"
+	MetaCost                = "*cost"
+	MetaGroup               = "*group"
+	InternalRPCSet          = "InternalRPCSet"
+	MetaFileName            = "*fileName"
+	MetaRadauth             = "*radauth"
+	UserPassword            = "UserPassword"
+	RadauthFailed           = "RADAUTH_FAILED"
+	MetaPAP                 = "*pap"
+	MetaCHAP                = "*chap"
+	MetaMSCHAPV2            = "*mschapv2"
+	MetaDynaprepaid         = "*dynaprepaid"
+	MetaFD                  = "*fd"
+	SortingData             = "SortingData"
+	Count                   = "Count"
+	ProfileID               = "ProfileID"
+	SortedRoutes            = "SortedRoutes"
+	MetaMonthly             = "*monthly"
+	MetaYearly              = "*yearly"
+	MetaDaily               = "*daily"
+	MetaWeekly              = "*weekly"
+	Underline               = "_"
+	MetaPartial             = "*partial"
+	MetaBusy                = "*busy"
+	MetaQueue               = "*queue"
+	MetaMonthEnd            = "*month_end"
+	APIKey                  = "ApiKey"
+	RouteID                 = "RouteID"
+	MetaMonthlyEstimated    = "*monthly_estimated"
+	MetaProcessedProfileIDs = "*processedProfileIDs"
+	MetaAttrPrfTenantID     = "*apTenantID"
+	HashtagSep              = "#"
+	MetaRounding            = "*rounding"
+	StatsNA                 = -1.0
+	InvalidUsage            = -1
+	InvalidDuration         = time.Duration(-1)
+	Schedule                = "Schedule"
+	ActionFilterIDs         = "ActionFilterIDs"
+	ActionBlocker           = "ActionBlocker"
+	ActionTTL               = "ActionTTL"
+	ActionOpts              = "ActionOpts"
+	ActionPath              = "ActionPath"
+	TPid                    = "TPid"
+	LoadId                  = "LoadId"
+	ActionPlanId            = "ActionPlanId"
+	AccountActionsId        = "AccountActionsId"
+	Loadid                  = "loadid"
+	AccountLowerCase        = "account"
+	ActionPlan              = "ActionPlan"
+	ActionsId               = "ActionsId"
+	TimingId                = "TimingId"
+	Prefixes                = "Prefixes"
+	RateSlots               = "RateSlots"
+	RatingPlanBindings      = "RatingPlanBindings"
+	RatingPlanActivations   = "RatingPlanActivations"
+	CategoryLowerCase       = "category"
+	SubjectLowerCase        = "subject"
+	RatingProfileID         = "RatingProfileID"
+	Time                    = "Time"
+	TargetIDs               = "TargetIDs"
+	TargetType              = "TargetType"
+	MetaRow                 = "*row"
+	BalanceFilterIDs        = "BalanceFilterIDs"
+	BalanceOpts             = "BalanceOpts"
+	MetaConcrete            = "*concrete"
+	MetaAbstract            = "*abstract"
+	MetaBalanceLimit        = "*balanceLimit"
+	MetaBalanceUnlimited    = "*balanceUnlimited"
+	MetaTemplateID          = "*templateID"
+	MetaCdrLog              = "*cdrLog"
+	MetaCDR                 = "*cdr"
+	MetaExporterIDs         = "*exporterIDs"
+	MetaAsync               = "*async"
+	MetaUsage               = "*usage"
+	Weights                 = "Weights"
+	UnitFactors             = "UnitFactors"
+	CostIncrements          = "CostIncrements"
+	Factor                  = "Factor"
+	Method                  = "Method"
+	Static                  = "Static"
+	Params                  = "Params"
+	GetTotalValue           = "GetTotalValue"
+	Increment               = "Increment"
+	FixedFee                = "FixedFee"
+	RecurrentFee            = "RecurrentFee"
+	Diktats                 = "Diktats"
+	BalanceIDs              = "BalanceIDs"
+	MetaCostIncrement       = "*costIncrement"
+	Length                  = "Length"
+
+	// dns
+	DNSQueryType          = "QueryType"
+	DNSQueryName          = "QueryName"
+	DNSOption             = "Option"
+	DNSRcode              = "Rcode"
+	DNSId                 = "Id"
+	DNSResponse           = "Response"
+	DNSOpcode             = "Opcode"
+	DNSAuthoritative      = "Authoritative"
+	DNSTruncated          = "Truncated"
+	DNSRecursionDesired   = "RecursionDesired"
+	DNSRecursionAvailable = "RecursionAvailable"
+	DNSZero               = "Zero"
+	DNSAuthenticatedData  = "AuthenticatedData"
+	DNSCheckingDisabled   = "CheckingDisabled"
+	DNSQuestion           = "Question"
+	DNSAnswer             = "Answer"
+	DNSNs                 = "Ns"
+	DNSExtra              = "Extra"
+	DNSName               = "Name"
+	DNSQtype              = "Qtype"
+	DNSQclass             = "Qclass"
+	DNSFamily             = "Family"
+	DNSSourceNetmask      = "SourceNetmask"
+	DNSSourceScope        = "SourceScope"
+	DNSLease              = "Lease"
+	DNSKeyLease           = "KeyLease"
+	DNSLeaseLife          = "LeaseLife"
+	DNSTimeout            = "Timeout"
+	DNSInfoCode           = "InfoCode"
+	DNSExtraText          = "ExtraText"
+	DNSNsid               = "Nsid"
+	DNSCookie             = "Cookie"
+	DNSDAU                = "DAU"
+	DNSDHU                = "DHU"
+	DNSN3U                = "N3U"
+	DNSExpire             = "Expire"
+	DNSPadding            = "Padding"
+	DNSUri                = "Uri"
+	DNSHdr                = "Hdr"
+	DNSA                  = "A"
+	DNSTarget             = "Target"
+	DNSPriority           = "Priority"
+	DNSPort               = "Port"
+	DNSRrtype             = "Rrtype"
+	DNSClass              = "Class"
+	DNSTtl                = "Ttl"
+	DNSRdlength           = "Rdlength"
+	DNSData               = "Data"
 )
 
 // Migrator Action
@@ -692,16 +940,16 @@ const (
 	MetaStatQueueProfiles   = "*statqueue_profiles"
 	MetaStatQueues          = "*statqueues"
 	MetaThresholdProfiles   = "*threshold_profiles"
-	MetaSupplierProfiles    = "*supplier_profiles"
+	MetaRouteProfiles       = "*route_profiles"
 	MetaAttributeProfiles   = "*attribute_profiles"
-	MetaFilterIndexes       = "*filter_indexes"
 	MetaDispatcherProfiles  = "*dispatcher_profiles"
 	MetaChargerProfiles     = "*charger_profiles"
 	MetaSharedGroups        = "*shared_groups"
 	MetaThresholds          = "*thresholds"
-	MetaSuppliers           = "*suppliers"
+	MetaRoutes              = "*routes"
 	MetaAttributes          = "*attributes"
 	MetaLoadIDs             = "*load_ids"
+	MetaNodeID              = "*node_id"
 )
 
 // MetaMetrics
@@ -716,18 +964,20 @@ const (
 	MetaSum      = "*sum"
 	MetaAverage  = "*average"
 	MetaDistinct = "*distinct"
+	MetaRAR      = "*rar"
 )
 
 // Services
 const (
 	SessionS    = "SessionS"
 	AttributeS  = "AttributeS"
-	SupplierS   = "SupplierS"
+	RouteS      = "RouteS"
 	ResourceS   = "ResourceS"
 	StatService = "StatS"
 	FilterS     = "FilterS"
 	ThresholdS  = "ThresholdS"
 	DispatcherS = "DispatcherS"
+	RegistrarC  = "RegistrarC"
 	LoaderS     = "LoaderS"
 	ChargerS    = "ChargerS"
 	CacheS      = "CacheS"
@@ -743,7 +993,7 @@ const (
 	SessionsLow    = "sessions"
 	AttributesLow  = "attributes"
 	ChargerSLow    = "chargers"
-	SuppliersLow   = "suppliers"
+	RoutesLow      = "routes"
 	ResourcesLow   = "resources"
 	StatServiceLow = "stats"
 	ThresholdsLow  = "thresholds"
@@ -754,43 +1004,54 @@ const (
 	RALsLow        = "rals"
 	ReplicatorLow  = "replicator"
 	ApierSLow      = "apiers"
+	EEsLow         = "ees"
 )
 
 // Actions
 const (
-	LOG                       = "*log"
-	RESET_TRIGGERS            = "*reset_triggers"
-	SET_RECURRENT             = "*set_recurrent"
-	UNSET_RECURRENT           = "*unset_recurrent"
-	ALLOW_NEGATIVE            = "*allow_negative"
-	DENY_NEGATIVE             = "*deny_negative"
-	RESET_ACCOUNT             = "*reset_account"
-	REMOVE_ACCOUNT            = "*remove_account"
-	SET_BALANCE               = "*set_balance"
-	REMOVE_BALANCE            = "*remove_balance"
-	TOPUP_RESET               = "*topup_reset"
-	TOPUP                     = "*topup"
-	DEBIT_RESET               = "*debit_reset"
-	DEBIT                     = "*debit"
-	RESET_COUNTERS            = "*reset_counters"
-	ENABLE_ACCOUNT            = "*enable_account"
-	DISABLE_ACCOUNT           = "*disable_account"
-	HttpPost                  = "*http_post"
-	HttpPostAsync             = "*http_post_async"
-	MAIL_ASYNC                = "*mail_async"
-	UNLIMITED                 = "*unlimited"
-	CDRLOG                    = "*cdrlog"
-	SET_DDESTINATIONS         = "*set_ddestinations"
-	TRANSFER_MONETARY_DEFAULT = "*transfer_monetary_default"
-	CGR_RPC                   = "*cgr_rpc"
-	TopUpZeroNegative         = "*topup_zero_negative"
-	SetExpiry                 = "*set_expiry"
-	MetaPublishAccount        = "*publish_account"
-	MetaPublishBalance        = "*publish_balance"
-	MetaRemoveSessionCosts    = "*remove_session_costs"
-	MetaRemoveExpired         = "*remove_expired"
-	MetaPostEvent             = "*post_event"
-	MetaCDRAccount            = "*cdr_account"
+	MetaLog                     = "*log"
+	MetaResetTriggers           = "*reset_triggers"
+	MetaSetRecurrent            = "*set_recurrent"
+	MetaUnsetRecurrent          = "*unset_recurrent"
+	MetaAllowNegative           = "*allow_negative"
+	MetaDenyNegative            = "*deny_negative"
+	MetaResetAccount            = "*reset_account"
+	MetaRemoveAccount           = "*remove_account"
+	MetaRemoveBalance           = "*remove_balance"
+	MetaTopUpReset              = "*topup_reset"
+	MetaTopUp                   = "*topup"
+	MetaDebitReset              = "*debit_reset"
+	MetaDebit                   = "*debit"
+	MetaResetCounters           = "*reset_counters"
+	MetaEnableAccount           = "*enable_account"
+	MetaDisableAccount          = "*disable_account"
+	HttpPostAsync               = "*http_post_async"
+	MetaMailAsync               = "*mail_async"
+	MetaUnlimited               = "*unlimited"
+	CDRLog                      = "*cdrlog"
+	MetaSetDDestinations        = "*set_ddestinations"
+	MetaTransferMonetaryDefault = "*transfer_monetary_default"
+	MetaCgrRpc                  = "*cgr_rpc"
+	TopUpZeroNegative           = "*topup_zero_negative"
+	SetExpiry                   = "*set_expiry"
+	MetaPublishAccount          = "*publish_account"
+	MetaRemoveSessionCosts      = "*remove_session_costs"
+	MetaRemoveExpired           = "*remove_expired"
+	MetaPostEvent               = "*post_event"
+	MetaCDRAccount              = "*reset_account_cdr"
+	MetaResetThreshold          = "*reset_threshold"
+	MetaResetStatQueue          = "*reset_stat_queue"
+	MetaRemoteSetAccount        = "*remote_set_account"
+	ActionID                    = "ActionID"
+	ActionType                  = "ActionType"
+	ActionValue                 = "ActionValue"
+	BalanceValue                = "BalanceValue"
+	BalanceUnits                = "BalanceUnits"
+	ExtraParameters             = "ExtraParameters"
+
+	MetaAddBalance = "*add_balance"
+	MetaSetBalance = "*set_balance"
+	MetaRemBalance = "*rem_balance"
 )
 
 // Migrator Metas
@@ -805,7 +1066,7 @@ const (
 	MetaTpActionPlans       = "*tp_action_plans"
 	MetaTpActions           = "*tp_actions"
 	MetaTpThresholds        = "*tp_thresholds"
-	MetaTpSuppliers         = "*tp_suppliers"
+	MetaTpRoutes            = "*tp_Routes"
 	MetaTpStats             = "*tp_stats"
 	MetaTpSharedGroups      = "*tp_shared_groups"
 	MetaTpRatingProfiles    = "*tp_rating_profiles"
@@ -820,52 +1081,59 @@ const (
 	CapAttributes           = "Attributes"
 	CapResourceAllocation   = "ResourceAllocation"
 	CapMaxUsage             = "MaxUsage"
-	CapSuppliers            = "Suppliers"
+	CapRoutes               = "Routes"
+	CapRouteProfiles        = "RouteProfiles"
 	CapThresholds           = "Thresholds"
 	CapStatQueues           = "StatQueues"
 )
 
+// cgr-tester
 const (
-	TpRatingPlans      = "TpRatingPlans"
-	TpFilters          = "TpFilters"
-	TpDestinationRates = "TpDestinationRates"
-	TpActionTriggers   = "TpActionTriggers"
-	TpAccountActionsV  = "TpAccountActions"
-	TpActionPlans      = "TpActionPlans"
-	TpActions          = "TpActions"
-	TpThresholds       = "TpThresholds"
-	TpSuppliers        = "TpSuppliers"
-	TpStats            = "TpStats"
-	TpSharedGroups     = "TpSharedGroups"
-	TpRatingProfiles   = "TpRatingProfiles"
-	TpResources        = "TpResources"
-	TpRates            = "TpRates"
-	TpTiming           = "TpTiming"
-	TpResource         = "TpResource"
-	TpDestinations     = "TpDestinations"
-	TpRatingPlan       = "TpRatingPlan"
-	TpRatingProfile    = "TpRatingProfile"
-	TpChargers         = "TpChargers"
-	TpDispatchers      = "TpDispatchers"
+	CGRTester = "CGRTester"
+)
+
+const (
+	TpRatingPlans        = "TpRatingPlans"
+	TpFilters            = "TpFilters"
+	TpDestinationRates   = "TpDestinationRates"
+	TpActionTriggers     = "TpActionTriggers"
+	TpAccountActionsV    = "TpAccountActions"
+	TpActionPlans        = "TpActionPlans"
+	TpActions            = "TpActions"
+	TpThresholds         = "TpThresholds"
+	TpRoutes             = "TpRoutes"
+	TpAttributes         = "TpAttributes"
+	TpStats              = "TpStats"
+	TpSharedGroups       = "TpSharedGroups"
+	TpRatingProfiles     = "TpRatingProfiles"
+	TpResources          = "TpResources"
+	TpRates              = "TpRates"
+	TpTiming             = "TpTiming"
+	TpResource           = "TpResource"
+	TpDestinations       = "TpDestinations"
+	TpRatingPlan         = "TpRatingPlan"
+	TpRatingProfile      = "TpRatingProfile"
+	TpChargers           = "TpChargers"
+	TpDispatchers        = "TpDispatchers"
+	TpDispatcherProfiles = "TpDispatcherProfiles"
+	TpDispatcherHosts    = "TpDispatcherHosts"
 )
 
 // Dispatcher Const
 const (
 	MetaFirst          = "*first"
 	MetaRandom         = "*random"
-	MetaBroadcast      = "*broadcast"
 	MetaRoundRobin     = "*round_robin"
 	MetaRatio          = "*ratio"
+	MetaDefaultRatio   = "*default_ratio"
 	ThresholdSv1       = "ThresholdSv1"
 	StatSv1            = "StatSv1"
 	ResourceSv1        = "ResourceSv1"
-	SupplierSv1        = "SupplierSv1"
+	RouteSv1           = "RouteSv1"
 	AttributeSv1       = "AttributeSv1"
 	SessionSv1         = "SessionSv1"
 	ChargerSv1         = "ChargerSv1"
 	MetaAuth           = "*auth"
-	APIKey             = "APIKey"
-	RouteID            = "RouteID"
 	APIMethods         = "APIMethods"
 	NestingSep         = "."
 	ArgDispatcherField = "ArgDispatcher"
@@ -873,34 +1141,46 @@ const (
 
 // Filter types
 const (
-	MetaNot            = "*not"
-	MetaString         = "*string"
-	MetaPrefix         = "*prefix"
-	MetaSuffix         = "*suffix"
-	MetaEmpty          = "*empty"
-	MetaExists         = "*exists"
-	MetaTimings        = "*timings"
-	MetaRSR            = "*rsr"
-	MetaStatS          = "*stats"
-	MetaDestinations   = "*destinations"
-	MetaLessThan       = "*lt"
-	MetaLessOrEqual    = "*lte"
-	MetaGreaterThan    = "*gt"
-	MetaGreaterOrEqual = "*gte"
-	MetaResources      = "*resources"
-	MetaEqual          = "*eq"
+	MetaNot                = "*not"
+	MetaString             = "*string"
+	MetaPrefix             = "*prefix"
+	MetaSuffix             = "*suffix"
+	MetaEmpty              = "*empty"
+	MetaExists             = "*exists"
+	MetaTimings            = "*timings"
+	MetaRSR                = "*rsr"
+	MetaDestinations       = "*destinations"
+	MetaLessThan           = "*lt"
+	MetaLessOrEqual        = "*lte"
+	MetaGreaterThan        = "*gt"
+	MetaGreaterOrEqual     = "*gte"
+	MetaResources          = "*resources"
+	MetaEqual              = "*eq"
+	MetaIPNet              = "*ipnet"
+	MetaAPIBan             = "*apiban"
+	MetaSentryPeer         = "*sentrypeer"
+	MetaToken              = "*token"
+	MetaIp                 = "*ip"
+	MetaNumber             = "*number"
+	MetaActivationInterval = "*ai"
+	MetaRegex              = "*regex"
 
-	MetaNotString       = "*notstring"
-	MetaNotPrefix       = "*notprefix"
-	MetaNotSuffix       = "*notsuffix"
-	MetaNotEmpty        = "*notempty"
-	MetaNotExists       = "*notexists"
-	MetaNotTimings      = "*nottimings"
-	MetaNotRSR          = "*notrsr"
-	MetaNotStatS        = "*notstats"
-	MetaNotDestinations = "*notdestinations"
-	MetaNotResources    = "*notresources"
-	MetaNotEqual        = "*noteq"
+	MetaNotString             = "*notstring"
+	MetaNotPrefix             = "*notprefix"
+	MetaNotSuffix             = "*notsuffix"
+	MetaNotEmpty              = "*notempty"
+	MetaNotExists             = "*notexists"
+	MetaNotTimings            = "*nottimings"
+	MetaNotRSR                = "*notrsr"
+	MetaNotStatS              = "*notstats"
+	MetaNotDestinations       = "*notdestinations"
+	MetaNotResources          = "*notresources"
+	MetaNotEqual              = "*noteq"
+	MetaNotIPNet              = "*notipnet"
+	MetaNotAPIBan             = "*notapiban"
+	MetaNotSentryPeer         = "*notsentrypeer"
+	MetaNotActivationInterval = "*notai"
+	MetaNotRegex              = "*notregex"
 
 	MetaEC = "*ec"
 )
@@ -921,25 +1201,22 @@ const (
 	ReplicatorSv1GetResource             = "ReplicatorSv1.GetResource"
 	ReplicatorSv1GetResourceProfile      = "ReplicatorSv1.GetResourceProfile"
 	ReplicatorSv1GetActionTriggers       = "ReplicatorSv1.GetActionTriggers"
-	ReplicatorSv1GetShareGroup           = "ReplicatorSv1.GetShareGroup"
+	ReplicatorSv1GetSharedGroup          = "ReplicatorSv1.GetSharedGroup"
 	ReplicatorSv1GetActions              = "ReplicatorSv1.GetActions"
 	ReplicatorSv1GetActionPlan           = "ReplicatorSv1.GetActionPlan"
 	ReplicatorSv1GetAllActionPlans       = "ReplicatorSv1.GetAllActionPlans"
 	ReplicatorSv1GetAccountActionPlans   = "ReplicatorSv1.GetAccountActionPlans"
 	ReplicatorSv1GetRatingPlan           = "ReplicatorSv1.GetRatingPlan"
 	ReplicatorSv1GetRatingProfile        = "ReplicatorSv1.GetRatingProfile"
-	ReplicatorSv1GetSupplierProfile      = "ReplicatorSv1.GetSupplierProfile"
+	ReplicatorSv1GetRouteProfile         = "ReplicatorSv1.GetRouteProfile"
 	ReplicatorSv1GetAttributeProfile     = "ReplicatorSv1.GetAttributeProfile"
 	ReplicatorSv1GetChargerProfile       = "ReplicatorSv1.GetChargerProfile"
 	ReplicatorSv1GetDispatcherProfile    = "ReplicatorSv1.GetDispatcherProfile"
-	ReplicatorSv1GetDispatcherHost       = "ReplicatorSv1.GetDispatcheHost"
+	ReplicatorSv1GetDispatcherHost       = "ReplicatorSv1.GetDispatcherHost"
 	ReplicatorSv1GetItemLoadIDs          = "ReplicatorSv1.GetItemLoadIDs"
-	ReplicatorSv1GetFilterIndexes        = "ReplicatorSv1.GetFilterIndexes"
-	ReplicatorSv1MatchFilterIndex        = "ReplicatorSv1.MatchFilterIndex"
 	ReplicatorSv1SetThresholdProfile     = "ReplicatorSv1.SetThresholdProfile"
 	ReplicatorSv1SetThreshold            = "ReplicatorSv1.SetThreshold"
-	ReplicatorSv1SetFilterIndexes        = "ReplicatorSv1.SetFilterIndexes"
-	ReplicatorSv1Account                 = "ReplicatorSv1.SetAccount"
+	ReplicatorSv1SetAccount              = "ReplicatorSv1.SetAccount"
 	ReplicatorSv1SetDestination          = "ReplicatorSv1.SetDestination"
 	ReplicatorSv1SetReverseDestination   = "ReplicatorSv1.SetReverseDestination"
 	ReplicatorSv1SetStatQueue            = "ReplicatorSv1.SetStatQueue"
@@ -955,7 +1232,7 @@ const (
 	ReplicatorSv1SetAccountActionPlans   = "ReplicatorSv1.SetAccountActionPlans"
 	ReplicatorSv1SetRatingPlan           = "ReplicatorSv1.SetRatingPlan"
 	ReplicatorSv1SetRatingProfile        = "ReplicatorSv1.SetRatingProfile"
-	ReplicatorSv1SetSupplierProfile      = "ReplicatorSv1.SetSupplierProfile"
+	ReplicatorSv1SetRouteProfile         = "ReplicatorSv1.SetRouteProfile"
 	ReplicatorSv1SetAttributeProfile     = "ReplicatorSv1.SetAttributeProfile"
 	ReplicatorSv1SetChargerProfile       = "ReplicatorSv1.SetChargerProfile"
 	ReplicatorSv1SetDispatcherProfile    = "ReplicatorSv1.SetDispatcherProfile"
@@ -978,11 +1255,14 @@ const (
 	ReplicatorSv1RemAccountActionPlans   = "ReplicatorSv1.RemAccountActionPlans"
 	ReplicatorSv1RemoveRatingPlan        = "ReplicatorSv1.RemoveRatingPlan"
 	ReplicatorSv1RemoveRatingProfile     = "ReplicatorSv1.RemoveRatingProfile"
-	ReplicatorSv1RemoveSupplierProfile   = "ReplicatorSv1.RemoveSupplierProfile"
+	ReplicatorSv1RemoveRouteProfile      = "ReplicatorSv1.RemoveRouteProfile"
 	ReplicatorSv1RemoveAttributeProfile  = "ReplicatorSv1.RemoveAttributeProfile"
 	ReplicatorSv1RemoveChargerProfile    = "ReplicatorSv1.RemoveChargerProfile"
 	ReplicatorSv1RemoveDispatcherProfile = "ReplicatorSv1.RemoveDispatcherProfile"
 	ReplicatorSv1RemoveDispatcherHost    = "ReplicatorSv1.RemoveDispatcherHost"
+	ReplicatorSv1GetIndexes              = "ReplicatorSv1.GetIndexes"
+	ReplicatorSv1SetIndexes              = "ReplicatorSv1.SetIndexes"
+	ReplicatorSv1RemoveIndexes           = "ReplicatorSv1.RemoveIndexes"
 )
 
 // APIerSv1 APIs
@@ -992,17 +1272,29 @@ const (
 	APIerSv1                                  = "APIerSv1"
 	APIerSv1ComputeFilterIndexes              = "APIerSv1.ComputeFilterIndexes"
 	APIerSv1ComputeFilterIndexIDs             = "APIerSv1.ComputeFilterIndexIDs"
+	APIerSv1GetAccountActionPlansIndexHealth  = "APIerSv1.GetAccountActionPlansIndexHealth"
+	APIerSv1GetReverseDestinationsIndexHealth = "APIerSv1.GetReverseDestinationsIndexHealth"
+	APIerSv1GetReverseFilterHealth            = "APIerSv1.GetReverseFilterHealth"
+	APIerSv1GetThresholdsIndexesHealth        = "APIerSv1.GetThresholdsIndexesHealth"
+	APIerSv1GetResourcesIndexesHealth         = "APIerSv1.GetResourcesIndexesHealth"
+	APIerSv1GetStatsIndexesHealth             = "APIerSv1.GetStatsIndexesHealth"
+	APIerSv1GetRoutesIndexesHealth            = "APIerSv1.GetRoutesIndexesHealth"
+	APIerSv1GetChargersIndexesHealth          = "APIerSv1.GetChargersIndexesHealth"
+	APIerSv1GetAttributesIndexesHealth        = "APIerSv1.GetAttributesIndexesHealth"
+	APIerSv1GetDispatchersIndexesHealth       = "APIerSv1.GetDispatchersIndexesHealth"
 	APIerSv1Ping                              = "APIerSv1.Ping"
 	APIerSv1SetDispatcherProfile              = "APIerSv1.SetDispatcherProfile"
 	APIerSv1GetDispatcherProfile              = "APIerSv1.GetDispatcherProfile"
 	APIerSv1GetDispatcherProfileIDs           = "APIerSv1.GetDispatcherProfileIDs"
 	APIerSv1RemoveDispatcherProfile           = "APIerSv1.RemoveDispatcherProfile"
+	APIerSv1SetBalances                       = "APIerSv1.SetBalances"
 	APIerSv1SetDispatcherHost                 = "APIerSv1.SetDispatcherHost"
 	APIerSv1GetDispatcherHost                 = "APIerSv1.GetDispatcherHost"
 	APIerSv1GetDispatcherHostIDs              = "APIerSv1.GetDispatcherHostIDs"
 	APIerSv1RemoveDispatcherHost              = "APIerSv1.RemoveDispatcherHost"
 	APIerSv1GetEventCost                      = "APIerSv1.GetEventCost"
 	APIerSv1LoadTariffPlanFromFolder          = "APIerSv1.LoadTariffPlanFromFolder"
+	APIerSv1ExportToFolder                    = "APIerSv1.ExportToFolder"
 	APIerSv1GetCost                           = "APIerSv1.GetCost"
 	APIerSv1SetBalance                        = "APIerSv1.SetBalance"
 	APIerSv1GetFilter                         = "APIerSv1.GetFilter"
@@ -1011,15 +1303,6 @@ const (
 	APIerSv1RemoveFilter                      = "APIerSv1.RemoveFilter"
 	APIerSv1SetFilter                         = "APIerSv1.SetFilter"
 	APIerSv1GetFilterIDs                      = "APIerSv1.GetFilterIDs"
-	APIerSv1GetAccountActionPlansIndexHealth  = "APIerSv1.GetAccountActionPlansIndexHealth"
-	APIerSv1GetReverseDestinationsIndexHealth = "APIerSv1.GetReverseDestinationsIndexHealth"
-	APIerSv1GetThresholdsIndexesHealth        = "APIerSv1.GetThresholdsIndexesHealth"
-	APIerSv1GetResourcesIndexesHealth         = "APIerSv1.GetResourcesIndexesHealth"
-	APIerSv1GetStatsIndexesHealth             = "APIerSv1.GetStatsIndexesHealth"
-	APIerSv1GetSuppliersIndexesHealth         = "APIerSv1.GetSuppliersIndexesHealth"
-	APIerSv1GetChargersIndexesHealth          = "APIerSv1.GetChargersIndexesHealth"
-	APIerSv1GetAttributesIndexesHealth        = "APIerSv1.GetAttributesIndexesHealth"
-	APIerSv1GetDispatchersIndexesHealth       = "APIerSv1.GetDispatchersIndexesHealth"
 	APIerSv1GetRatingProfile                  = "APIerSv1.GetRatingProfile"
 	APIerSv1RemoveRatingProfile               = "APIerSv1.RemoveRatingProfile"
 	APIerSv1SetRatingProfile                  = "APIerSv1.SetRatingProfile"
@@ -1035,6 +1318,7 @@ const (
 	APIerSv1GetRatingPlan                     = "APIerSv1.GetRatingPlan"
 	APIerSv1RemoveRatingPlan                  = "APIerSv1.RemoveRatingPlan"
 	APIerSv1GetDestination                    = "APIerSv1.GetDestination"
+	APIerSv1RemoveDestination                 = "APIerSv1.RemoveDestination"
 	APIerSv1GetReverseDestination             = "APIerSv1.GetReverseDestination"
 	APIerSv1AddBalance                        = "APIerSv1.AddBalance"
 	APIerSv1DebitBalance                      = "APIerSv1.DebitBalance"
@@ -1089,10 +1373,10 @@ const (
 	APIerSv1GetTPStat                         = "APIerSv1.GetTPStat"
 	APIerSv1RemoveTPStat                      = "APIerSv1.RemoveTPStat"
 	APIerSv1GetTPDestinationRate              = "APIerSv1.GetTPDestinationRate"
-	APIerSv1SetTPSupplierProfile              = "APIerSv1.SetTPSupplierProfile"
-	APIerSv1GetTPSupplierProfile              = "APIerSv1.GetTPSupplierProfile"
-	APIerSv1GetTPSupplierProfileIDs           = "APIerSv1.GetTPSupplierProfileIDs"
-	APIerSv1RemoveTPSupplierProfile           = "APIerSv1.RemoveTPSupplierProfile"
+	APIerSv1SetTPRouteProfile                 = "APIerSv1.SetTPRouteProfile"
+	APIerSv1GetTPRouteProfile                 = "APIerSv1.GetTPRouteProfile"
+	APIerSv1GetTPRouteProfileIDs              = "APIerSv1.GetTPRouteProfileIDs"
+	APIerSv1RemoveTPRouteProfile              = "APIerSv1.RemoveTPRouteProfile"
 	APIerSv1GetTPDispatcherProfile            = "APIerSv1.GetTPDispatcherProfile"
 	APIerSv1SetTPDispatcherProfile            = "APIerSv1.SetTPDispatcherProfile"
 	APIerSv1RemoveTPDispatcherProfile         = "APIerSv1.RemoveTPDispatcherProfile"
@@ -1148,14 +1432,18 @@ const (
 	APIerSv1RemoveActionPlan                  = "APIerSv1.RemoveActionPlan"
 	APIerSv1RemoveActions                     = "APIerSv1.RemoveActions"
 	APIerSv1RemoveBalances                    = "APIerSv1.RemoveBalances"
-	APIerSv1ReloadCdreConfig                  = "APIerSv1.ReloadCdreConfig"
 	APIerSv1GetLoadHistory                    = "APIerSv1.GetLoadHistory"
 	APIerSv1GetLoadIDs                        = "APIerSv1.GetLoadIDs"
-	APIerSv1ExecuteScheduledActions           = "APIerSv1.ExecuteScheduledActions"
 	APIerSv1GetLoadTimes                      = "APIerSv1.GetLoadTimes"
+	APIerSv1ExecuteScheduledActions           = "APIerSv1.ExecuteScheduledActions"
 	APIerSv1GetSharedGroup                    = "APIerSv1.GetSharedGroup"
 	APIerSv1RemoveActionTrigger               = "APIerSv1.RemoveActionTrigger"
 	APIerSv1GetAccount                        = "APIerSv1.GetAccount"
+	APIerSv1GetAttributeProfileCount          = "APIerSv1.GetAttributeProfileCount"
+	APIerSv1GetMaxUsage                       = "APIerSv1.GetMaxUsage"
+	APIerSv1GetTiming                         = "APIerSv1.GetTiming"
+	APIerSv1SetTiming                         = "APIerSv1.SetTiming"
+	APIerSv1RemoveTiming                      = "APIerSv1.RemoveTiming"
 )
 
 // APIerSv1 TP APIs
@@ -1195,6 +1483,9 @@ const (
 	APIerSv2ExecuteAction              = "APIerSv2.ExecuteAction"
 	APIerSv2ResetAccountActionTriggers = "APIerSv2.ResetAccountActionTriggers"
 	APIerSv2RemoveActions              = "APIerSv2.RemoveActions"
+	APIerSv2ExportCdrsToFile           = "APIerSv2.ExportCdrsToFile"
+	APIerSv2GetAccountsCount           = "APIerSv2.GetAccountsCount"
+	APIerSv2GetActionsCount            = "APIerSv2.GetActionsCount"
 )
 
 const (
@@ -1205,11 +1496,14 @@ const (
 	ServiceManagerV1Ping          = "ServiceManagerV1.Ping"
 )
 
+// ConfigSv1 APIs
 const (
-	ConfigSv1                     = "ConfigSv1"
-	ConfigSv1GetJSONSection       = "ConfigSv1.GetJSONSection"
-	ConfigSv1ReloadConfigFromPath = "ConfigSv1.ReloadConfigFromPath"
-	ConfigSv1ReloadConfigFromJSON = "ConfigSv1.ReloadConfigFromJSON"
+	ConfigSv1                  = "ConfigSv1"
+	ConfigSv1ReloadConfig      = "ConfigSv1.ReloadConfig"
+	ConfigSv1GetConfig         = "ConfigSv1.GetConfig"
+	ConfigSv1SetConfig         = "ConfigSv1.SetConfig"
+	ConfigSv1GetConfigAsJSON   = "ConfigSv1.GetConfigAsJSON"
+	ConfigSv1SetConfigFromJSON = "ConfigSv1.SetConfigFromJSON"
 )
 
 const (
@@ -1218,23 +1512,30 @@ const (
 	RALsV1Ping               = "RALsV1.Ping"
 )
 
+// CoreS APIs
 const (
-	CoreS         = "CoreS"
-	CoreSv1       = "CoreSv1"
-	CoreSv1Status = "CoreSv1.Status"
-	CoreSv1Ping   = "CoreSv1.Ping"
-	CoreSv1Sleep  = "CoreSv1.Sleep"
+	CoreS                       = "CoreS"
+	CoreSv1                     = "CoreSv1"
+	CoreSv1Status               = "CoreSv1.Status"
+	CoreSv1Ping                 = "CoreSv1.Ping"
+	CoreSv1Panic                = "CoreSv1.Panic"
+	CoreSv1Sleep                = "CoreSv1.Sleep"
+	CoreSv1StartCPUProfiling    = "CoreSv1.StartCPUProfiling"
+	CoreSv1StopCPUProfiling     = "CoreSv1.StopCPUProfiling"
+	CoreSv1StartMemoryProfiling = "CoreSv1.StartMemoryProfiling"
+	CoreSv1StopMemoryProfiling  = "CoreSv1.StopMemoryProfiling"
 )
 
-// SupplierS APIs
+// RouteS APIs
 const (
-	SupplierSv1GetSuppliers                = "SupplierSv1.GetSuppliers"
-	SupplierSv1GetSupplierProfilesForEvent = "SupplierSv1.GetSupplierProfilesForEvent"
-	SupplierSv1Ping                        = "SupplierSv1.Ping"
-	APIerSv1GetSupplierProfile             = "APIerSv1.GetSupplierProfile"
-	APIerSv1GetSupplierProfileIDs          = "APIerSv1.GetSupplierProfileIDs"
-	APIerSv1RemoveSupplierProfile          = "APIerSv1.RemoveSupplierProfile"
-	APIerSv1SetSupplierProfile             = "APIerSv1.SetSupplierProfile"
+	RouteSv1GetRoutes                = "RouteSv1.GetRoutes"
+	RouteSv1GetRoutesList            = "RouteSv1.GetRoutesList"
+	RouteSv1GetRouteProfilesForEvent = "RouteSv1.GetRouteProfilesForEvent"
+	RouteSv1Ping                     = "RouteSv1.Ping"
+	APIerSv1GetRouteProfile          = "APIerSv1.GetRouteProfile"
+	APIerSv1GetRouteProfileIDs       = "APIerSv1.GetRouteProfileIDs"
+	APIerSv1RemoveRouteProfile       = "APIerSv1.RemoveRouteProfile"
+	APIerSv1SetRouteProfile          = "APIerSv1.SetRouteProfile"
 )
 
 // AttributeS APIs
@@ -1264,10 +1565,12 @@ const (
 const (
 	ThresholdSv1ProcessEvent          = "ThresholdSv1.ProcessEvent"
 	ThresholdSv1GetThreshold          = "ThresholdSv1.GetThreshold"
+	ThresholdSv1ResetThreshold        = "ThresholdSv1.ResetThreshold"
 	ThresholdSv1GetThresholdIDs       = "ThresholdSv1.GetThresholdIDs"
 	ThresholdSv1Ping                  = "ThresholdSv1.Ping"
 	ThresholdSv1GetThresholdsForEvent = "ThresholdSv1.GetThresholdsForEvent"
 	APIerSv1GetThresholdProfileIDs    = "APIerSv1.GetThresholdProfileIDs"
+	APIerSv1GetThresholdProfileCount  = "APIerSv1.GetThresholdProfileCount"
 	APIerSv1GetThresholdProfile       = "APIerSv1.GetThresholdProfile"
 	APIerSv1RemoveThresholdProfile    = "APIerSv1.RemoveThresholdProfile"
 	APIerSv1SetThresholdProfile       = "APIerSv1.SetThresholdProfile"
@@ -1282,6 +1585,8 @@ const (
 	StatSv1Ping                    = "StatSv1.Ping"
 	StatSv1GetStatQueuesForEvent   = "StatSv1.GetStatQueuesForEvent"
 	StatSv1GetStatQueue            = "StatSv1.GetStatQueue"
+	StatSv1V1GetQueueIDs           = "StatSv1.GetQueueIDs"
+	StatSv1ResetStatQueue          = "StatSv1.ResetStatQueue"
 	APIerSv1GetStatQueueProfile    = "APIerSv1.GetStatQueueProfile"
 	APIerSv1RemoveStatQueueProfile = "APIerSv1.RemoveStatQueueProfile"
 	APIerSv1SetStatQueueProfile    = "APIerSv1.SetStatQueueProfile"
@@ -1290,16 +1595,17 @@ const (
 
 // ResourceS APIs
 const (
-	ResourceSv1AuthorizeResources   = "ResourceSv1.AuthorizeResources"
-	ResourceSv1GetResourcesForEvent = "ResourceSv1.GetResourcesForEvent"
-	ResourceSv1AllocateResources    = "ResourceSv1.AllocateResources"
-	ResourceSv1ReleaseResources     = "ResourceSv1.ReleaseResources"
-	ResourceSv1Ping                 = "ResourceSv1.Ping"
-	ResourceSv1GetResource          = "ResourceSv1.GetResource"
-	APIerSv1SetResourceProfile      = "APIerSv1.SetResourceProfile"
-	APIerSv1RemoveResourceProfile   = "APIerSv1.RemoveResourceProfile"
-	APIerSv1GetResourceProfile      = "APIerSv1.GetResourceProfile"
-	APIerSv1GetResourceProfileIDs   = "APIerSv1.GetResourceProfileIDs"
+	ResourceSv1AuthorizeResources    = "ResourceSv1.AuthorizeResources"
+	ResourceSv1GetResourcesForEvent  = "ResourceSv1.GetResourcesForEvent"
+	ResourceSv1AllocateResources     = "ResourceSv1.AllocateResources"
+	ResourceSv1ReleaseResources      = "ResourceSv1.ReleaseResources"
+	ResourceSv1Ping                  = "ResourceSv1.Ping"
+	ResourceSv1GetResourceWithConfig = "ResourceSv1.GetResourceWithConfig"
+	ResourceSv1GetResource           = "ResourceSv1.GetResource"
+	APIerSv1SetResourceProfile       = "APIerSv1.SetResourceProfile"
+	APIerSv1RemoveResourceProfile    = "APIerSv1.RemoveResourceProfile"
+	APIerSv1GetResourceProfile       = "APIerSv1.GetResourceProfile"
+	APIerSv1GetResourceProfileIDs    = "APIerSv1.GetResourceProfileIDs"
 )
 
 // SessionS APIs
@@ -1314,6 +1620,7 @@ const (
 	SessionSv1ProcessCDR                 = "SessionSv1.ProcessCDR"
 	SessionSv1ProcessMessage             = "SessionSv1.ProcessMessage"
 	SessionSv1ProcessEvent               = "SessionSv1.ProcessEvent"
+	SessionSv1GetCost                    = "SessionSv1.GetCost"
 	SessionSv1DisconnectSession          = "SessionSv1.DisconnectSession"
 	SessionSv1GetActiveSessions          = "SessionSv1.GetActiveSessions"
 	SessionSv1GetActiveSessionsCount     = "SessionSv1.GetActiveSessionsCount"
@@ -1328,7 +1635,13 @@ const (
 	SessionSv1ActivateSessions           = "SessionSv1.ActivateSessions"
 	SessionSv1DeactivateSessions         = "SessionSv1.DeactivateSessions"
 	SMGenericV1InitiateSession           = "SMGenericV1.InitiateSession"
+	SessionSv1ReAuthorize                = "SessionSv1.ReAuthorize"
+	SessionSv1DisconnectPeer             = "SessionSv1.DisconnectPeer"
+	SessionSv1WarnDisconnect             = "SessionSv1.WarnDisconnect"
+	SessionSv1STIRAuthenticate           = "SessionSv1.STIRAuthenticate"
+	SessionSv1STIRIdentity               = "SessionSv1.STIRIdentity"
 	SessionSv1Sleep                      = "SessionSv1.Sleep"
+	SessionSv1CapsError                  = "SessionSv1.CapsError"
 )
 
 // Responder APIs
@@ -1348,16 +1661,30 @@ const (
 
 // DispatcherS APIs
 const (
-	DispatcherSv1Ping               = "DispatcherSv1.Ping"
-	DispatcherSv1GetProfileForEvent = "DispatcherSv1.GetProfileForEvent"
-	DispatcherSv1Apier              = "DispatcherSv1.Apier"
-	DispatcherServicePing           = "DispatcherService.Ping"
+	DispatcherSv1                    = "DispatcherSv1"
+	DispatcherSv1Ping                = "DispatcherSv1.Ping"
+	DispatcherSv1GetProfilesForEvent = "DispatcherSv1.GetProfilesForEvent"
+	DispatcherSv1Apier               = "DispatcherSv1.Apier"
+	DispatcherServicePing            = "DispatcherService.Ping"
+	DispatcherSv1RemoteStatus        = "DispatcherSv1.RemoteStatus"
+	DispatcherSv1RemoteSleep         = "DispatcherSv1.RemoteSleep"
+	DispatcherSv1RemotePing          = "DispatcherSv1.RemotePing"
+)
+
+// RegistrarS APIs
+const (
+	RegistrarSv1RegisterDispatcherHosts   = "RegistrarSv1.RegisterDispatcherHosts"
+	RegistrarSv1UnregisterDispatcherHosts = "RegistrarSv1.UnregisterDispatcherHosts"
+
+	RegistrarSv1RegisterRPCHosts   = "RegistrarSv1.RegisterRPCHosts"
+	RegistrarSv1UnregisterRPCHosts = "RegistrarSv1.UnregisterRPCHosts"
 )
 
 // AnalyzerS APIs
 const (
-	AnalyzerSv1     = "AnalyzerSv1"
-	AnalyzerSv1Ping = "AnalyzerSv1.Ping"
+	AnalyzerSv1            = "AnalyzerSv1"
+	AnalyzerSv1Ping        = "AnalyzerSv1.Ping"
+	AnalyzerSv1StringQuery = "AnalyzerSv1.StringQuery"
 )
 
 // LoaderS APIs
@@ -1374,8 +1701,11 @@ const (
 	CacheSv1GetCacheStats     = "CacheSv1.GetCacheStats"
 	CacheSv1GetItemIDs        = "CacheSv1.GetItemIDs"
 	CacheSv1HasItem           = "CacheSv1.HasItem"
+	CacheSv1GetItem           = "CacheSv1.GetItem"
+	CacheSv1GetItemWithRemote = "CacheSv1.GetItemWithRemote"
 	CacheSv1GetItemExpiryTime = "CacheSv1.GetItemExpiryTime"
 	CacheSv1RemoveItem        = "CacheSv1.RemoveItem"
+	CacheSv1RemoveItems       = "CacheSv1.RemoveItems"
 	CacheSv1PrecacheStatus    = "CacheSv1.PrecacheStatus"
 	CacheSv1HasGroup          = "CacheSv1.HasGroup"
 	CacheSv1GetGroupItemIDs   = "CacheSv1.GetGroupItemIDs"
@@ -1383,8 +1713,9 @@ const (
 	CacheSv1Clear             = "CacheSv1.Clear"
 	CacheSv1ReloadCache       = "CacheSv1.ReloadCache"
 	CacheSv1LoadCache         = "CacheSv1.LoadCache"
-	CacheSv1FlushCache        = "CacheSv1.FlushCache"
 	CacheSv1Ping              = "CacheSv1.Ping"
+	CacheSv1ReplicateSet      = "CacheSv1.ReplicateSet"
+	CacheSv1ReplicateRemove   = "CacheSv1.ReplicateRemove"
 )
 
 // GuardianS APIs
@@ -1408,31 +1739,40 @@ const (
 	CDRsV1Ping               = "CDRsV1.Ping"
 	CDRsV2                   = "CDRsV2"
 	CDRsV2StoreSessionCost   = "CDRsV2.StoreSessionCost"
-	CdrsV2ProcessExternalCdr = "CdrsV2.ProcessExternalCdr"
-	CdrsV2ProcessCdr         = "CdrsV2.ProcessCdr"
+	CDRsV2ProcessEvent       = "CDRsV2.ProcessEvent"
 )
 
 // Scheduler
 const (
-	SchedulerSv1       = "SchedulerSv1"
-	SchedulerSv1Ping   = "SchedulerSv1.Ping"
-	SchedulerSv1Reload = "SchedulerSv1.Reload"
+	SchedulerSv1                   = "SchedulerSv1"
+	SchedulerSv1Ping               = "SchedulerSv1.Ping"
+	SchedulerSv1Reload             = "SchedulerSv1.Reload"
+	SchedulerSv1ExecuteActions     = "SchedulerSv1.ExecuteActions"
+	SchedulerSv1ExecuteActionPlans = "SchedulerSv1.ExecuteActionPlans"
+)
+
+// EEs
+const (
+	EeSv1             = "EeSv1"
+	EeSv1Ping         = "EeSv1.Ping"
+	EeSv1ProcessEvent = "EeSv1.ProcessEvent"
 )
 
 // cgr_ variables
 const (
-	CGR_ACCOUNT          = "cgr_account"
-	CGR_SUPPLIER         = "cgr_supplier"
-	CGR_DESTINATION      = "cgr_destination"
-	CGR_SUBJECT          = "cgr_subject"
-	CGR_CATEGORY         = "cgr_category"
-	CGR_REQTYPE          = "cgr_reqtype"
-	CGR_TENANT           = "cgr_tenant"
-	CGR_PDD              = "cgr_pdd"
-	CGR_DISCONNECT_CAUSE = "cgr_disconnectcause"
-	CGR_COMPUTELCR       = "cgr_computelcr"
-	CGR_SUPPLIERS        = "cgr_suppliers"
-	CGRFlags             = "cgr_flags"
+	CGRAccount         = "cgr_account"
+	CGRRoute           = "cgr_route"
+	CGRDestination     = "cgr_destination"
+	CGRSubject         = "cgr_subject"
+	CGRCategory        = "cgr_category"
+	CGRReqType         = "cgr_reqtype"
+	CGRTenant          = "cgr_tenant"
+	CGRPdd             = "cgr_pdd"
+	CGRDisconnectCause = "cgr_disconnectcause"
+	CGRComputeLCR      = "cgr_computelcr"
+	CGRRoutes          = "cgr_routes"
+	CGRFlags           = "cgr_flags"
+	CGROpts            = "cgr_opts"
 )
 
 // CSV file name
@@ -1452,7 +1792,7 @@ const (
 	StatsCsv              = "Stats.csv"
 	ThresholdsCsv         = "Thresholds.csv"
 	FiltersCsv            = "Filters.csv"
-	SuppliersCsv          = "Suppliers.csv"
+	RoutesCsv             = "Routes.csv"
 	AttributesCsv         = "Attributes.csv"
 	ChargersCsv           = "Chargers.csv"
 	DispatcherProfilesCsv = "DispatcherProfiles.csv"
@@ -1466,7 +1806,7 @@ const (
 	TBLTPRates            = "tp_rates"
 	TBLTPDestinationRates = "tp_destination_rates"
 	TBLTPRatingPlans      = "tp_rating_plans"
-	TBLTPRateProfiles     = "tp_rating_profiles"
+	TBLTPRatingProfiles   = "tp_rating_profiles"
 	TBLTPSharedGroups     = "tp_shared_groups"
 	TBLTPActions          = "tp_actions"
 	TBLTPActionPlans      = "tp_action_plans"
@@ -1478,7 +1818,7 @@ const (
 	TBLTPFilters          = "tp_filters"
 	SessionCostsTBL       = "session_costs"
 	CDRsTBL               = "cdrs"
-	TBLTPSuppliers        = "tp_suppliers"
+	TBLTPRoutes           = "tp_routes"
 	TBLTPAttributes       = "tp_attributes"
 	TBLTPChargers         = "tp_chargers"
 	TBLVersions           = "versions"
@@ -1507,32 +1847,62 @@ const (
 	CacheThresholdProfiles       = "*threshold_profiles"
 	CacheThresholds              = "*thresholds"
 	CacheFilters                 = "*filters"
-	CacheSupplierProfiles        = "*supplier_profiles"
+	CacheRouteProfiles           = "*route_profiles"
 	CacheAttributeProfiles       = "*attribute_profiles"
 	CacheChargerProfiles         = "*charger_profiles"
 	CacheDispatcherProfiles      = "*dispatcher_profiles"
 	CacheDispatcherHosts         = "*dispatcher_hosts"
 	CacheDispatchers             = "*dispatchers"
 	CacheDispatcherRoutes        = "*dispatcher_routes"
+	CacheDispatcherLoads         = "*dispatcher_loads"
 	CacheResourceFilterIndexes   = "*resource_filter_indexes"
 	CacheStatFilterIndexes       = "*stat_filter_indexes"
 	CacheThresholdFilterIndexes  = "*threshold_filter_indexes"
-	CacheSupplierFilterIndexes   = "*supplier_filter_indexes"
+	CacheRouteFilterIndexes      = "*route_filter_indexes"
 	CacheAttributeFilterIndexes  = "*attribute_filter_indexes"
 	CacheChargerFilterIndexes    = "*charger_filter_indexes"
 	CacheDispatcherFilterIndexes = "*dispatcher_filter_indexes"
-	CacheReverseFilterIndexes    = "*reverse_filter_indexes"
 	CacheDiameterMessages        = "*diameter_messages"
 	CacheRPCResponses            = "*rpc_responses"
 	CacheClosedSessions          = "*closed_sessions"
 	MetaPrecaching               = "*precaching"
 	MetaReady                    = "*ready"
 	CacheLoadIDs                 = "*load_ids"
-	CacheAccounts                = "*accounts"
 	CacheRPCConnections          = "*rpc_connections"
 	CacheCDRIDs                  = "*cdr_ids"
 	CacheRatingProfilesTmp       = "*tmp_rating_profiles"
+	CacheUCH                     = "*uch"
+	CacheSTIR                    = "*stir"
+	CacheEventCharges            = "*event_charges"
+	CacheReverseFilterIndexes    = "*reverse_filter_indexes"
+	CacheAccounts                = "*accounts"
+	CacheVersions                = "*versions"
+	CacheCapsEvents              = "*caps_events"
 	CacheReplicationHosts        = "*replication_hosts"
+
+	// storDB
+	CacheTBLTPTimings          = "*tp_timings"
+	CacheTBLTPDestinations     = "*tp_destinations"
+	CacheTBLTPRates            = "*tp_rates"
+	CacheTBLTPDestinationRates = "*tp_destination_rates"
+	CacheTBLTPRatingPlans      = "*tp_rating_plans"
+	CacheTBLTPRatingProfiles   = "*tp_rating_profiles"
+	CacheTBLTPSharedGroups     = "*tp_shared_groups"
+	CacheTBLTPActions          = "*tp_actions"
+	CacheTBLTPActionPlans      = "*tp_action_plans"
+	CacheTBLTPActionTriggers   = "*tp_action_triggers"
+	CacheTBLTPAccountActions   = "*tp_account_actions"
+	CacheTBLTPResources        = "*tp_resources"
+	CacheTBLTPStats            = "*tp_stats"
+	CacheTBLTPThresholds       = "*tp_thresholds"
+	CacheTBLTPFilters          = "*tp_filters"
+	CacheSessionCostsTBL       = "*session_costs"
+	CacheCDRsTBL               = "*cdrs"
+	CacheTBLTPRoutes           = "*tp_routes"
+	CacheTBLTPAttributes       = "*tp_attributes"
+	CacheTBLTPChargers         = "*tp_chargers"
+	CacheTBLTPDispatchers      = "*tp_dispatcher_profiles"
+	CacheTBLTPDispatcherHosts  = "*tp_dispatcher_hosts"
 )
 
 // Prefix for indexing
@@ -1540,12 +1910,12 @@ const (
 	ResourceFilterIndexes   = "rfi_"
 	StatFilterIndexes       = "sfi_"
 	ThresholdFilterIndexes  = "tfi_"
-	SupplierFilterIndexes   = "spi_"
 	AttributeFilterIndexes  = "afi_"
 	ChargerFilterIndexes    = "cfi_"
 	DispatcherFilterIndexes = "dfi_"
 	ActionPlanIndexes       = "api_"
-	ReverseFilterIndexes    = "fii_"
+	RouteFilterIndexes      = "rti_"
+	FilterIndexPrfx         = "fii_"
 )
 
 // Agents
@@ -1556,18 +1926,7 @@ const (
 	FreeSWITCHAgent = "FreeSWITCHAgent"
 	AsteriskAgent   = "AsteriskAgent"
 	HTTPAgent       = "HTTPAgent"
-)
-
-// Poster
-const (
-	SQSPoster    = "SQSPoster"
-	S3Poster     = "S3Poster"
-	AWSRegion    = "aws_region"
-	AWSKey       = "aws_key"
-	AWSSecret    = "aws_secret"
-	KafkaTopic   = "topic"
-	KafkaGroupID = "group_id"
-	KafkaMaxWait = "max_wait"
+	SIPAgent        = "SIPAgent"
 )
 
 // Google_API
@@ -1580,73 +1939,91 @@ const (
 
 // StorDB
 var (
-	PostgressSSLModeDisable    = "disable"
-	PostgressSSLModeAllow      = "allow"
-	PostgressSSLModePrefer     = "prefer"
-	PostgressSSLModeRequire    = "require"
-	PostgressSSLModeVerifyCa   = "verify-ca"
-	PostgressSSLModeVerifyFull = "verify-full"
+	PostgresSSLModeDisable    = "disable"
+	PostgressSSLModeAllow     = "allow"
+	PostgresSSLModePrefer     = "prefer"
+	PostgressSSLModeRequire   = "require"
+	PostgresSSLModeVerifyCa   = "verify-ca"
+	PostgresSSLModeVerifyFull = "verify-full"
 )
 
 // GeneralCfg
 const (
-	NodeIDCfg             = "node_id"
-	LoggerCfg             = "logger"
-	LogLevelCfg           = "log_level"
-	HttpSkipTlsVerifyCfg  = "http_skip_tls_verify"
-	RoundingDecimalsCfg   = "rounding_decimals"
-	DBDataEncodingCfg     = "dbdata_encoding"
-	TpExportPathCfg       = "tpexport_dir"
-	PosterAttemptsCfg     = "poster_attempts"
-	FailedPostsDirCfg     = "failed_posts_dir"
-	FailedPostsTTLCfg     = "failed_posts_ttl"
-	DefaultReqTypeCfg     = "default_request_type"
-	DefaultCategoryCfg    = "default_category"
-	DefaultTenantCfg      = "default_tenant"
-	DefaultTimezoneCfg    = "default_timezone"
-	DefaultCachingCfg     = "default_caching"
-	ConnectAttemptsCfg    = "connect_attempts"
-	ReconnectsCfg         = "reconnects"
-	ConnectTimeoutCfg     = "connect_timeout"
-	ReplyTimeoutCfg       = "reply_timeout"
-	LockingTimeoutCfg     = "locking_timeout"
-	DigestSeparatorCfg    = "digest_separator"
-	DigestEqualCfg        = "digest_equal"
-	RSRSepCfg             = "rsr_separator"
-	MaxParallelConnsCfg   = "max_parallel_conns"
-	ConcurrentRequestsCfg = "concurrent_requests"
-	ConcurrentStrategyCfg = "concurrent_strategy"
+	NodeIDCfg               = "node_id"
+	LoggerCfg               = "logger"
+	LogLevelCfg             = "log_level"
+	RoundingDecimalsCfg     = "rounding_decimals"
+	DBDataEncodingCfg       = "dbdata_encoding"
+	TpExportPathCfg         = "tpexport_dir"
+	PosterAttemptsCfg       = "poster_attempts"
+	FailedPostsDirCfg       = "failed_posts_dir"
+	FailedPostsTTLCfg       = "failed_posts_ttl"
+	DefaultReqTypeCfg       = "default_request_type"
+	DefaultCategoryCfg      = "default_category"
+	DefaultTenantCfg        = "default_tenant"
+	DefaultTimezoneCfg      = "default_timezone"
+	DefaultCachingCfg       = "default_caching"
+	ConnectAttemptsCfg      = "connect_attempts"
+	ReconnectsCfg           = "reconnects"
+	MaxReconnectIntervalCfg = "max_reconnect_interval"
+	ConnectTimeoutCfg       = "connect_timeout"
+	ReplyTimeoutCfg         = "reply_timeout"
+	LockingTimeoutCfg       = "locking_timeout"
+	DigestSeparatorCfg      = "digest_separator"
+	DigestEqualCfg          = "digest_equal"
+	RSRSepCfg               = "rsr_separator"
+	MaxParallelConnsCfg     = "max_parallel_conns"
+	EEsConnsCfg             = "ees_conns"
 )
 
 // StorDbCfg
 const (
 	TypeCfg                = "type"
-	MaxOpenConnsCfg        = "max_open_conns"
-	MaxIdleConnsCfg        = "max_idle_conns"
-	ConnMaxLifetimeCfg     = "conn_max_lifetime"
+	SQLMaxOpenConnsCfg     = "sqlMaxOpenConns"
+	SQLMaxIdleConnsCfg     = "sqlMaxIdleConns"
+	SQLConnMaxLifetimeCfg  = "sqlConnMaxLifetime"
 	StringIndexedFieldsCfg = "string_indexed_fields"
 	PrefixIndexedFieldsCfg = "prefix_indexed_fields"
-	QueryTimeoutCfg        = "query_timeout"
-	SSLModeCfg             = "sslmode"
+	SuffixIndexedFieldsCfg = "suffix_indexed_fields"
+	MongoQueryTimeoutCfg   = "mongoQueryTimeout"
+	PgSSLModeCfg           = "pgSSLMode"
 	ItemsCfg               = "items"
+	OptsCfg                = "opts"
+	Tenants                = "tenants"
+	MysqlLocation          = "mysqlLocation"
+	SSLMode                = "sslMode"
 )
 
 // DataDbCfg
 const (
-	DataDbTypeCfg          = "db_type"
-	DataDbHostCfg          = "db_host"
-	DataDbPortCfg          = "db_port"
-	DataDbNameCfg          = "db_name"
-	DataDbUserCfg          = "db_user"
-	DataDbPassCfg          = "db_password"
-	DataDbSentinelNameCfg  = "redis_sentinel"
-	RmtConnsCfg            = "remote_conns"
-	RplConnsCfg            = "replication_conns"
-	ReplicationFilteredCfg = "replication_filtered"
+	DataDbTypeCfg              = "db_type"
+	DataDbHostCfg              = "db_host"
+	DataDbPortCfg              = "db_port"
+	DataDbNameCfg              = "db_name"
+	DataDbUserCfg              = "db_user"
+	DataDbPassCfg              = "db_password"
+	RedisMaxConnsCfg           = "redisMaxConns"
+	RedisConnectAttemptsCfg    = "redisConnectAttempts"
+	RedisSentinelNameCfg       = "redisSentinel"
+	RedisClusterCfg            = "redisCluster"
+	RedisClusterSyncCfg        = "redisClusterSync"
+	RedisClusterOnDownDelayCfg = "redisClusterOndownDelay"
+	RedisConnectTimeoutCfg     = "redisConnectTimeout"
+	RedisReadTimeoutCfg        = "redisReadTimeout"
+	RedisWriteTimeoutCfg       = "redisWriteTimeout"
+	RedisTLS                   = "redisTLS"
+	RedisClientCertificate     = "redisClientCertificate"
+	RedisClientKey             = "redisClientKey"
+	RedisCACertificate         = "redisCACertificate"
+	ReplicationFilteredCfg     = "replication_filtered"
+	ReplicationCache           = "replication_cache"
+	RemoteConnIDCfg            = "remote_conn_id"
 )
 
 // ItemOpt
 const (
+	APIKeyCfg    = "api_key"
+	RouteIDCfg   = "route_id"
 	RemoteCfg    = "remote"
 	ReplicateCfg = "replicate"
 	TTLCfg       = "ttl"
@@ -1678,11 +2055,29 @@ const (
 // HTTPCfg
 const (
 	HTTPJsonRPCURLCfg        = "json_rpc_url"
+	RegistrarSURLCfg         = "registrars_url"
 	HTTPWSURLCfg             = "ws_url"
 	HTTPFreeswitchCDRsURLCfg = "freeswitch_cdrs_url"
 	HTTPCDRsURLCfg           = "http_cdrs"
 	HTTPUseBasicAuthCfg      = "use_basic_auth"
 	HTTPAuthUsersCfg         = "auth_users"
+	HTTPClientOptsCfg        = "client_opts"
+	ConfigsURL               = "configs_url"
+
+	HTTPClientTLSClientConfigCfg       = "skipTlsVerify"
+	HTTPClientTLSHandshakeTimeoutCfg   = "tlsHandshakeTimeout"
+	HTTPClientDisableKeepAlivesCfg     = "disableKeepAlives"
+	HTTPClientDisableCompressionCfg    = "disableCompression"
+	HTTPClientMaxIdleConnsCfg          = "maxIdleConns"
+	HTTPClientMaxIdleConnsPerHostCfg   = "maxIdleConnsPerHost"
+	HTTPClientMaxConnsPerHostCfg       = "maxConnsPerHost"
+	HTTPClientIdleConnTimeoutCfg       = "idleConnTimeout"
+	HTTPClientResponseHeaderTimeoutCfg = "responseHeaderTimeout"
+	HTTPClientExpectContinueTimeoutCfg = "expectContinueTimeout"
+	HTTPClientForceAttemptHTTP2Cfg     = "forceAttemptHttp2"
+	HTTPClientDialTimeoutCfg           = "dialTimeout"
+	HTTPClientDialFallbackDelayCfg     = "dialFallbackDelay"
+	HTTPClientDialKeepAliveCfg         = "dialKeepAlive"
 )
 
 // FilterSCfg
@@ -1712,30 +2107,35 @@ const (
 
 // CdrsCfg
 const (
-	ExtraFieldsCfg      = "extra_fields"
-	StoreCdrsCfg        = "store_cdrs"
-	SMCostRetriesCfg    = "session_cost_retries"
-	ChargerSConnsCfg    = "chargers_conns"
-	AttributeSConnsCfg  = "attributes_conns"
-	OnlineCDRExportsCfg = "online_cdr_exports"
+	ExtraFieldsCfg         = "extra_fields"
+	StoreCdrsCfg           = "store_cdrs"
+	SMCostRetriesCfg       = "session_cost_retries"
+	ChargerSConnsCfg       = "chargers_conns"
+	AttributeSConnsCfg     = "attributes_conns"
+	RetransmissionTimerCfg = "retransmission_timer"
+	OnlineCDRExportsCfg    = "online_cdr_exports"
+	SessionCostRetires     = "session_cost_retries"
+	RateSConnsCfg          = "rates_conns"
 )
 
 // SessionSCfg
 const (
 	ListenBijsonCfg        = "listen_bijson"
+	ListenBigobCfg         = "listen_bigob"
 	RALsConnsCfg           = "rals_conns"
 	ResSConnsCfg           = "resources_conns"
 	ThreshSConnsCfg        = "thresholds_conns"
-	SupplSConnsCfg         = "suppliers_conns"
+	RouteSConnsCfg         = "routes_conns"
 	AttrSConnsCfg          = "attributes_conns"
 	ReplicationConnsCfg    = "replication_conns"
+	RemoteConnsCfg         = "remote_conns"
 	DebitIntervalCfg       = "debit_interval"
 	StoreSCostsCfg         = "store_session_costs"
 	SessionTTLCfg          = "session_ttl"
 	SessionTTLMaxDelayCfg  = "session_ttl_max_delay"
 	SessionTTLLastUsedCfg  = "session_ttl_last_used"
-	SessionTTLUsageCfg     = "session_ttl_usage"
 	SessionTTLLastUsageCfg = "session_ttl_last_usage"
+	SessionTTLUsageCfg     = "session_ttl_usage"
 	SessionIndexesCfg      = "session_indexes"
 	ClientProtocolCfg      = "client_protocol"
 	ChannelSyncIntervalCfg = "channel_sync_interval"
@@ -1743,6 +2143,13 @@ const (
 	AlterableFieldsCfg     = "alterable_fields"
 	MinDurLowBalanceCfg    = "min_dur_low_balance"
 	DefaultUsageCfg        = "default_usage"
+	STIRCfg                = "stir"
+
+	AllowedAtestCfg       = "allowed_attest"
+	PayloadMaxdurationCfg = "payload_maxduration"
+	DefaultAttestCfg      = "default_attest"
+	PublicKeyPathCfg      = "publickey_path"
+	PrivateKeyPathCfg     = "privatekey_path"
 )
 
 // FsAgentCfg
@@ -1755,13 +2162,15 @@ const (
 	EmptyBalanceAnnFileCfg = "empty_balance_ann_file"
 	MaxWaitConnectionCfg   = "max_wait_connection"
 	EventSocketConnsCfg    = "event_socket_conns"
+	EmptyBalanceContext    = "empty_balance_context"
 )
 
 // From Config
 const (
-	AddressCfg = "address"
-	Password   = "password"
-	AliasCfg   = "alias"
+	AddressCfg       = "address"
+	Password         = "password"
+	AliasCfg         = "alias"
+	AccountSConnsCfg = "accounts_conns"
 
 	// KamAgentCfg
 	EvapiConnsCfg = "evapi_conns"
@@ -1776,20 +2185,22 @@ const (
 	AsteriskConnsCfg = "asterisk_conns"
 
 	// DiameterAgentCfg
-	ListenNetCfg         = "listen_net"
-	ListenCfg            = "listen"
-	DictionariesPathCfg  = "dictionaries_path"
-	OriginHostCfg        = "origin_host"
-	OriginRealmCfg       = "origin_realm"
-	VendorIdCfg          = "vendor_id"
-	ProductNameCfg       = "product_name"
-	ConcurrentReqsCfg    = "concurrent_requests"
-	SyncedConnReqsCfg    = "synced_conn_requests"
-	ASRTemplateCfg       = "asr_template"
-	RARTemplateCfg       = "rar_template"
-	ForcedDisconnectCfg  = "forced_disconnect"
-	TemplatesCfg         = "templates"
-	RequestProcessorsCfg = "request_processors"
+	ListenNetCfg          = "listen_net"
+	NetworkCfg            = "network"
+	ListenersCfg          = "listeners"
+	ConcurrentRequestsCfg = "concurrent_requests"
+	ListenCfg             = "listen"
+	DictionariesPathCfg   = "dictionaries_path"
+	OriginHostCfg         = "origin_host"
+	OriginRealmCfg        = "origin_realm"
+	VendorIDCfg           = "vendor_id"
+	ProductNameCfg        = "product_name"
+	SyncedConnReqsCfg     = "synced_conn_requests"
+	ASRTemplateCfg        = "asr_template"
+	RARTemplateCfg        = "rar_template"
+	ForcedDisconnectCfg   = "forced_disconnect"
+	TemplatesCfg          = "templates"
+	RequestProcessorsCfg  = "request_processors"
 
 	// RequestProcessor
 	RequestFieldsCfg = "request_fields"
@@ -1802,9 +2213,13 @@ const (
 	ClientDictionariesCfg = "client_dictionaries"
 
 	// AttributeSCfg
-	IndexedSelectsCfg = "indexed_selects"
-	ProcessRunsCfg    = "process_runs"
-	NestedFieldsCfg   = "nested_fields"
+	IndexedSelectsCfg           = "indexed_selects"
+	MetaProfileIDs              = "*profileIDs"
+	MetaProcessRuns             = "*processRuns"
+	MetaProfileRuns             = "*profileRuns"
+	MetaProfileIgnoreFiltersCfg = "*profileIgnoreFilters"
+	NestedFieldsCfg             = "nested_fields"
+	AnyContextCfg               = "any_context"
 
 	// ChargerSCfg
 	StoreIntervalCfg = "store_interval"
@@ -1817,30 +2232,70 @@ const (
 	PrecacheCfg   = "precache"
 
 	// CdreCfg
-	ExportFormatCfg      = "export_format"
 	ExportPathCfg        = "export_path"
 	AttributeSContextCfg = "attributes_context"
 	SynchronousCfg       = "synchronous"
 	AttemptsCfg          = "attempts"
+	AttributeContextCfg  = "attribute_context"
+	AttributeIDsCfg      = "attribute_ids"
 
 	//LoaderSCfg
-	IdCfg           = "id"
 	DryRunCfg       = "dry_run"
-	LockFileNameCfg = "lock_filename"
+	LockFilePathCfg = "lockfile_path"
 	TpInDirCfg      = "tp_in_dir"
 	TpOutDirCfg     = "tp_out_dir"
 	DataCfg         = "data"
 
-	DefaultRatioCfg            = "default_ratio"
-	ReadersCfg                 = "readers"
-	PoolSize                   = "poolSize"
-	Conns                      = "conns"
-	FilenameCfg                = "file_name"
-	RequestPayloadCfg          = "request_payload"
-	ReplyPayloadCfg            = "reply_payload"
-	TransportCfg               = "transport"
-	StrategyCfg                = "strategy"
-	Dynaprepaid_actionplansCfg = "dynaprepaid_actionplans"
+	DefaultRatioCfg           = "default_ratio"
+	ReadersCfg                = "readers"
+	ExportersCfg              = "exporters"
+	PoolSize                  = "poolSize"
+	Conns                     = "conns"
+	FilenameCfg               = "file_name"
+	RequestPayloadCfg         = "request_payload"
+	ReplyPayloadCfg           = "reply_payload"
+	TransportCfg              = "transport"
+	StrategyCfg               = "strategy"
+	DynaprepaidActionplansCfg = "dynaprepaid_actionplans"
+
+	//RateSCfg
+	RateIndexedSelectsCfg      = "rate_indexed_selects"
+	RateNestedFieldsCfg        = "rate_nested_fields"
+	RateStringIndexedFieldsCfg = "rate_string_indexed_fields"
+	RatePrefixIndexedFieldsCfg = "rate_prefix_indexed_fields"
+	RateSuffixIndexedFieldsCfg = "rate_suffix_indexed_fields"
+	Verbosity                  = "verbosity"
+
+	// ResourceSCfg
+	MetaUsageIDCfg  = "*usageID"
+	MetaUsageTTLCfg = "*usageTTL"
+	MetaUnitsCfg    = "*units"
+
+	// RoutesCfg
+	MetaProfileCountCfg = "*profileCount"
+	MetaIgnoreErrorsCfg = "*ignoreErrors"
+	MetaMaxCostCfg      = "*maxCost"
+	MetaLimitCfg        = "*limit"
+	MetaOffsetCfg       = "*offset"
+
+	// AnalyzerSCfg
+	CleanupIntervalCfg = "cleanup_interval"
+	IndexTypeCfg       = "index_type"
+	DBPathCfg          = "db_path"
+
+	// CoreSCfg
+	CapsCfg              = "caps"
+	CapsStrategyCfg      = "caps_strategy"
+	CapsStatsIntervalCfg = "caps_stats_interval"
+	ShutdownTimeoutCfg   = "shutdown_timeout"
+
+	// AccountSCfg
+	MaxIterations = "max_iterations"
+	MaxUsage      = "max_usage"
+
+	// DispatcherSCfg
+	AnySubsystemCfg = "any_subsystem"
+	PreventLoopCfg  = "prevent_loop"
 )
 
 // FC Template
@@ -1857,7 +2312,7 @@ const (
 	NewBranchCfg       = "new_branch"
 	BlockerCfg         = "blocker"
 	BreakOnSuccessCfg  = "break_on_success"
-	Handler_id         = "handler_id"
+	HandlerIDCfg       = "handler_id"
 	LayoutCfg          = "layout"
 	CostShiftDigitsCfg = "cost_shift_digits"
 	MaskDestIDCfg      = "mask_destinationd_id"
@@ -1866,7 +2321,8 @@ const (
 
 // SureTax
 const (
-	UrlCfg                  = "url"
+	RootDirCfg              = "root_dir"
+	URLCfg                  = "url"
 	ClientNumberCfg         = "client_number"
 	ValidationKeyCfg        = "validation_key"
 	BusinessUnitCfg         = "business_unit"
@@ -1898,7 +2354,6 @@ const (
 	TpIDCfg            = "tpid"
 	DataPathCfg        = "data_path"
 	DisableReverseCfg  = "disable_reverse"
-	FieldSeparatorCfg  = "field_separator"
 	CachesConnsCfg     = "caches_conns"
 	SchedulerConnsCfg  = "scheduler_conns"
 	GapiCredentialsCfg = "gapi_credentials"
@@ -1907,21 +2362,23 @@ const (
 
 // MigratorCgrCfg
 const (
-	OutDataDBTypeCfg          = "out_datadb_type"
-	OutDataDBHostCfg          = "out_datadb_host"
-	OutDataDBPortCfg          = "out_datadb_port"
-	OutDataDBNameCfg          = "out_datadb_name"
-	OutDataDBUserCfg          = "out_datadb_user"
-	OutDataDBPasswordCfg      = "out_datadb_password"
-	OutDataDBEncodingCfg      = "out_datadb_encoding"
-	OutDataDBRedisSentinelCfg = "out_datadb_redis_sentinel"
-	OutStorDBTypeCfg          = "out_stordb_type"
-	OutStorDBHostCfg          = "out_stordb_host"
-	OutStorDBPortCfg          = "out_stordb_port"
-	OutStorDBNameCfg          = "out_stordb_name"
-	OutStorDBUserCfg          = "out_stordb_user"
-	OutStorDBPasswordCfg      = "out_stordb_password"
-	UsersFiltersCfg           = "users_filters"
+	OutDataDBTypeCfg       = "out_datadb_type"
+	OutDataDBHostCfg       = "out_datadb_host"
+	OutDataDBPortCfg       = "out_datadb_port"
+	OutDataDBNameCfg       = "out_datadb_name"
+	OutDataDBUserCfg       = "out_datadb_user"
+	OutDataDBPasswordCfg   = "out_datadb_password"
+	OutDataDBEncodingCfg   = "out_datadb_encoding"
+	OutDataDBRedisSentinel = "out_redis_sentinel"
+	OutStorDBTypeCfg       = "out_stordb_type"
+	OutStorDBHostCfg       = "out_stordb_host"
+	OutStorDBPortCfg       = "out_stordb_port"
+	OutStorDBNameCfg       = "out_stordb_name"
+	OutStorDBUserCfg       = "out_stordb_user"
+	OutStorDBPasswordCfg   = "out_stordb_password"
+	OutStorDBOptsCfg       = "out_stordb_opts"
+	OutDataDBOptsCfg       = "out_datadb_opts"
+	UsersFiltersCfg        = "users_filters"
 )
 
 // MailerCfg
@@ -1934,69 +2391,58 @@ const (
 
 // EventReaderCfg
 const (
-	IDCfg                       = "id"
-	RowLengthCfg                = "row_length"
-	FieldSepCfg                 = "field_separator"
-	RunDelayCfg                 = "run_delay"
-	SourcePathCfg               = "source_path"
-	ProcessedPathCfg            = "processed_path"
-	XmlRootPathCfg              = "xml_root_path"
-	TenantCfg                   = "tenant"
-	FlagsCfg                    = "flags"
-	FailedCallsPrefixCfg        = "failed_calls_prefix"
-	PartialRecordCacheCfg       = "partial_record_cache"
-	PartialCacheExpiryActionCfg = "partial_cache_expiry_action"
-	FieldsCfg                   = "fields"
-	CacheDumpFieldsCfg          = "cache_dump_fields"
+	IDCfg                  = "id"
+	CacheCfg               = "cache"
+	FieldSepCfg            = "field_separator"
+	RunDelayCfg            = "run_delay"
+	SourcePathCfg          = "source_path"
+	ProcessedPathCfg       = "processed_path"
+	TenantCfg              = "tenant"
+	FlagsCfg               = "flags"
+	FieldsCfg              = "fields"
+	CacheDumpFieldsCfg     = "cache_dump_fields"
+	PartialCommitFieldsCfg = "partial_commit_fields"
+	PartialCacheTTLCfg     = "partial_cache_ttl"
 )
 
-// CGRConfig
+// RegistrarCCfg
 const (
-	CdreProfiles     = "cdre"             // from JSON
-	LoaderCfg        = "loaders"          // from JSON
-	HttpAgentCfg     = "http_agent"       // from JSON
-	RpcConns         = "rpc_conns"        // from JSON
-	GeneralCfg       = "general"          // from JSON
-	DataDbCfg        = "data_db"          // from JSON
-	StorDbCfg        = "stor_db"          // from JSON
-	TlsCfg           = "tls"              // from JSON
-	CacheCfg         = "caches"           // from JSON
-	HttpCfg          = "http"             // from JSON
-	FilterSCfg       = "filters"          // from JSON
-	RalsCfg          = "rals"             // from JSON
-	SchedulerCfg     = "schedulers"       // from JSON
-	CdrsCfg          = "cdrs"             // from JSON
-	SessionSCfg      = "sessions"         // from JSON
-	FsAgentCfg       = "freeswitch_agent" // from JSON
-	KamAgentCfg      = "kamailio_agent"   // from JSON
-	AsteriskAgentCfg = "asterisk_agent"   // from JSON
-	DiameterAgentCfg = "diameter_agent"   // from JSON
-	RadiusAgentCfg   = "radius_agent"     // from JSON
-	DnsAgentCfg      = "dns_agent"        // from JSON
-	AttributeSCfg    = "attributes"       // from JSON
-	ChargerSCfg      = "chargers"         // from JSON
-	ResourceSCfg     = "resources"        // from JSON
-	StatsCfg         = "stats"            // from JSON
-	ThresholdSCfg    = "thresholds"       // from JSON
-	SupplierSCfg     = "suppliers"        // from JSON
-	SureTaxCfg       = "suretax"          // from JSON
-	DispatcherSCfg   = "dispatchers"      // from JSON
-	LoaderCgrCfg     = "loader"           // from JSON
-	MigratorCgrCfg   = "migrator"         // from JSON
-	MailerCfg        = "mailer"           // from JSON
-	AnalyzerSCfg     = "analyzers"        // from JSON
-	Apier            = "apiers"           // from JSON
-	ErsCfg           = "ers"              // from JSON
-
+	RPCCfg             = "rpc"
+	DispatcherCfg      = "dispatchers"
+	RegistrarsConnsCfg = "registrars_conns"
+	HostsCfg           = "hosts"
+	RefreshIntervalCfg = "refresh_interval"
 )
 
-// Go type limits
+// APIBanCfg
 const (
-	AbsoluteMaxUint     = ^uint(0)
-	AbsoluteMinUint     = 0
-	AbsoluteMaxInt      = int(AbsoluteMaxUint >> 1)
-	AbsoluteMinInt      = -AbsoluteMaxInt - 1
-	AbsoluteMaxDuration = time.Duration(AbsoluteMaxInt)
+	KeysCfg = "keys"
+)
+
+// SentryPeerCfg
+const (
+	ClientIdCfg      = "client_id"
+	ClientSecretCfg  = "client_secret"
+	AudienceCfg      = "audience"
+	GrantTypeCfg     = "grant_type"
+	ContentType      = "Content-Type"
+	JsonBody         = "application/json"
+	AuthorizationHdr = "Authorization"
+	BearerAuth       = "Bearer"
+)
+
+// STIR/SHAKEN
+const (
+	STIRAlg = "ES256"
+	STIRPpt = "shaken"
+	STIRTyp = "passport"
+
+	STIRAlgField  = "alg"
+	STIRPptField  = "ppt"
+	STIRInfoField = "info"
+
+	STIRExtraInfoPrefix = ";info=<"
+	STIRExtraInfoSuffix = ">;alg=ES256;ppt=shaken"
 )
 
 // Strip/Padding strategy
@@ -2011,6 +2457,387 @@ var (
 	MetaZeroLeft = "*zeroleft"
 )
 
+// CGROptionsSet the possible cgr options
+var CGROptionsSet = NewStringSet([]string{OptsSessionsTTL,
+	OptsSessionsTTLMaxDelay, OptsSessionsTTLLastUsed, OptsSessionsTTLLastUsage, OptsSessionsTTLUsage,
+	OptsDebitInterval, OptsStirATest, OptsStirPayloadMaxDuration, OptsStirIdentity,
+	OptsStirOriginatorTn, OptsStirOriginatorURI, OptsStirDestinationTn, OptsStirDestinationURI,
+	OptsStirPublicKeyPath, OptsStirPrivateKeyPath, OptsAPIKey, OptsRouteID, OptsContext,
+	OptsAttributesProcessRuns, OptsAttributesProfileIDs, OptsRoutesLimit, OptsRoutesOffset,
+	OptsRoutesIgnoreErrors, OptsRoutesMaxCost, OptsChargeable, RemoteHostOpt, CacheOpt,
+	OptsRoutesProfileCount, OptsDispatchersProfilesCount, OptsAttributesProfileRuns,
+	OptsAttributesProfileIgnoreFilters, OptsStatsProfileIDs, OptsStatsProfileIgnoreFilters,
+	OptsThresholdsProfileIDs, OptsThresholdsProfileIgnoreFilters, OptsResourcesUsageID, OptsResourcesUsageTTL,
+	OptsResourcesUnits, OptsAttributeS, OptsThresholdS, OptsChargerS, OptsStatS, OptsRALs, OptsRerate,
+	OptsRefund})
+
+// EventExporter metrics
+const (
+	NumberOfEvents    = "NumberOfEvents"
+	TotalCost         = "TotalCost"
+	PositiveExports   = "PositiveExports"
+	NegativeExports   = "NegativeExports"
+	FirstExpOrderID   = "FirstExpOrderID"
+	LastExpOrderID    = "LastExpOrderID"
+	FirstEventATime   = "FirstEventATime"
+	LastEventATime    = "LastEventATime"
+	TotalDuration     = "TotalDuration"
+	TotalDataUsage    = "TotalDataUsage"
+	TotalSMSUsage     = "TotalSMSUsage"
+	TotalMMSUsage     = "TotalMMSUsage"
+	TotalGenericUsage = "TotalGenericUsage"
+	FilePath          = "FilePath"
+)
+
+// Event Opts
+const (
+	OptsSessionsTTL          = "*sessionsTTL"
+	OptsSessionsTTLMaxDelay  = "*sessionsTTLMaxDelay"
+	OptsSessionsTTLLastUsed  = "*sessionsTTLLastUsed"
+	OptsSessionsTTLLastUsage = "*sessionsTTLLastUsage"
+	OptsSessionsTTLUsage     = "*sessionsTTLUsage"
+	OptsDebitInterval        = "*sessionsDebitInterval"
+	OptsChargeable           = "*sessionsChargeable"
+	// STIR
+	OptsStirATest              = "*stirATest"
+	OptsStirPayloadMaxDuration = "*stirPayloadMaxDuration"
+	OptsStirIdentity           = "*stirIdentity"
+	OptsStirOriginatorTn       = "*stirOriginatorTn"
+	OptsStirOriginatorURI      = "*stirOriginatorURI"
+	OptsStirDestinationTn      = "*stirDestinationTn"
+	OptsStirDestinationURI     = "*stirDestinationURI"
+	OptsStirPublicKeyPath      = "*stirPublicKeyPath"
+	OptsStirPrivateKeyPath     = "*stirPrivateKeyPath"
+	// DispatcherS
+	OptsAPIKey                   = "*apiKey"
+	OptsRouteID                  = "*routeID"
+	OptsDispatchersProfilesCount = "*dispatchersProfilesCount"
+	// EEs
+	OptsEEsVerbose = "*eesVerbose"
+	// Resources
+	OptsResourcesUsageID  = "*rsUsageID"
+	OptsResourcesUsageTTL = "*rsUsageTTL"
+	OptsResourcesUnits    = "*rsUnits"
+	// Routes
+	OptsRoutesProfileCount = "*rouProfileCount"
+	OptsRoutesLimit        = "*rouLimit"
+	OptsRoutesOffset       = "*rouOffset"
+	OptsRoutesIgnoreErrors = "*rouIgnoreErrors"
+	OptsRoutesMaxCost      = "*rouMaxCost"
+	// Stats
+	OptsStatsProfileIDs           = "*stsProfileIDs"
+	OptsStatsProfileIgnoreFilters = "*stsProfileIgnoreFilters"
+	// Thresholds
+	OptsThresholdsProfileIDs           = "*thdProfileIDs"
+	OptsThresholdsProfileIgnoreFilters = "*thdProfileIgnoreFilters"
+	//CDRs and Sessions
+	OptsAttributeS = "*attributeS"
+	OptsChargerS   = "*chargerS"
+	OptsStatS      = "*statS"
+	OptsThresholdS = "*thresholdS"
+	OptsRALs       = "*ralS"
+	OptsRerate     = "*rerate"
+	OptsRefund     = "*refund"
+	// Others
+	OptsContext                        = "*context"
+	MetaSubsys                         = "*subsys"
+	MetaMethod                         = "*reqMethod"
+	OptsAttributesProfileIDs           = "*attrProfileIDs"
+	OptsAttributesProcessRuns          = "*attrProcessRuns"
+	OptsAttributesProfileRuns          = "*attrProfileRuns"
+	OptsAttributesProfileIgnoreFilters = "*attrProfileIgnoreFilters"
+	MetaEventType                      = "*eventType"
+	EventType                          = "EventType"
+	SchedulerInit                      = "SchedulerInit"
+
+	RemoteHostOpt = "*rmtHost"
+	CacheOpt      = "*cache"
+)
+
+// Event Flags
+const (
+	MetaDerivedReply = "*derived_reply"
+
+	MetaIDs = "*ids"
+
+	TrueStr  = "true"
+	FalseStr = "false"
+)
+
+// ArgCache constats
+const (
+	DestinationIDs = "DestinationIDs"
+	RatingPlanIDs  = "RatingPlanIDs"
+	ActionIDs      = "ActionIDs"
+	ThresholdIDs   = "ThresholdIDs"
+	FilterIDs      = "FilterIDs"
+	TimingIDs      = "TimingIDs"
+)
+
+// Poster and Event reader constants
+const (
+	SQSPoster = "SQSPoster"
+	S3Poster  = "S3Poster"
+
+	// General constants for posters and readers
+	DefaultQueueID = "cgrates_cdrs"
+	ProcessedOpt   = "Processed"
+
+	// sqs and s3
+	AWSRegion = "awsRegion"
+	AWSKey    = "awsKey"
+	AWSSecret = "awsSecret"
+	AWSToken  = "awsToken"
+
+	// sqs
+	SQSQueueID = "sqsQueueID"
+
+	// s3
+	S3Bucket     = "s3BucketID"
+	S3FolderPath = "s3FolderPath"
+
+	// sql
+	SQLDefaultDBName  = "cgrates"
+	SQLDefaultSSLMode = "disable"
+
+	SQLDBNameOpt    = "sqlDBName"
+	SQLTableNameOpt = "sqlTableName"
+
+	SQLMaxOpenConns    = "sqlMaxOpenConns"
+	SQLConnMaxLifetime = "sqlConnMaxLifetime"
+	MYSQLDSNParams     = "mysqlDSNParams"
+
+	// fileCSV
+	CSVRowLengthOpt     = "csvRowLength"
+	CSVFieldSepOpt      = "csvFieldSeparator"
+	CSVLazyQuotes       = "csvLazyQuotes"
+	HeaderDefineCharOpt = "csvHeaderDefineChar"
+
+	// fileXML
+	XMLRootPathOpt = "xmlRootPath"
+
+	// amqp
+	AMQPDefaultConsumerTag = "cgrates"
+	DefaultExchangeType    = "direct"
+
+	AMQPQueueID      = "amqpQueueID"
+	AMQPConsumerTag  = "amqpConsumerTag"
+	AMQPExchange     = "amqpExchange"
+	AMQPExchangeType = "amqpExchangeType"
+	AMQPRoutingKey   = "amqpRoutingKey"
+	AMQPUsername     = "amqpUsername"
+	AMQPPassword     = "amqpPassword"
+
+	// kafka
+	KafkaDefaultTopic   = "cgrates"
+	KafkaDefaultGroupID = "cgrates"
+	KafkaDefaultMaxWait = time.Millisecond
+
+	KafkaTopic   = "kafkaTopic"
+	KafkaGroupID = "kafkaGroupID"
+	KafkaMaxWait = "kafkaMaxWait"
+
+	// partial
+	PartialOpt = "*partial"
+
+	PartialOrderFieldOpt       = "partialOrderField"
+	PartialCacheActionOpt      = "partialCacheAction"
+	PartialPathOpt             = "partialPath"
+	PartialCSVFieldSepartorOpt = "partialcsvFieldSeparator"
+
+	// EEs Elasticsearch options
+	ElsIndex               = "elsIndex"
+	ElsIfPrimaryTerm       = "elsIfPrimaryTerm"
+	ElsIfSeqNo             = "elsIfSeqNo"
+	ElsOpType              = "elsOpType"
+	ElsPipeline            = "elsPipeline"
+	ElsRouting             = "elsRouting"
+	ElsTimeout             = "elsTimeout"
+	ElsVersionLow          = "elsVersion"
+	ElsVersionType         = "elsVersionType"
+	ElsWaitForActiveShards = "elsWaitForActiveShards"
+
+	//EES ElasticSearch Logger Options
+	ElsJson  = "elsJson"
+	ElsColor = "elsColor"
+	ElsText  = "elsText"
+
+	// nats
+	NatsSubject              = "natsSubject"
+	NatsQueueID              = "natsQueueID"
+	NatsConsumerName         = "natsConsumerName"
+	NatsJWTFile              = "natsJWTFile"
+	NatsSeedFile             = "natsSeedFile"
+	NatsClientCertificate    = "natsClientCertificate"
+	NatsClientKey            = "natsClientKey"
+	NatsCertificateAuthority = "natsCertificateAuthority"
+	NatsJetStream            = "natsJetStream"
+	NatsJetStreamMaxWait     = "natsJetStreamMaxWait"
+
+	// rpc
+	RpcCodec        = "rpcCodec"
+	ServiceMethod   = "serviceMethod"
+	KeyPath         = "keyPath"
+	CertPath        = "certPath"
+	CaPath          = "caPath"
+	Tls             = "tls"
+	ConnIDs         = "connIDs"
+	RpcConnTimeout  = "rpcConnTimeout"
+	RpcReplyTimeout = "rpcReplyTimeout"
+	RPCAPIOpts      = "rpcAPIOpts"
+
+	// processed opts
+	AMQPQueueIDProcessedCfg      = "amqpQueueIDProcessed"
+	AMQPUsernameProcessedCfg     = "amqpUsernameProcessed"
+	AMQPPasswordProcessedCfg     = "amqpPasswordProcessed"
+	AMQPExchangeProcessedCfg     = "amqpExchangeProcessed"
+	AMQPExchangeTypeProcessedCfg = "amqpExchangeTypeProcessed"
+	AMQPRoutingKeyProcessedCfg   = "amqpRoutingKeyProcessed"
+
+	KafkaTopicProcessedCfg = "kafkaTopicProcessed"
+
+	SQLDBNameProcessedCfg    = "sqlDBNameProcessed"
+	SQLTableNameProcessedCfg = "sqlTableNameProcessed"
+	PgSSLModeProcessedCfg    = "pgSSLModeProcessed"
+
+	AWSRegionProcessedCfg = "awsRegionProcessed"
+	AWSKeyProcessedCfg    = "awsKeyProcessed"
+	AWSSecretProcessedCfg = "awsSecretProcessed"
+	AWSTokenProcessedCfg  = "awsTokenProcessed"
+
+	SQSQueueIDProcessedCfg = "sqsQueueIDProcessed"
+
+	S3FolderPathProcessedCfg = "s3FolderPathProcessed"
+	S3BucketIDProcessedCfg   = "s3BucketIDProcessed"
+
+	NATSJetStreamProcessedCfg            = "natsJetStreamProcessed"
+	NATSSubjectProcessedCfg              = "natsSubjectProcessed"
+	NATSJWTFileProcessedCfg              = "natsJWTFileProcessed"
+	NATSSeedFileProcessedCfg             = "natsSeedFileProcessed"
+	NATSCertificateAuthorityProcessedCfg = "natsCertificateAuthorityProcessed"
+	NATSClientCertificateProcessed       = "natsClientCertificateProcessed"
+	NATSClientKeyProcessedCfg            = "natsClientKeyProcessed"
+	NATSJetStreamMaxWaitProcessedCfg     = "natsJetStreamMaxWaitProcessed"
+)
+
+// Analyzers constants
+const (
+	MetaScorch  = "*scorch"
+	MetaBoltdb  = "*boltdb"
+	MetaLeveldb = "*leveldb"
+	MetaMoss    = "*mossdb"
+
+	RequestStartTime = "RequestStartTime"
+	RequestDuration  = "RequestDuration"
+	RequestParams    = "RequestParams"
+	Reply            = "Reply"
+	ReplyError       = "ReplyError"
+	AnzDBDir         = "db"
+	Opts             = "Opts"
+)
+
+// CMD constants
+const (
+	//Common
+	VerboseCgr      = "verbose"
+	VersionCgr      = "version"
+	QuitCgr         = "quit"
+	ExitCgr         = "exit"
+	ByeCgr          = "bye"
+	CloseCgr        = "close"
+	CfgPathCgr      = "config_path"
+	DataDBTypeCgr   = "datadb_type"
+	DataDBHostCgr   = "datadb_host"
+	DataDBPortCgr   = "datadb_port"
+	DataDBNameCgr   = "datadb_name"
+	DataDBUserCgr   = "datadb_user"
+	DataDBPasswdCgr = "datadb_passwd"
+	//Cgr console
+	CgrConsole     = "cgr-console"
+	HomeCgr        = "HOME"
+	HistoryCgr     = "/.cgr_history"
+	RpcEncodingCgr = "rpc_encoding"
+	CertPathCgr    = "crt_path"
+	KeyPathCgr     = "key_path"
+	CAPathCgr      = "ca_path"
+	HelpCgr        = "help"
+	SepCgr         = " "
+	//Cgr engine
+	CgrEngine            = "cgr-engine"
+	CheckCfgCgr          = "check_config"
+	PidCgr               = "pid"
+	HttpPrfPthCgr        = "httprof_path"
+	CpuProfDirCgr        = "cpuprof_dir"
+	MemProfDirCgr        = "memprof_dir"
+	MemProfIntervalCgr   = "memprof_interval"
+	MemProfNrFilesCgr    = "memprof_nrfiles"
+	ScheduledShutdownCgr = "scheduled_shutdown"
+	SingleCpuCgr         = "singlecpu"
+	PreloadCgr           = "preload"
+	MemProfFileCgr       = "mem_final.prof"
+	CpuPathCgr           = "cpu.prof"
+	//Cgr loader
+	CgrLoader         = "cgr-loader"
+	StorDBTypeCgr     = "stordb_type"
+	StorDBHostCgr     = "stordb_host"
+	StorDBPortCgr     = "stordb_port"
+	StorDBNameCgr     = "stordb_name"
+	StorDBUserCgr     = "stordb_user"
+	StorDBPasswdCgr   = "stordb_passwd"
+	CachingArgCgr     = "caching"
+	FieldSepCgr       = "field_sep"
+	ImportIDCgr       = "import_id"
+	DisableReverseCgr = "disable_reverse_mappings"
+	FlushStorDB       = "flush_stordb"
+	RemoveCgr         = "remove"
+	FromStorDBCgr     = "from_stordb"
+	ToStorDBcgr       = "to_stordb"
+	CacheSAddress     = "caches_address"
+	SchedulerAddress  = "scheduler_address"
+	//Cgr migrator
+	CgrMigrator = "cgr-migrator"
+	ExecCgr     = "exec"
+)
+
+var AnzIndexType = StringSet{ // AnzIndexType are the analyzers possible index types
+	MetaScorch:   {},
+	MetaBoltdb:   {},
+	MetaLeveldb:  {},
+	MetaMoss:     {},
+	MetaInternal: {},
+}
+
+// StringTmplType a string set used, by agentRequest and eventRequest to determine if the returned template type is string
+var StringTmplType = StringSet{
+	MetaConstant:        struct{}{},
+	MetaVariable:        struct{}{},
+	MetaComposed:        struct{}{},
+	MetaUsageDifference: struct{}{},
+	MetaPrefix:          struct{}{},
+	MetaSuffix:          struct{}{},
+	MetaSIPCID:          struct{}{},
+}
+
+// Time duration suffix
+const (
+	NsSuffix = "ns"
+	UsSuffix = "us"
+	µSuffix  = "µs"
+	MsSuffix = "ms"
+	SSuffix  = "s"
+	MSuffix  = "m"
+	HSuffix  = "h"
+)
+
+// Go type limits
+const (
+	AbsoluteMaxUint     = ^uint(0)
+	AbsoluteMinUint     = 0
+	AbsoluteMaxInt      = int(AbsoluteMaxUint >> 1)
+	AbsoluteMinInt      = -AbsoluteMaxInt - 1
+	AbsoluteMaxDuration = time.Duration(AbsoluteMaxInt)
+)
+
 func buildCacheInstRevPrefixes() {
 	CachePrefixToInstance = make(map[string]string)
 	for k, v := range CacheInstanceToPrefix {
@@ -2018,14 +2845,8 @@ func buildCacheInstRevPrefixes() {
 	}
 }
 
-func buildCacheIndexesToPrefix() {
-	CacheIndexesToPrefix = make(map[string]string)
-	for k, v := range PrefixToIndexCache {
-		CacheIndexesToPrefix[v] = k
-	}
-}
-
 func init() {
 	buildCacheInstRevPrefixes()
-	buildCacheIndexesToPrefix()
+	CachePartitions.Remove(CacheAccounts)
+	CachePartitions.Remove(CacheVersions)
 }

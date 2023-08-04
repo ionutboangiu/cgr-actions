@@ -37,25 +37,25 @@ var testEC = &EventCost{
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(0),
+					Usage:          0,
 					Cost:           0.1,
 					AccountingID:   "9bdad10",
 					CompressFactor: 1,
 				},
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0,
 					AccountingID:   "3455b83",
 					CompressFactor: 10,
 				},
 				{
-					Usage:          time.Duration(10 * time.Second),
+					Usage:          10 * time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 2,
 				},
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.005,
 					AccountingID:   "44d6c02",
 					CompressFactor: 30,
@@ -67,7 +67,7 @@ var testEC = &EventCost{
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 60,
@@ -79,19 +79,19 @@ var testEC = &EventCost{
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0,
 					AccountingID:   "3455b83",
 					CompressFactor: 10,
 				},
 				{
-					Usage:          time.Duration(10 * time.Second),
+					Usage:          10 * time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 2,
 				},
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.005,
 					AccountingID:   "44d6c02",
 					CompressFactor: 30,
@@ -106,17 +106,17 @@ var testEC = &EventCost{
 		BalanceSummaries: []*BalanceSummary{
 			{
 				UUID:  "8c54a9e9-d610-4c82-bcb5-a315b9a65010",
-				Type:  utils.MONETARY,
+				Type:  utils.MetaMonetary,
 				Value: 50,
 			},
 			{
 				UUID:  "7a54a9e9-d610-4c82-bcb5-a315b9a65010",
-				Type:  utils.MONETARY,
+				Type:  utils.MetaMonetary,
 				Value: 25,
 			},
 			{
 				UUID:  "4b8b53d7-c1a1-4159-b845-4623a00a0165",
-				Type:  utils.VOICE,
+				Type:  utils.MetaVoice,
 				Value: 200,
 			},
 		},
@@ -180,23 +180,23 @@ var testEC = &EventCost{
 	},
 	Rates: ChargedRates{
 		"ec1a177": RateGroups{
-			&Rate{
-				GroupIntervalStart: time.Duration(0),
+			&RGRate{
+				GroupIntervalStart: 0,
 				Value:              0.01,
-				RateIncrement:      time.Duration(1 * time.Minute),
-				RateUnit:           time.Duration(1 * time.Second)},
+				RateIncrement:      time.Minute,
+				RateUnit:           time.Second},
 		},
 		"4910ecf": RateGroups{
-			&Rate{
-				GroupIntervalStart: time.Duration(0),
+			&RGRate{
+				GroupIntervalStart: 0,
 				Value:              0.005,
-				RateIncrement:      time.Duration(1 * time.Second),
-				RateUnit:           time.Duration(1 * time.Second)},
-			&Rate{
-				GroupIntervalStart: time.Duration(60 * time.Second),
+				RateIncrement:      time.Second,
+				RateUnit:           time.Second},
+			&RGRate{
+				GroupIntervalStart: 60 * time.Second,
 				Value:              0.005,
-				RateIncrement:      time.Duration(1 * time.Second),
-				RateUnit:           time.Duration(1 * time.Second)},
+				RateIncrement:      time.Second,
+				RateUnit:           time.Second},
 		},
 	},
 	Timings: ChargedTimings{
@@ -204,7 +204,7 @@ var testEC = &EventCost{
 			StartTime: "00:00:00",
 		},
 	},
-	cache: utils.MapStorage{},
+	cache: utils.NewSecureMapStorage(),
 }
 
 func TestECClone(t *testing.T) {
@@ -214,7 +214,7 @@ func TestECClone(t *testing.T) {
 			utils.ToJSON(testEC), utils.ToJSON(ec))
 	}
 	// making sure we don't influence the original values
-	ec.Usage = utils.DurationPointer(time.Duration(1 * time.Second))
+	ec.Usage = utils.DurationPointer(time.Second)
 	if testEC.Usage != nil {
 		t.Error("Usage is not nil")
 	}
@@ -271,16 +271,16 @@ func TestECClone(t *testing.T) {
 func TestECComputeAndReset(t *testing.T) {
 	ec := testEC.Clone()
 	eEc := testEC.Clone()
-	eEc.Usage = utils.DurationPointer(time.Duration(10 * time.Minute))
+	eEc.Usage = utils.DurationPointer(10 * time.Minute)
 	eEc.Cost = utils.Float64Pointer(3.52)
-	eEc.Charges[0].ecUsageIdx = utils.DurationPointer(time.Duration(0))
-	eEc.Charges[0].usage = utils.DurationPointer(time.Duration(1 * time.Minute))
+	eEc.Charges[0].ecUsageIdx = utils.DurationPointer(0)
+	eEc.Charges[0].usage = utils.DurationPointer(time.Minute)
 	eEc.Charges[0].cost = utils.Float64Pointer(0.27)
-	eEc.Charges[1].ecUsageIdx = utils.DurationPointer(time.Duration(1 * time.Minute))
-	eEc.Charges[1].usage = utils.DurationPointer(time.Duration(1 * time.Minute))
+	eEc.Charges[1].ecUsageIdx = utils.DurationPointer(time.Minute)
+	eEc.Charges[1].usage = utils.DurationPointer(time.Minute)
 	eEc.Charges[1].cost = utils.Float64Pointer(0.6)
-	eEc.Charges[2].ecUsageIdx = utils.DurationPointer(time.Duration(5 * time.Minute))
-	eEc.Charges[2].usage = utils.DurationPointer(time.Duration(1 * time.Minute))
+	eEc.Charges[2].ecUsageIdx = utils.DurationPointer(5 * time.Minute)
+	eEc.Charges[2].usage = utils.DurationPointer(time.Minute)
 	eEc.Charges[2].cost = utils.Float64Pointer(0.17)
 	ec.Compute()
 	if !reflect.DeepEqual(eEc, ec) {
@@ -321,7 +321,7 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 		Subject:     "dan",
 		Account:     "dan",
 		Destination: "+4986517174963",
-		ToR:         utils.VOICE,
+		ToR:         utils.MetaVoice,
 		Cost:        0.75,
 		RatedUsage:  120.0,
 		Timespans: TimeSpans{
@@ -338,16 +338,16 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
-								GroupIntervalStart: time.Duration(0),
+							&RGRate{
+								GroupIntervalStart: 0,
 								Value:              0.01,
-								RateUnit:           time.Duration(1 * time.Second),
-								RateIncrement:      time.Duration(1 * time.Minute),
+								RateUnit:           time.Second,
+								RateIncrement:      time.Minute,
 							},
 						},
 					},
 				},
-				DurationIndex:  time.Duration(1 * time.Minute),
+				DurationIndex:  time.Minute,
 				MatchedSubject: "*out:cgrates.org:call:*any",
 				MatchedPrefix:  "+49",
 				MatchedDestId:  "GERMANY",
@@ -375,7 +375,7 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 						CompressFactor: 1,
 					},
 					&Increment{ // First 30 seconds free
-						Duration: time.Duration(1 * time.Second),
+						Duration: time.Second,
 						Cost:     0,
 						BalanceInfo: &DebitInfo{
 							Unit: &UnitInfo{
@@ -383,14 +383,14 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 								ID:       "free_mins",
 								Value:    0,
 								Consumed: 1.0,
-								ToR:      utils.VOICE,
+								ToR:      utils.MetaVoice,
 							},
 							AccountID: "cgrates.org:dan",
 						},
 						CompressFactor: 30,
 					},
 					&Increment{ // Minutes with special price
-						Duration: time.Duration(1 * time.Second),
+						Duration: time.Second,
 						Cost:     0.005,
 						BalanceInfo: &DebitInfo{
 							Unit: &UnitInfo{ // Minutes with special price
@@ -398,7 +398,7 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 								ID:       "discounted_mins",
 								Value:    0,
 								Consumed: 1.0,
-								ToR:      utils.VOICE,
+								ToR:      utils.MetaVoice,
 								RateInterval: &RateInterval{
 									Timing: &RITiming{
 										StartTime: "00:00:00",
@@ -408,17 +408,17 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 										RoundingMethod:   "*up",
 										RoundingDecimals: 5,
 										Rates: RateGroups{
-											&Rate{
-												GroupIntervalStart: time.Duration(0),
+											&RGRate{
+												GroupIntervalStart: 0,
 												Value:              0.005,
-												RateUnit:           time.Duration(1 * time.Second),
-												RateIncrement:      time.Duration(1 * time.Second),
+												RateUnit:           time.Second,
+												RateIncrement:      time.Second,
 											},
-											&Rate{
-												GroupIntervalStart: time.Duration(60 * time.Second),
+											&RGRate{
+												GroupIntervalStart: 60 * time.Second,
 												Value:              0.005,
-												RateUnit:           time.Duration(1 * time.Second),
-												RateIncrement:      time.Duration(1 * time.Second),
+												RateUnit:           time.Second,
+												RateIncrement:      time.Second,
 											},
 										},
 									},
@@ -448,16 +448,16 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
-								GroupIntervalStart: time.Duration(0),
+							&RGRate{
+								GroupIntervalStart: 0,
 								Value:              0.01,
-								RateUnit:           time.Duration(1 * time.Second),
-								RateIncrement:      time.Duration(1 * time.Minute),
+								RateUnit:           time.Second,
+								RateIncrement:      time.Minute,
 							},
 						},
 					},
 				},
-				DurationIndex:  time.Duration(1 * time.Minute),
+				DurationIndex:  time.Minute,
 				MatchedSubject: "*out:cgrates.org:call:*any",
 				MatchedPrefix:  "+49",
 				MatchedDestId:  "GERMANY",
@@ -466,7 +466,7 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 				Increments: Increments{
 					&Increment{
 						Cost:     0.01,
-						Duration: time.Duration(1 * time.Second),
+						Duration: time.Second,
 						BalanceInfo: &DebitInfo{
 							Monetary: &MonetaryInfo{UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010",
 								ID:    utils.MetaDefault,
@@ -486,25 +486,25 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 		RunID:     utils.MetaDefault,
 		StartTime: time.Date(2017, 1, 9, 16, 18, 21, 0, time.UTC),
 		Cost:      utils.Float64Pointer(0.85),
-		Usage:     utils.DurationPointer(time.Duration(2 * time.Minute)),
+		Usage:     utils.DurationPointer(2 * time.Minute),
 		Charges: []*ChargingInterval{
 			{
 				RatingID: "f2518464-68b8-42f4-acec-aef23d714314",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(0),
+						Usage:          0,
 						Cost:           0.1,
 						AccountingID:   "44e97dec-8a7e-43d0-8b0a-736d46b5613e",
 						CompressFactor: 1,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0,
 						AccountingID:   "a555cde8-4bd0-408a-afbc-c3ba64888927",
 						CompressFactor: 30,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.005,
 						AccountingID:   "906bfd0f-035c-40a3-93a8-46f71627983e",
 						CompressFactor: 30,
@@ -516,24 +516,24 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 					},
 				},
 				CompressFactor: 1,
-				usage:          utils.DurationPointer(time.Duration(60 * time.Second)),
+				usage:          utils.DurationPointer(60 * time.Second),
 				cost:           utils.Float64Pointer(0.15),
-				ecUsageIdx:     utils.DurationPointer(time.Duration(0)),
+				ecUsageIdx:     utils.DurationPointer(0),
 			},
 			{
 				RatingID: "f2518464-68b8-42f4-acec-aef23d714314",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.01,
 						AccountingID:   "c890a899-df43-497a-9979-38492713f57b",
 						CompressFactor: 60,
 					},
 				},
 				CompressFactor: 1,
-				usage:          utils.DurationPointer(time.Duration(60 * time.Second)),
+				usage:          utils.DurationPointer(60 * time.Second),
 				cost:           utils.Float64Pointer(0.6),
-				ecUsageIdx:     utils.DurationPointer(time.Duration(60 * time.Second)),
+				ecUsageIdx:     utils.DurationPointer(60 * time.Second),
 			},
 		},
 		Rating: Rating{
@@ -600,23 +600,23 @@ func TestNewEventCostFromCallCost(t *testing.T) {
 		},
 		Rates: ChargedRates{
 			"6504fb84-6b27-47a8-a1c6-c0d843959f89": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.01,
-					RateIncrement:      time.Duration(1 * time.Minute),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Minute,
+					RateUnit:           time.Second},
 			},
 			"e5eb0f1c-3612-4e8c-b749-7f8f41dd90d4": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.005,
-					RateIncrement:      time.Duration(1 * time.Second),
-					RateUnit:           time.Duration(1 * time.Second)},
-				&Rate{
-					GroupIntervalStart: time.Duration(60 * time.Second),
+					RateIncrement:      time.Second,
+					RateUnit:           time.Second},
+				&RGRate{
+					GroupIntervalStart: 60 * time.Second,
 					Value:              0.005,
-					RateIncrement:      time.Duration(1 * time.Second),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Second,
+					RateUnit:           time.Second},
 			},
 		},
 		Timings: ChargedTimings{
@@ -730,14 +730,14 @@ func TestECAsRefundIncrements(t *testing.T) {
 	eCD := &CallDescriptor{
 		CgrID:         "164b0422fdc6a5117031b427439482c6a4f90e41",
 		RunID:         utils.MetaDefault,
-		ToR:           utils.VOICE,
+		ToR:           utils.MetaVoice,
 		TimeStart:     time.Date(2017, 1, 9, 16, 18, 21, 0, time.UTC),
 		TimeEnd:       time.Date(2017, 1, 9, 16, 28, 21, 0, time.UTC),
-		DurationIndex: time.Duration(10 * time.Minute),
+		DurationIndex: 10 * time.Minute,
 	}
 	eCD.Increments = Increments{
 		&Increment{
-			Duration:       time.Duration(0),
+			Duration:       0,
 			Cost:           0.1,
 			CompressFactor: 1,
 			BalanceInfo: &DebitInfo{
@@ -746,7 +746,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0,
 			CompressFactor: 10,
 			BalanceInfo: &DebitInfo{
@@ -755,7 +755,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "4b8b53d7-c1a1-4159-b845-4623a00a0165"}},
 		},
 		&Increment{
-			Duration:       time.Duration(10 * time.Second),
+			Duration:       10 * time.Second,
 			Cost:           0.01,
 			CompressFactor: 2,
 			BalanceInfo: &DebitInfo{
@@ -764,7 +764,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.005,
 			CompressFactor: 30,
 			BalanceInfo: &DebitInfo{
@@ -775,7 +775,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.01,
 			CompressFactor: 60,
 			BalanceInfo: &DebitInfo{
@@ -784,7 +784,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.01,
 			CompressFactor: 60,
 			BalanceInfo: &DebitInfo{
@@ -793,7 +793,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.01,
 			CompressFactor: 60,
 			BalanceInfo: &DebitInfo{
@@ -802,7 +802,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.01,
 			CompressFactor: 60,
 			BalanceInfo: &DebitInfo{
@@ -811,7 +811,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0,
 			CompressFactor: 10,
 			BalanceInfo: &DebitInfo{
@@ -820,7 +820,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "4b8b53d7-c1a1-4159-b845-4623a00a0165"}},
 		},
 		&Increment{
-			Duration:       time.Duration(10 * time.Second),
+			Duration:       10 * time.Second,
 			Cost:           0.01,
 			CompressFactor: 2,
 			BalanceInfo: &DebitInfo{
@@ -829,7 +829,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.005,
 			CompressFactor: 30,
 			BalanceInfo: &DebitInfo{
@@ -840,7 +840,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0,
 			CompressFactor: 10,
 			BalanceInfo: &DebitInfo{
@@ -849,7 +849,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "4b8b53d7-c1a1-4159-b845-4623a00a0165"}},
 		},
 		&Increment{
-			Duration:       time.Duration(10 * time.Second),
+			Duration:       10 * time.Second,
 			Cost:           0.01,
 			CompressFactor: 2,
 			BalanceInfo: &DebitInfo{
@@ -858,7 +858,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.005,
 			CompressFactor: 30,
 			BalanceInfo: &DebitInfo{
@@ -869,7 +869,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0,
 			CompressFactor: 10,
 			BalanceInfo: &DebitInfo{
@@ -878,7 +878,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "4b8b53d7-c1a1-4159-b845-4623a00a0165"}},
 		},
 		&Increment{
-			Duration:       time.Duration(10 * time.Second),
+			Duration:       10 * time.Second,
 			Cost:           0.01,
 			CompressFactor: 2,
 			BalanceInfo: &DebitInfo{
@@ -887,7 +887,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.005,
 			CompressFactor: 30,
 			BalanceInfo: &DebitInfo{
@@ -898,7 +898,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0,
 			CompressFactor: 10,
 			BalanceInfo: &DebitInfo{
@@ -907,7 +907,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "4b8b53d7-c1a1-4159-b845-4623a00a0165"}},
 		},
 		&Increment{
-			Duration:       time.Duration(10 * time.Second),
+			Duration:       10 * time.Second,
 			Cost:           0.01,
 			CompressFactor: 2,
 			BalanceInfo: &DebitInfo{
@@ -916,7 +916,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.005,
 			CompressFactor: 30,
 			BalanceInfo: &DebitInfo{
@@ -927,7 +927,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0,
 			CompressFactor: 10,
 			BalanceInfo: &DebitInfo{
@@ -936,7 +936,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "4b8b53d7-c1a1-4159-b845-4623a00a0165"}},
 		},
 		&Increment{
-			Duration:       time.Duration(10 * time.Second),
+			Duration:       10 * time.Second,
 			Cost:           0.01,
 			CompressFactor: 2,
 			BalanceInfo: &DebitInfo{
@@ -945,7 +945,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 					UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"}},
 		},
 		&Increment{
-			Duration:       time.Duration(1 * time.Second),
+			Duration:       time.Second,
 			Cost:           0.005,
 			CompressFactor: 30,
 			BalanceInfo: &DebitInfo{
@@ -957,7 +957,7 @@ func TestECAsRefundIncrements(t *testing.T) {
 		},
 	}
 
-	if cd := testEC.Clone().AsRefundIncrements(utils.VOICE); !reflect.DeepEqual(eCD, cd) {
+	if cd := testEC.Clone().AsRefundIncrements(utils.MetaVoice); !reflect.DeepEqual(eCD, cd) {
 		t.Errorf("expecting: %s\n\n, received: %s", utils.ToIJSON(eCD), utils.ToIJSON(cd))
 	}
 }
@@ -990,25 +990,25 @@ func TestECAsCallCost(t *testing.T) {
 		RunID:     utils.MetaDefault,
 		StartTime: time.Date(2017, 1, 9, 16, 18, 21, 0, time.UTC),
 		Cost:      utils.Float64Pointer(0.85),
-		Usage:     utils.DurationPointer(time.Duration(2 * time.Minute)),
+		Usage:     utils.DurationPointer(2 * time.Minute),
 		Charges: []*ChargingInterval{
 			{
 				RatingID: "f2518464-68b8-42f4-acec-aef23d714314",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(0),
+						Usage:          0,
 						Cost:           0.1,
 						AccountingID:   "44e97dec-8a7e-43d0-8b0a-736d46b5613e",
 						CompressFactor: 1,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0,
 						AccountingID:   "a555cde8-4bd0-408a-afbc-c3ba64888927",
 						CompressFactor: 30,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.005,
 						AccountingID:   "906bfd0f-035c-40a3-93a8-46f71627983e",
 						CompressFactor: 30,
@@ -1020,7 +1020,7 @@ func TestECAsCallCost(t *testing.T) {
 				RatingID: "f2518464-68b8-42f4-acec-aef23d714314",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.01,
 						AccountingID:   "c890a899-df43-497a-9979-38492713f57b",
 						CompressFactor: 60,
@@ -1087,23 +1087,23 @@ func TestECAsCallCost(t *testing.T) {
 		},
 		Rates: ChargedRates{
 			"6504fb84-6b27-47a8-a1c6-c0d843959f89": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.01,
-					RateIncrement:      time.Duration(1 * time.Minute),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Minute,
+					RateUnit:           time.Second},
 			},
 			"e5eb0f1c-3612-4e8c-b749-7f8f41dd90d4": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.005,
-					RateIncrement:      time.Duration(1 * time.Second),
-					RateUnit:           time.Duration(1 * time.Second)},
-				&Rate{
-					GroupIntervalStart: time.Duration(60 * time.Second),
+					RateIncrement:      time.Second,
+					RateUnit:           time.Second},
+				&RGRate{
+					GroupIntervalStart: 60 * time.Second,
 					Value:              0.005,
-					RateIncrement:      time.Duration(1 * time.Second),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Second,
+					RateUnit:           time.Second},
 			},
 		},
 		Timings: ChargedTimings{
@@ -1113,7 +1113,7 @@ func TestECAsCallCost(t *testing.T) {
 		},
 	}
 	eCC := &CallCost{
-		ToR:            utils.VOICE,
+		ToR:            utils.MetaVoice,
 		Cost:           0.85,
 		RatedUsage:     120000000000,
 		AccountSummary: acntSummary,
@@ -1124,6 +1124,7 @@ func TestECAsCallCost(t *testing.T) {
 				Cost:      0.25,
 				RateInterval: &RateInterval{ // standard rating
 					Timing: &RITiming{
+						ID:        "27f1e5f8-05bb-4f1c-a596-bf1010ad296c",
 						StartTime: "00:00:00",
 					},
 					Rating: &RIRate{
@@ -1131,16 +1132,16 @@ func TestECAsCallCost(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
-								GroupIntervalStart: time.Duration(0),
+							&RGRate{
+								GroupIntervalStart: 0,
 								Value:              0.01,
-								RateUnit:           time.Duration(1 * time.Second),
-								RateIncrement:      time.Duration(1 * time.Minute),
+								RateUnit:           time.Second,
+								RateIncrement:      time.Minute,
 							},
 						},
 					},
 				},
-				DurationIndex:  time.Duration(1 * time.Minute),
+				DurationIndex:  time.Minute,
 				MatchedSubject: "*out:cgrates.org:call:*any",
 				MatchedPrefix:  "+49",
 				MatchedDestId:  "GERMANY",
@@ -1157,7 +1158,7 @@ func TestECAsCallCost(t *testing.T) {
 						CompressFactor: 1,
 					},
 					&Increment{ // First 30 seconds free
-						Duration: time.Duration(1 * time.Second),
+						Duration: time.Second,
 						Cost:     0,
 						BalanceInfo: &DebitInfo{
 							Unit: &UnitInfo{
@@ -1169,7 +1170,7 @@ func TestECAsCallCost(t *testing.T) {
 						CompressFactor: 30,
 					},
 					&Increment{ // Minutes with special price
-						Duration: time.Duration(1 * time.Second),
+						Duration: time.Second,
 						Cost:     0.005,
 						BalanceInfo: &DebitInfo{
 							Unit: &UnitInfo{ // Minutes with special price
@@ -1177,6 +1178,7 @@ func TestECAsCallCost(t *testing.T) {
 								Consumed: 1.0,
 								RateInterval: &RateInterval{
 									Timing: &RITiming{
+										ID:        "27f1e5f8-05bb-4f1c-a596-bf1010ad296c",
 										StartTime: "00:00:00",
 									},
 									Rating: &RIRate{
@@ -1184,17 +1186,17 @@ func TestECAsCallCost(t *testing.T) {
 										RoundingMethod:   "*up",
 										RoundingDecimals: 5,
 										Rates: RateGroups{
-											&Rate{
-												GroupIntervalStart: time.Duration(0),
+											&RGRate{
+												GroupIntervalStart: 0,
 												Value:              0.005,
-												RateUnit:           time.Duration(1 * time.Second),
-												RateIncrement:      time.Duration(1 * time.Second),
+												RateUnit:           time.Second,
+												RateIncrement:      time.Second,
 											},
-											&Rate{
-												GroupIntervalStart: time.Duration(60 * time.Second),
+											&RGRate{
+												GroupIntervalStart: 60 * time.Second,
 												Value:              0.005,
-												RateUnit:           time.Duration(1 * time.Second),
-												RateIncrement:      time.Duration(1 * time.Second),
+												RateUnit:           time.Second,
+												RateIncrement:      time.Second,
 											},
 										},
 									},
@@ -1215,6 +1217,7 @@ func TestECAsCallCost(t *testing.T) {
 				Cost:      0.6,
 				RateInterval: &RateInterval{ // standard rating
 					Timing: &RITiming{
+						ID:        "27f1e5f8-05bb-4f1c-a596-bf1010ad296c",
 						StartTime: "00:00:00",
 					},
 					Rating: &RIRate{
@@ -1222,16 +1225,16 @@ func TestECAsCallCost(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
-								GroupIntervalStart: time.Duration(0),
+							&RGRate{
+								GroupIntervalStart: 0,
 								Value:              0.01,
-								RateUnit:           time.Duration(1 * time.Second),
-								RateIncrement:      time.Duration(1 * time.Minute),
+								RateUnit:           time.Second,
+								RateIncrement:      time.Minute,
 							},
 						},
 					},
 				},
-				DurationIndex:  time.Duration(1 * time.Minute),
+				DurationIndex:  time.Minute,
 				MatchedSubject: "*out:cgrates.org:call:*any",
 				MatchedPrefix:  "+49",
 				MatchedDestId:  "GERMANY",
@@ -1240,7 +1243,7 @@ func TestECAsCallCost(t *testing.T) {
 				Increments: Increments{
 					&Increment{
 						Cost:     0.01,
-						Duration: time.Duration(1 * time.Second),
+						Duration: time.Second,
 						BalanceInfo: &DebitInfo{
 							Monetary: &MonetaryInfo{
 								UUID: "8c54a9e9-d610-4c82-bcb5-a315b9a65010"},
@@ -1254,13 +1257,13 @@ func TestECAsCallCost(t *testing.T) {
 	}
 	cc := ec.AsCallCost(utils.EmptyString)
 	if !reflect.DeepEqual(eCC, cc) {
-		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eCC), utils.ToJSON(cc))
+		t.Errorf("Expecting: %+v,\n received: %+v", utils.ToJSON(eCC), utils.ToJSON(cc))
 	}
 }
 
 func TestECAsCallCost2(t *testing.T) {
 	eCC := &CallCost{
-		ToR:        utils.VOICE,
+		ToR:        utils.MetaVoice,
 		Cost:       0,
 		RatedUsage: 60000000000,
 		Timespans: TimeSpans{
@@ -1277,7 +1280,7 @@ func TestECAsCallCost2(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
+							&RGRate{
 								GroupIntervalStart: time.Duration(0),
 								Value:              0.01,
 								RateUnit:           time.Duration(1 * time.Second),
@@ -1304,7 +1307,9 @@ func TestECAsCallCost2(t *testing.T) {
 		},
 	}
 	ec := NewEventCostFromCallCost(eCC, "cgrID", utils.MetaDefault)
-
+	for k := range ec.Timings {
+		eCC.Timespans[0].RateInterval.Timing.ID = k
+	}
 	cc := ec.AsCallCost(utils.EmptyString)
 	if !reflect.DeepEqual(eCC, cc) {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eCC), utils.ToJSON(cc))
@@ -1313,14 +1318,14 @@ func TestECAsCallCost2(t *testing.T) {
 
 func TestECTrimZeroAndFull(t *testing.T) {
 	ec := testEC.Clone()
-	if srplsEC, err := ec.Trim(time.Duration(10 * time.Minute)); err != nil {
+	if srplsEC, err := ec.Trim(10 * time.Minute); err != nil {
 		t.Error(err)
 	} else if srplsEC != nil {
 		t.Errorf("Expecting nil, got: %+v", srplsEC)
 	}
 	eFullSrpls := testEC.Clone()
-	eFullSrpls.Usage = utils.DurationPointer(time.Duration(10 * time.Minute))
-	if srplsEC, err := ec.Trim(time.Duration(0)); err != nil {
+	eFullSrpls.Usage = utils.DurationPointer(10 * time.Minute)
+	if srplsEC, err := ec.Trim(0); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(eFullSrpls, srplsEC) {
 		t.Errorf("\tExpecting: %s,\n\treceived: %s",
@@ -1347,25 +1352,25 @@ func TestECTrimMiddle1(t *testing.T) {
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(0),
+					Usage:          0,
 					Cost:           0.1,
 					AccountingID:   "9bdad10",
 					CompressFactor: 1,
 				},
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0,
 					AccountingID:   "3455b83",
 					CompressFactor: 10,
 				},
 				{
-					Usage:          time.Duration(10 * time.Second),
+					Usage:          10 * time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 2,
 				},
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.005,
 					AccountingID:   "44d6c02",
 					CompressFactor: 30,
@@ -1377,7 +1382,7 @@ func TestECTrimMiddle1(t *testing.T) {
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 60,
@@ -1389,7 +1394,7 @@ func TestECTrimMiddle1(t *testing.T) {
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 10,
@@ -1405,7 +1410,7 @@ func TestECTrimMiddle1(t *testing.T) {
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 50,
@@ -1417,7 +1422,7 @@ func TestECTrimMiddle1(t *testing.T) {
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 60,
@@ -1429,19 +1434,19 @@ func TestECTrimMiddle1(t *testing.T) {
 			RatingID: "c1a5ab9",
 			Increments: []*ChargingIncrement{
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0,
 					AccountingID:   "3455b83",
 					CompressFactor: 10,
 				},
 				{
-					Usage:          time.Duration(10 * time.Second),
+					Usage:          10 * time.Second,
 					Cost:           0.01,
 					AccountingID:   "a012888",
 					CompressFactor: 2,
 				},
 				{
-					Usage:          time.Duration(1 * time.Second),
+					Usage:          time.Second,
 					Cost:           0.005,
 					AccountingID:   "44d6c02",
 					CompressFactor: 30,
@@ -1451,7 +1456,7 @@ func TestECTrimMiddle1(t *testing.T) {
 		},
 	}
 
-	reqDuration := time.Duration(190 * time.Second)
+	reqDuration := 190 * time.Second
 	srplsEC, err := ec.Trim(reqDuration)
 	if err != nil {
 		t.Error(err)
@@ -1459,7 +1464,7 @@ func TestECTrimMiddle1(t *testing.T) {
 	if reqDuration != *ec.Usage {
 		t.Errorf("Expecting request duration: %v, received: %v", reqDuration, *ec.Usage)
 	}
-	eSrplsDur := time.Duration(410 * time.Second)
+	eSrplsDur := 410 * time.Second
 	if srplsUsage := srplsEC.GetUsage(); srplsUsage != eSrplsDur {
 		t.Errorf("Expecting surplus duration: %v, received: %v", eSrplsDur, srplsUsage)
 	}
@@ -1486,60 +1491,60 @@ func TestECTrimMUsage(t *testing.T) {
 		srplsUsage time.Duration
 		srplsCost  float64
 	}{
-		{time.Duration(5 * time.Second), time.Duration(5 * time.Second), 0.1,
-			time.Duration(595 * time.Second), 3.42},
-		{time.Duration(10 * time.Second), time.Duration(10 * time.Second), 0.1,
-			time.Duration(590 * time.Second), 3.42},
-		{time.Duration(15 * time.Second), time.Duration(20 * time.Second), 0.11,
-			time.Duration(580 * time.Second), 3.41},
-		{time.Duration(20 * time.Second), time.Duration(20 * time.Second), 0.11,
-			time.Duration(580 * time.Second), 3.41},
-		{time.Duration(25 * time.Second), time.Duration(30 * time.Second), 0.12,
-			time.Duration(570 * time.Second), 3.40},
-		{time.Duration(38 * time.Second), time.Duration(38 * time.Second), 0.16,
-			time.Duration(562 * time.Second), 3.36},
-		{time.Duration(60 * time.Second), time.Duration(60 * time.Second), 0.27,
-			time.Duration(540 * time.Second), 3.25},
-		{time.Duration(62 * time.Second), time.Duration(62 * time.Second), 0.29,
-			time.Duration(538 * time.Second), 3.23},
-		{time.Duration(120 * time.Second), time.Duration(120 * time.Second), 0.87,
-			time.Duration(480 * time.Second), 2.65},
-		{time.Duration(121 * time.Second), time.Duration(121 * time.Second), 0.88,
-			time.Duration(479 * time.Second), 2.64},
-		{time.Duration(180 * time.Second), time.Duration(180 * time.Second), 1.47,
-			time.Duration(420 * time.Second), 2.05},
-		{time.Duration(250 * time.Second), time.Duration(250 * time.Second), 2.17,
-			time.Duration(350 * time.Second), 1.35},
-		{time.Duration(299 * time.Second), time.Duration(299 * time.Second), 2.66,
-			time.Duration(301 * time.Second), 0.86},
-		{time.Duration(300 * time.Second), time.Duration(300 * time.Second), 2.67,
-			time.Duration(300 * time.Second), 0.85},
-		{time.Duration(302 * time.Second), time.Duration(302 * time.Second), 2.67,
-			time.Duration(298 * time.Second), 0.85},
-		{time.Duration(310 * time.Second), time.Duration(310 * time.Second), 2.67,
-			time.Duration(290 * time.Second), 0.85},
-		{time.Duration(316 * time.Second), time.Duration(320 * time.Second), 2.68,
-			time.Duration(280 * time.Second), 0.84},
-		{time.Duration(320 * time.Second), time.Duration(320 * time.Second), 2.68,
-			time.Duration(280 * time.Second), 0.84},
-		{time.Duration(321 * time.Second), time.Duration(330 * time.Second), 2.69,
-			time.Duration(270 * time.Second), 0.83},
-		{time.Duration(330 * time.Second), time.Duration(330 * time.Second), 2.69,
-			time.Duration(270 * time.Second), 0.83},
-		{time.Duration(331 * time.Second), time.Duration(331 * time.Second), 2.695,
-			time.Duration(269 * time.Second), 0.825},
-		{time.Duration(359 * time.Second), time.Duration(359 * time.Second), 2.835,
-			time.Duration(241 * time.Second), 0.685},
-		{time.Duration(360 * time.Second), time.Duration(360 * time.Second), 2.84,
-			time.Duration(240 * time.Second), 0.68},
-		{time.Duration(376 * time.Second), time.Duration(380 * time.Second), 2.85,
-			time.Duration(220 * time.Second), 0.67},
-		{time.Duration(391 * time.Second), time.Duration(391 * time.Second), 2.865,
-			time.Duration(209 * time.Second), 0.655},
-		{time.Duration(479 * time.Second), time.Duration(479 * time.Second), 3.175,
-			time.Duration(121 * time.Second), 0.345},
-		{time.Duration(599 * time.Second), time.Duration(599 * time.Second), 3.515,
-			time.Duration(1 * time.Second), 0.005},
+		{5 * time.Second, 5 * time.Second, 0.1,
+			595 * time.Second, 3.42},
+		{10 * time.Second, 10 * time.Second, 0.1,
+			590 * time.Second, 3.42},
+		{15 * time.Second, 20 * time.Second, 0.11,
+			580 * time.Second, 3.41},
+		{20 * time.Second, 20 * time.Second, 0.11,
+			580 * time.Second, 3.41},
+		{25 * time.Second, 30 * time.Second, 0.12,
+			570 * time.Second, 3.40},
+		{38 * time.Second, 38 * time.Second, 0.16,
+			562 * time.Second, 3.36},
+		{60 * time.Second, 60 * time.Second, 0.27,
+			540 * time.Second, 3.25},
+		{62 * time.Second, 62 * time.Second, 0.29,
+			538 * time.Second, 3.23},
+		{120 * time.Second, 120 * time.Second, 0.87,
+			480 * time.Second, 2.65},
+		{121 * time.Second, 121 * time.Second, 0.88,
+			479 * time.Second, 2.64},
+		{180 * time.Second, 180 * time.Second, 1.47,
+			420 * time.Second, 2.05},
+		{250 * time.Second, 250 * time.Second, 2.17,
+			350 * time.Second, 1.35},
+		{299 * time.Second, 299 * time.Second, 2.66,
+			301 * time.Second, 0.86},
+		{300 * time.Second, 300 * time.Second, 2.67,
+			300 * time.Second, 0.85},
+		{302 * time.Second, 302 * time.Second, 2.67,
+			298 * time.Second, 0.85},
+		{310 * time.Second, 310 * time.Second, 2.67,
+			290 * time.Second, 0.85},
+		{316 * time.Second, 320 * time.Second, 2.68,
+			280 * time.Second, 0.84},
+		{320 * time.Second, 320 * time.Second, 2.68,
+			280 * time.Second, 0.84},
+		{321 * time.Second, 330 * time.Second, 2.69,
+			270 * time.Second, 0.83},
+		{330 * time.Second, 330 * time.Second, 2.69,
+			270 * time.Second, 0.83},
+		{331 * time.Second, 331 * time.Second, 2.695,
+			269 * time.Second, 0.825},
+		{359 * time.Second, 359 * time.Second, 2.835,
+			241 * time.Second, 0.685},
+		{360 * time.Second, 360 * time.Second, 2.84,
+			240 * time.Second, 0.68},
+		{376 * time.Second, 380 * time.Second, 2.85,
+			220 * time.Second, 0.67},
+		{391 * time.Second, 391 * time.Second, 2.865,
+			209 * time.Second, 0.655},
+		{479 * time.Second, 479 * time.Second, 3.175,
+			121 * time.Second, 0.345},
+		{599 * time.Second, 599 * time.Second, 3.515,
+			time.Second, 0.005},
 	}
 	for _, tC := range testCases {
 		t.Run(fmt.Sprintf("AtUsage:%s", tC.atUsage), func(t *testing.T) {
@@ -1573,7 +1578,7 @@ func TestECMergeGT(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -1588,7 +1593,7 @@ func TestECMergeGT(t *testing.T) {
 				{
 					UUID:  "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 					ID:    "addon_data",
-					Type:  utils.DATA,
+					Type:  utils.MetaData,
 					Value: 10726871040},
 			},
 		},
@@ -1603,22 +1608,22 @@ func TestECMergeGT(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1631,7 +1636,7 @@ func TestECMergeGT(t *testing.T) {
 				RatingID: "6a83227",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "9288f93",
 						CompressFactor: 84,
 					},
@@ -1646,7 +1651,7 @@ func TestECMergeGT(t *testing.T) {
 				{
 					UUID:  "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 					ID:    "addon_data",
-					Type:  utils.DATA,
+					Type:  utils.MetaData,
 					Value: 10718269440},
 			},
 		},
@@ -1661,22 +1666,22 @@ func TestECMergeGT(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"17f7216": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"52f8b0f": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1690,7 +1695,7 @@ func TestECMergeGT(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 187,
 					},
@@ -1705,7 +1710,7 @@ func TestECMergeGT(t *testing.T) {
 				{
 					UUID:  "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 					ID:    "addon_data",
-					Type:  utils.DATA,
+					Type:  utils.MetaData,
 					Value: 10718269440},
 			},
 		},
@@ -1720,22 +1725,22 @@ func TestECMergeGT(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1756,7 +1761,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -1775,22 +1780,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1800,7 +1805,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "6a83227",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "9288f93",
 						CompressFactor: 84,
 					},
@@ -1819,22 +1824,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"17f7216": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"52f8b0f": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1845,7 +1850,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 187,
 					},
@@ -1864,22 +1869,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1894,7 +1899,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -1913,22 +1918,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1938,7 +1943,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "6a83227",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "9288f93",
 						CompressFactor: 84,
 					},
@@ -1957,22 +1962,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"17f7216": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"52f8b0f": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -1983,7 +1988,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -1994,7 +1999,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 84,
 					},
@@ -2013,22 +2018,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2043,7 +2048,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(100),
+						Usage:          100,
 						AccountingID:   "0d87a64",
 						CompressFactor: 1,
 					},
@@ -2054,7 +2059,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -2073,22 +2078,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2098,12 +2103,12 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "6a83227",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "9288f93",
 						CompressFactor: 42,
 					},
 					{
-						Usage:          time.Duration(10240),
+						Usage:          10240,
 						AccountingID:   "9288f93",
 						CompressFactor: 20,
 					},
@@ -2122,22 +2127,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"17f7216": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"52f8b0f": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2148,7 +2153,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(100),
+						Usage:          100,
 						AccountingID:   "0d87a64",
 						CompressFactor: 1,
 					},
@@ -2159,7 +2164,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 145,
 					},
@@ -2170,7 +2175,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(10240),
+						Usage:          10240,
 						AccountingID:   "0d87a64",
 						CompressFactor: 20,
 					},
@@ -2181,12 +2186,12 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 42,
 					},
 					{
-						Usage:          time.Duration(10240),
+						Usage:          10240,
 						AccountingID:   "0d87a64",
 						CompressFactor: 20,
 					},
@@ -2205,22 +2210,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2235,7 +2240,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -2254,22 +2259,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2279,7 +2284,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "6a83227",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "9288f93",
 						CompressFactor: 103,
 					},
@@ -2298,22 +2303,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"17f7216": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"52f8b0f": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2324,7 +2329,7 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				RatingID: "cc68da4",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(102400),
+						Usage:          102400,
 						AccountingID:   "0d87a64",
 						CompressFactor: 103,
 					},
@@ -2343,22 +2348,22 @@ func TestECAppendCIlFromEC(t *testing.T) {
 				AccountID:     "cgrates.org:dan",
 				BalanceUUID:   "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 				Units:         102400,
-				ExtraChargeID: utils.META_NONE,
+				ExtraChargeID: utils.MetaNone,
 			},
 		},
 		RatingFilters: RatingFilters{
 			"216b0a5": RatingMatchedFilters{
-				"DestinationID":     utils.META_ANY,
+				"DestinationID":     utils.MetaAny,
 				"DestinationPrefix": "42502",
-				"RatingPlanID":      utils.META_NONE,
+				"RatingPlanID":      utils.MetaNone,
 				"Subject":           "9a767726-fe69-4940-b7bd-f43de9f0f8a5",
 			},
 		},
 		Rates: ChargedRates{
 			"06dee2e": RateGroups{
-				&Rate{
-					RateIncrement: time.Duration(102400),
-					RateUnit:      time.Duration(102400)},
+				&RGRate{
+					RateIncrement: 102400,
+					RateUnit:      102400},
 			},
 		},
 	}
@@ -2417,11 +2422,11 @@ func TestECSyncKeys(t *testing.T) {
 		},
 		Rates: ChargedRates{
 			"2c1a177": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.01,
-					RateIncrement:      time.Duration(1 * time.Minute),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Minute,
+					RateUnit:           time.Second},
 			},
 		},
 	}
@@ -2435,25 +2440,25 @@ func TestECSyncKeys(t *testing.T) {
 				RatingID: "21a5ab9",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(0),
+						Usage:          0,
 						Cost:           0.1,
 						AccountingID:   "9bdad10",
 						CompressFactor: 1,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0,
 						AccountingID:   "3455b83",
 						CompressFactor: 10,
 					},
 					{
-						Usage:          time.Duration(10 * time.Second),
+						Usage:          10 * time.Second,
 						Cost:           0.01,
 						AccountingID:   "2012888",
 						CompressFactor: 2,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.005,
 						AccountingID:   "44d6c02",
 						CompressFactor: 30,
@@ -2465,7 +2470,7 @@ func TestECSyncKeys(t *testing.T) {
 				RatingID: "21a5ab9",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.01,
 						AccountingID:   "2012888",
 						CompressFactor: 60,
@@ -2477,19 +2482,19 @@ func TestECSyncKeys(t *testing.T) {
 				RatingID: "21a5ab9",
 				Increments: []*ChargingIncrement{
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0,
 						AccountingID:   "3455b83",
 						CompressFactor: 10,
 					},
 					{
-						Usage:          time.Duration(10 * time.Second),
+						Usage:          10 * time.Second,
 						Cost:           0.01,
 						AccountingID:   "2012888",
 						CompressFactor: 2,
 					},
 					{
-						Usage:          time.Duration(1 * time.Second),
+						Usage:          time.Second,
 						Cost:           0.005,
 						AccountingID:   "44d6c02",
 						CompressFactor: 30,
@@ -2504,12 +2509,12 @@ func TestECSyncKeys(t *testing.T) {
 			BalanceSummaries: []*BalanceSummary{
 				{
 					UUID:     "8c54a9e9-d610-4c82-bcb5-a315b9a65010",
-					Type:     utils.MONETARY,
+					Type:     utils.MetaMonetary,
 					Value:    50,
 					Disabled: false},
 				{
 					UUID:     "7a54a9e9-d610-4c82-bcb5-a315b9a65010",
-					Type:     utils.MONETARY,
+					Type:     utils.MetaMonetary,
 					Value:    25,
 					Disabled: false},
 				{
@@ -2580,23 +2585,23 @@ func TestECSyncKeys(t *testing.T) {
 		},
 		Rates: ChargedRates{
 			"2c1a177": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.01,
-					RateIncrement:      time.Duration(1 * time.Minute),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Minute,
+					RateUnit:           time.Second},
 			},
 			"4910ecf": RateGroups{
-				&Rate{
-					GroupIntervalStart: time.Duration(0),
+				&RGRate{
+					GroupIntervalStart: 0,
 					Value:              0.005,
-					RateIncrement:      time.Duration(1 * time.Second),
-					RateUnit:           time.Duration(1 * time.Second)},
-				&Rate{
-					GroupIntervalStart: time.Duration(60 * time.Second),
+					RateIncrement:      time.Second,
+					RateUnit:           time.Second},
+				&RGRate{
+					GroupIntervalStart: 60 * time.Second,
 					Value:              0.005,
-					RateIncrement:      time.Duration(1 * time.Second),
-					RateUnit:           time.Duration(1 * time.Second)},
+					RateIncrement:      time.Second,
+					RateUnit:           time.Second},
 			},
 		},
 		Timings: ChargedTimings{
@@ -2604,7 +2609,7 @@ func TestECSyncKeys(t *testing.T) {
 				StartTime: "00:00:00",
 			},
 		},
-		cache: utils.MapStorage{},
+		cache: utils.NewSecureMapStorage(),
 	}
 
 	ec.SyncKeys(refEC)
@@ -2615,7 +2620,7 @@ func TestECSyncKeys(t *testing.T) {
 }
 
 func TestECAsDataProvider(t *testing.T) {
-	ecDP := config.NewObjectDP(testEC, nil)
+	ecDP := config.NewObjectDP(testEC)
 	if data, err := ecDP.FieldAsInterface([]string{"RunID"}); err != nil {
 		t.Error(err)
 	} else if data != utils.MetaDefault {
@@ -2638,6 +2643,730 @@ func TestECAsDataProvider(t *testing.T) {
 	}
 }
 
+func TestInitCache(t *testing.T) {
+	eventCost := &EventCost{}
+	eventCost.initCache()
+	eOut := utils.NewSecureMapStorage()
+	if !reflect.DeepEqual(eOut, eventCost.cache) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut), utils.ToJSON(eventCost.cache))
+	}
+}
+
+func TestEventCostFieldAsInterface(t *testing.T) {
+	eventCost := &EventCost{}
+	eventCost.initCache()
+	// item found in cache
+	eventCost.cache = utils.NewSecureMapStorage()
+	eventCost.cache.Set([]string{"test"}, nil)
+	if rcv, err := eventCost.FieldAsInterface([]string{"test"}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// data found in cache
+	eventCost.cache.Set([]string{"test"}, "test")
+	if rcv, err := eventCost.FieldAsInterface([]string{"test"}); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if rcv != "test" {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+}
+
+func TestEventCostfieldAsInterface(t *testing.T) {
+	eventCost := &EventCost{}
+	// default case
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.EmptyString}); err == nil || err.Error() != "unsupported field prefix: <>" {
+		t.Error(err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// case utils.Charges:
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Charges, utils.Charges}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		Charges: []*ChargingInterval{
+			{
+				RatingID: "RatingID1",
+			},
+			{
+				RatingID: "RatingID2",
+			},
+		},
+	}
+	expectedCharges := []*ChargingInterval{
+		{
+			RatingID: "RatingID1",
+		},
+		{
+			RatingID: "RatingID2",
+		},
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Charges}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expectedCharges, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expectedCharges, rcv)
+	}
+	// case utils.CGRID:
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.CGRID, utils.CGRID}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		CGRID: "CGRID",
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.CGRID}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual("CGRID", rcv) {
+		t.Errorf("Expecting: \"CGRID\", received: %+v", rcv)
+	}
+	// case utils.RunID:
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.RunID, utils.RunID}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		RunID: "RunID",
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.RunID}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual("RunID", rcv) {
+		t.Errorf("Expecting: \"RunID\", received: %+v", rcv)
+	}
+	// case utils.StartTime:
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.StartTime, utils.StartTime}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		StartTime: time.Date(2020, time.April, 18, 23, 0, 4, 0, time.UTC),
+	}
+	expectedStartTime := time.Date(2020, time.April, 18, 23, 0, 4, 0, time.UTC)
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.StartTime}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expectedStartTime, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expectedStartTime, rcv)
+	}
+	// case utils.Usage:
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Usage, utils.Usage}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		Usage: utils.DurationPointer(5 * time.Minute),
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Usage}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(5*time.Minute, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", 5*time.Minute, rcv)
+	}
+	// case utils.Cost:
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Cost, utils.Cost}); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		Cost: utils.Float64Pointer(0.7),
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Cost}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(0.7, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", 0.7, rcv)
+	}
+	// case utils.AccountSummary:
+	eventCost = &EventCost{
+		AccountSummary: &AccountSummary{
+			ID: "IDtest",
+		},
+	}
+	expectedAccountSummary := &AccountSummary{ID: "IDtest"}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.AccountSummary}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expectedAccountSummary, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expectedAccountSummary, rcv)
+	}
+	eventCost = &EventCost{
+		AccountSummary: &AccountSummary{
+			ID:     "IDtest1",
+			Tenant: "Tenant",
+		},
+		CGRID: "test",
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.AccountSummary, utils.Tenant}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual("Tenant", rcv) {
+		t.Errorf("Expecting: Tenant, received: %+v", utils.ToJSON(rcv))
+	}
+	// case utils.Timings:
+	eventCost = &EventCost{
+		Timings: ChargedTimings{
+			"test1": &ChargedTiming{
+				StartTime: "StartTime",
+			},
+		},
+	}
+	eTimings := ChargedTimings{"test1": &ChargedTiming{StartTime: "StartTime"}}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Timings}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eTimings, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eTimings, rcv)
+	}
+	eChargedTiming := &ChargedTiming{
+		StartTime: "StartTime",
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Timings, "test1"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eChargedTiming, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eChargedTiming), utils.ToJSON(rcv))
+	}
+	// case utils.Rates:
+	eventCost = &EventCost{
+		Rates: ChargedRates{
+			"test1": RateGroups{
+				&RGRate{Value: 0.7},
+			},
+		},
+	}
+	eChargedRates := ChargedRates{
+		"test1": RateGroups{
+			&RGRate{Value: 0.7},
+		},
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Rates}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eChargedRates, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eChargedRates), utils.ToJSON(rcv))
+	}
+	eRateGroup := RateGroups{
+		&RGRate{Value: 0.7},
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Rates, "test1"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eRateGroup, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRateGroup), utils.ToJSON(rcv))
+	}
+	// case utils.RatingFilters:
+	eventCost = &EventCost{
+		RatingFilters: RatingFilters{
+			"test1": RatingMatchedFilters{
+				AccountActionsCSVContent: "AccountActionsCSVContent",
+			},
+		},
+	}
+	eRatingFilters := RatingFilters{
+		"test1": RatingMatchedFilters{
+			AccountActionsCSVContent: "AccountActionsCSVContent",
+		},
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.RatingFilters}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eRatingFilters, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRatingFilters), utils.ToJSON(rcv))
+	}
+	eRatingMatchedFilters := RatingMatchedFilters{
+		AccountActionsCSVContent: "AccountActionsCSVContent",
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.RatingFilters, "test1"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eRatingMatchedFilters, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRatingMatchedFilters), utils.ToJSON(rcv))
+	}
+	// case utils.Accounting:
+	eventCost = &EventCost{
+		Accounting: Accounting{
+			"test1": &BalanceCharge{
+				AccountID: "AccountID",
+			},
+		},
+	}
+	eAccounting := Accounting{
+		"test1": &BalanceCharge{
+			AccountID: "AccountID",
+		},
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Accounting}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eAccounting, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eAccounting), utils.ToJSON(rcv))
+	}
+	eBalanceCharge := &BalanceCharge{
+		AccountID: "AccountID",
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Accounting, "test1"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eBalanceCharge, rcv) {
+		t.Errorf("Expecting: %+v, \nreceived: %+v", utils.ToJSON(eBalanceCharge), utils.ToJSON(rcv))
+	}
+	// case utils.Rating:
+	eventCost = &EventCost{
+		Rating: Rating{
+			"test1": &RatingUnit{
+				ConnectFee: 0.7,
+			},
+		},
+	}
+	eRating := Rating{
+		"test1": &RatingUnit{
+			ConnectFee: 0.7,
+		},
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Rating}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eRating, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRating), utils.ToJSON(rcv))
+	}
+	eRateUnit := &RatingUnit{
+		ConnectFee: 0.7,
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Rating, "test1"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eRateUnit, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRateUnit), utils.ToJSON(rcv))
+	}
+	//default case, utils.Charges
+	eventCost = &EventCost{
+		Charges: []*ChargingInterval{
+			{
+				RatingID: "RatingID",
+			},
+		},
+	}
+	eCharges := []*ChargingInterval{{RatingID: "RatingID"}}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Charges}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eCharges, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eCharges), utils.ToJSON(rcv))
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Charges + "[0]"}); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eCharges[0], rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eCharges[0]), utils.ToJSON(rcv))
+	}
+	if rcv, err := eventCost.fieldAsInterface([]string{utils.Charges + "[1]"}); err == nil || err != utils.ErrNotFound {
+		t.Error(err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+}
+
+func TestEventCostgetChargesForPath(t *testing.T) {
+	eventCost := &EventCost{}
+	chargingInterval := &ChargingInterval{
+		RatingID: "RatingID",
+	}
+	// chr == nil
+	if rcv, err := eventCost.getChargesForPath(nil, nil); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) == 0
+	eChargingInterval := &ChargingInterval{
+		RatingID: "RatingID",
+	}
+	if rcv, err := eventCost.getChargesForPath([]string{}, chargingInterval); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eChargingInterval, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eChargingInterval, rcv)
+	}
+	// fldPath[0] == utils.CompressFactor
+	chargingInterval = &ChargingInterval{
+		RatingID:       "RatingID",
+		CompressFactor: 7,
+	}
+	if rcv, err := eventCost.getChargesForPath([]string{utils.CompressFactor}, chargingInterval); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if rcv != 7 {
+		t.Errorf("Expecting: 7, received: %+v", rcv)
+	}
+	if rcv, err := eventCost.getChargesForPath([]string{utils.CompressFactor, "mustFail"}, chargingInterval); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// fldPath[0] == utils.Rating
+	eventCost = &EventCost{
+		Rates: ChargedRates{
+			"RatingID": RateGroups{&RGRate{Value: 0.8}}},
+	}
+	if rcv, err := eventCost.getChargesForPath([]string{utils.Rating}, chargingInterval); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	eventCost = &EventCost{
+		Rating: Rating{"RatingID": &RatingUnit{}},
+		Rates: ChargedRates{
+			"RatingID": RateGroups{&RGRate{Value: 0.8}}},
+	}
+	if rcv, err := eventCost.getChargesForPath([]string{utils.Rating, "unsupportedfield"}, chargingInterval); err == nil || err.Error() != "unsupported field prefix: <unsupportedfield>" {
+		t.Errorf("Expecting: unsupported field prefix: <unsupportedfield>, received: %+v", err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+
+	chargingInterval = &ChargingInterval{
+		RatingID:       "RatingID",
+		CompressFactor: 7,
+	}
+	eventCost = &EventCost{
+		Rating: Rating{"RatingID": &RatingUnit{
+			RatesID: "RatesID",
+		}},
+		Rates: ChargedRates{"RatesID": RateGroups{&RGRate{Value: 0.8}}},
+	}
+	RateGroups := RateGroups{&RGRate{Value: 0.8}}
+	if rcv, err := eventCost.getChargesForPath([]string{utils.Rating, utils.Rates}, chargingInterval); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(RateGroups, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(RateGroups), utils.ToJSON(rcv))
+		t.Errorf("Expecting: %+v, received: %+v", RateGroups, rcv)
+	}
+	// opath != utils.Increments
+	if rcv, err := eventCost.getChargesForPath([]string{"unsupportedfield"}, chargingInterval); err == nil || err.Error() != "unsupported field prefix: <unsupportedfield>" {
+		t.Errorf("Expecting: unsupported field prefix: <unsupportedfield>, received: %+v", err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// utils.Increments
+	eventCost = &EventCost{}
+	chargingInterval = &ChargingInterval{
+		Increments: []*ChargingIncrement{
+			{
+				AccountingID: "AccountingID",
+			},
+		},
+	}
+	eChargingIncrement := &ChargingIncrement{
+		AccountingID: "AccountingID",
+	}
+	if rcv, err := eventCost.getChargesForPath([]string{"Increments[0]"}, chargingInterval); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eChargingIncrement, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eChargingIncrement, rcv)
+	}
+	eIncrements := []*ChargingIncrement{
+		{
+			AccountingID: "AccountingID",
+		},
+	}
+	// indx == nil
+	if rcv, err := eventCost.getChargesForPath([]string{"Increments"}, chargingInterval); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eIncrements, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eIncrements, utils.ToJSON(rcv))
+	}
+	// len(fldPath) != 1
+	if rcv, err := eventCost.getChargesForPath([]string{"Increments", utils.Accounting}, chargingInterval); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// fldPath[1] == utils.Accounting
+	eventCost = &EventCost{
+		Accounting: Accounting{
+			"AccountingID": &BalanceCharge{
+				AccountID: "AccountID",
+			},
+		},
+	}
+	eBalanceCharge := &BalanceCharge{AccountID: "AccountID"}
+	if rcv, err := eventCost.getChargesForPath([]string{"Increments[0]", utils.Accounting}, chargingInterval); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eBalanceCharge, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eBalanceCharge, rcv)
+	}
+
+}
+
+func TestEventCostgetRatingForPath(t *testing.T) {
+	eventCost := &EventCost{}
+	ratingUnit := &RatingUnit{}
+	// rating == nil
+	if rcv, err := eventCost.getRatingForPath(nil, nil); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) == 0
+	eratingUnit := &RatingUnit{}
+	if rcv, err := eventCost.getRatingForPath([]string{}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eratingUnit, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eratingUnit, rcv)
+	}
+	// case utils.Rates:
+	eventCost = &EventCost{
+		Rates: ChargedRates{
+			"RatesID": RateGroups{
+				&RGRate{Value: 0.7},
+			},
+		},
+	}
+	eChargedRates := RateGroups{
+		&RGRate{Value: 0.7},
+	}
+
+	// !has || rts == nil
+	ratingUnit = &RatingUnit{
+		RatesID: "notfound",
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.Rates}, ratingUnit); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) != 1
+	ratingUnit = &RatingUnit{
+		RatesID: "RatesID",
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.Rates, utils.Rates}, ratingUnit); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	//normal case
+	if rcv, err := eventCost.getRatingForPath([]string{utils.Rates}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eChargedRates, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eChargedRates), utils.ToJSON(rcv))
+	}
+	// case utils.Timing:
+	eventCost = &EventCost{
+		Timings: ChargedTimings{
+			"test1": &ChargedTiming{
+				StartTime: "StartTime",
+			},
+		},
+	}
+	eTimings := &ChargedTiming{
+		StartTime: "StartTime",
+	}
+
+	// !has || tmg == nil
+	ratingUnit = &RatingUnit{
+		TimingID: "notfound",
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.Timing}, ratingUnit); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) == 1
+	ratingUnit = &RatingUnit{
+		TimingID: "test1",
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.Timing}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eTimings, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eTimings), utils.ToJSON(rcv))
+	}
+	//normal case
+	eventCost = &EventCost{
+		Timings: ChargedTimings{
+			"test1": &ChargedTiming{
+				Months:    utils.Months{time.April},
+				StartTime: "StartTime",
+			},
+		},
+	}
+	eMonths := utils.Months{time.April}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.Timing, utils.MonthsFieldName}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eMonths, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eMonths), utils.ToJSON(rcv))
+	}
+	// case utils.RatingFilter:
+	eventCost = &EventCost{
+		RatingFilters: RatingFilters{
+			"RatingFilters1": RatingMatchedFilters{
+				"test1": "test1",
+			},
+		},
+	}
+	eRatingMatchedFilters := RatingMatchedFilters{
+		"test1": "test1",
+	}
+
+	// !has || tmg == nil
+	ratingUnit = &RatingUnit{
+		TimingID: "notfound",
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.RatingFilter}, ratingUnit); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) == 1
+	ratingUnit = &RatingUnit{
+		RatingFiltersID: "RatingFilters1",
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.RatingFilter}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eRatingMatchedFilters, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eRatingMatchedFilters, rcv)
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRatingMatchedFilters), utils.ToJSON(rcv))
+	}
+	//normal case
+	eventCost = &EventCost{
+		RatingFilters: RatingFilters{
+			"RatingFilters1": RatingMatchedFilters{
+				"test1": "test-1",
+			},
+		},
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{utils.RatingFilter, "test1"}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual("test-1", rcv) {
+		t.Errorf("Expecting: test-1, received: %+v", utils.ToJSON(rcv))
+	}
+	//default case
+	eventCost = &EventCost{
+		Rates: ChargedRates{
+			"RatesID": RateGroups{
+				&RGRate{Value: 0.7},
+			},
+			"RatesID2": RateGroups{
+				&RGRate{Value: 0.7},
+			},
+		},
+	}
+	if rcv, err := eventCost.getRatingForPath([]string{
+		"unsupportedprefix"}, ratingUnit); err == nil || err.Error() != "unsupported field prefix: <unsupportedprefix>" {
+		t.Errorf("Expecting: 'unsupported field prefix:  <unsupportedprefix>', received: %+v", err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", utils.ToJSON(rcv))
+	}
+	ratingUnit = &RatingUnit{
+		RatesID: "RatesID",
+	}
+	eRate := &RGRate{Value: 0.7}
+	if rcv, err := eventCost.getRatingForPath([]string{"Rates[0]"}, ratingUnit); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eRate, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eRate), utils.ToJSON(rcv))
+	}
+	ratingUnit = &RatingUnit{}
+	if rcv, err := eventCost.getRatingForPath([]string{"Rates[1]"}, ratingUnit); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+}
+
+func TestEventCostgetAcountingForPath(t *testing.T) {
+	eventCost := &EventCost{}
+	balanceCharge := &BalanceCharge{}
+	// bc == nil
+	if rcv, err := eventCost.getAcountingForPath(nil, nil); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) == 0
+	eBalanceCharge := &BalanceCharge{}
+	if rcv, err := eventCost.getAcountingForPath([]string{}, balanceCharge); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eBalanceCharge, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eBalanceCharge, rcv)
+	}
+	// fldPath[0] == utils.Balance
+	eventCost = &EventCost{
+		AccountSummary: &AccountSummary{
+			BalanceSummaries: BalanceSummaries{
+				{
+					ID: "ID",
+				},
+			},
+		},
+	}
+	eBalanceSummaries := &BalanceSummary{
+		ID: "ID",
+	}
+	//len(fldPath) == 1
+	if rcv, err := eventCost.getAcountingForPath([]string{utils.BalanceField}, balanceCharge); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual(eBalanceSummaries, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eBalanceSummaries, rcv)
+	}
+	// bl == nil
+	eventCost = &EventCost{AccountSummary: &AccountSummary{}}
+	if rcv, err := eventCost.getAcountingForPath([]string{utils.BalanceField}, balanceCharge); err == nil || err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	} else if rcv != nil {
+		t.Errorf("Expecting: nil, received: %+v", rcv)
+	}
+	// len(fldPath) != 1
+	eventCost = &EventCost{
+		AccountSummary: &AccountSummary{
+			BalanceSummaries: BalanceSummaries{
+				{
+					ID: "ID",
+				},
+			},
+		},
+	}
+	if rcv, err := eventCost.getAcountingForPath([]string{utils.BalanceField, "ID"}, balanceCharge); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual("ID", rcv) {
+		t.Errorf("Expecting: \"ID\", received: %+v", rcv)
+	}
+	//  fldPath[0] != utils.Balance
+	balanceCharge = &BalanceCharge{
+		AccountID: "AccountID",
+	}
+	if rcv, err := eventCost.getAcountingForPath([]string{utils.AccountID}, balanceCharge); err != nil {
+		t.Errorf("Expecting: nil, received: %+v", err)
+	} else if !reflect.DeepEqual("AccountID", rcv) {
+		t.Errorf("Expecting: \"AccountID\", received: %+v", rcv)
+	}
+}
+
+func TestEventCostString(t *testing.T) {
+	eventCost := &EventCost{}
+	eOut := `{"CGRID":"","RunID":"","StartTime":"0001-01-01T00:00:00Z","Usage":null,"Cost":null,"Charges":null,"AccountSummary":null,"Rating":null,"Accounting":null,"RatingFilters":null,"Rates":null,"Timings":null}`
+	if rcv := eventCost.String(); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+	eventCost = &EventCost{
+		AccountSummary: &AccountSummary{
+			BalanceSummaries: BalanceSummaries{
+				&BalanceSummary{
+					ID: "ID",
+				},
+			},
+		},
+	}
+	eOut = `{"CGRID":"","RunID":"","StartTime":"0001-01-01T00:00:00Z","Usage":null,"Cost":null,"Charges":null,"AccountSummary":{"Tenant":"","ID":"","BalanceSummaries":[{"UUID":"","ID":"ID","Type":"","Initial":0,"Value":0,"Disabled":false}],"AllowNegative":false,"Disabled":false},"Rating":null,"Accounting":null,"RatingFilters":null,"Rates":null,"Timings":null}`
+	if rcv := eventCost.String(); !reflect.DeepEqual(eOut, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", eOut, rcv)
+	}
+}
+
+func TestEventCostFieldAsString(t *testing.T) {
+	eventCost := &EventCost{
+		CGRID: "CGRID",
+	}
+	eventCost.initCache()
+	if rcv, err := eventCost.FieldAsString([]string{utils.CGRID}); err != nil {
+		t.Error(err)
+	} else if rcv != "CGRID" {
+		t.Errorf("Expecting: CGRID, received: %+v", rcv)
+	}
+	if rcv, err := eventCost.FieldAsString([]string{"err"}); err == nil || err.Error() != "unsupported field prefix: <err>" {
+		t.Error(err)
+	} else if !reflect.DeepEqual(rcv, utils.EmptyString) {
+		t.Errorf("Expecting: EmptyString, received: %+v", rcv)
+	}
+}
+
 func TestECAsCallCost3(t *testing.T) {
 	eCC := &CallCost{
 		Category:    "call",
@@ -2645,7 +3374,7 @@ func TestECAsCallCost3(t *testing.T) {
 		Subject:     "dan",
 		Account:     "dan",
 		Destination: "+4986517174963",
-		ToR:         utils.VOICE,
+		ToR:         utils.MetaVoice,
 		Cost:        0.85,
 		RatedUsage:  120.0,
 		Timespans: TimeSpans{
@@ -2662,7 +3391,7 @@ func TestECAsCallCost3(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
+							&RGRate{
 								GroupIntervalStart: time.Duration(0),
 								Value:              0.01,
 								RateUnit:           time.Duration(1 * time.Second),
@@ -2697,7 +3426,7 @@ func TestECAsCallCost3(t *testing.T) {
 								ID:       "free_mins",
 								Value:    0,
 								Consumed: 1.0,
-								ToR:      utils.VOICE,
+								ToR:      utils.MetaVoice,
 							},
 							AccountID: "cgrates.org:dan",
 						},
@@ -2712,7 +3441,7 @@ func TestECAsCallCost3(t *testing.T) {
 								ID:       "discounted_mins",
 								Value:    0,
 								Consumed: 1.0,
-								ToR:      utils.VOICE,
+								ToR:      utils.MetaVoice,
 								RateInterval: &RateInterval{
 									Timing: &RITiming{
 										StartTime: "00:00:00",
@@ -2722,13 +3451,13 @@ func TestECAsCallCost3(t *testing.T) {
 										RoundingMethod:   "*up",
 										RoundingDecimals: 5,
 										Rates: RateGroups{
-											&Rate{
+											&RGRate{
 												GroupIntervalStart: time.Duration(0),
 												Value:              0.005,
 												RateUnit:           time.Duration(1 * time.Second),
 												RateIncrement:      time.Duration(1 * time.Second),
 											},
-											&Rate{
+											&RGRate{
 												GroupIntervalStart: time.Duration(60 * time.Second),
 												Value:              0.005,
 												RateUnit:           time.Duration(1 * time.Second),
@@ -2762,7 +3491,7 @@ func TestECAsCallCost3(t *testing.T) {
 						RoundingMethod:   "*up",
 						RoundingDecimals: 5,
 						Rates: RateGroups{
-							&Rate{
+							&RGRate{
 								GroupIntervalStart: time.Duration(0),
 								Value:              0.01,
 								RateUnit:           time.Duration(1 * time.Second),
@@ -2797,16 +3526,16 @@ func TestECAsCallCost3(t *testing.T) {
 			ID:     "dan",
 			BalanceSummaries: []*BalanceSummary{
 				{
-					Type:     utils.MONETARY,
+					Type:     utils.MetaMonetary,
 					Value:    50,
 					Disabled: false},
 				{
 					ID:       "4b8b53d7-c1a1-4159-b845-4623a00a0165",
-					Type:     utils.MONETARY,
+					Type:     utils.MetaMonetary,
 					Value:    25,
 					Disabled: false},
 				{
-					Type:     utils.VOICE,
+					Type:     utils.MetaVoice,
 					Value:    200,
 					Disabled: false,
 				},
@@ -2894,17 +3623,17 @@ func TestECAsCallCost3(t *testing.T) {
 			BalanceSummaries: []*BalanceSummary{
 				{
 					UUID:     "8c54a9e9-d610-4c82-bcb5-a315b9a65010",
-					Type:     utils.MONETARY,
+					Type:     utils.MetaMonetary,
 					Value:    50,
 					Disabled: false},
 				{
 					UUID:     "7a54a9e9-d610-4c82-bcb5-a315b9a65010",
-					Type:     utils.MONETARY,
+					Type:     utils.MetaMonetary,
 					Value:    25,
 					Disabled: false},
 				{
 					UUID:     "4b8b53d7-c1a1-4159-b845-4623a00a0165",
-					Type:     utils.VOICE,
+					Type:     utils.MetaVoice,
 					Value:    200,
 					Disabled: false,
 				},
@@ -2970,19 +3699,19 @@ func TestECAsCallCost3(t *testing.T) {
 		},
 		Rates: ChargedRates{
 			"2c1a177": RateGroups{
-				&Rate{
+				&RGRate{
 					GroupIntervalStart: time.Duration(0),
 					Value:              0.01,
 					RateIncrement:      time.Duration(1 * time.Minute),
 					RateUnit:           time.Duration(1 * time.Second)},
 			},
 			"4910ecf": RateGroups{
-				&Rate{
+				&RGRate{
 					GroupIntervalStart: time.Duration(0),
 					Value:              0.005,
 					RateIncrement:      time.Duration(1 * time.Second),
 					RateUnit:           time.Duration(1 * time.Second)},
-				&Rate{
+				&RGRate{
 					GroupIntervalStart: time.Duration(60 * time.Second),
 					Value:              0.005,
 					RateIncrement:      time.Duration(1 * time.Second),
@@ -2994,7 +3723,7 @@ func TestECAsCallCost3(t *testing.T) {
 				StartTime: "00:00:00",
 			},
 		},
-		cache: utils.MapStorage{},
+		cache: utils.NewSecureMapStorage(),
 	}
 	ec := NewEventCostFromCallCost(eCC, "cgrID", utils.MetaDefault)
 	eEC.SyncKeys(ec)
@@ -3052,8 +3781,8 @@ func TestECAsDataProvider2(t *testing.T) {
 }
 
 func TestECFieldAsInterfaceNilEventCost(t *testing.T) {
-	dft, _ := config.NewDefaultCGRConfig()
-	cdr, err := NewMapEvent(map[string]interface{}{}).AsCDR(dft, "cgrates.org", "UTC")
+	dft := config.NewDefaultCGRConfig()
+	cdr, err := NewMapEvent(map[string]any{}).AsCDR(dft, "cgrates.org", "UTC")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3064,5 +3793,660 @@ func TestECFieldAsInterfaceNilEventCost(t *testing.T) {
 
 	if _, err := nM.FieldAsInterface([]string{"*req", "CostDetails", "Charges[0]", "Increments[0]", "Accounting", "Balance", "ID"}); err == nil || err.Error() != utils.ErrNotFound.Error() {
 		t.Fatalf("Expected error:%s, received: %v", utils.ErrNotFound.Error(), err)
+	}
+}
+
+func TestECnewChargingIncrementMissingBalanceInfo(t *testing.T) {
+	ec := &EventCost{}
+	incr := &Increment{}
+	rf := make(RatingMatchedFilters)
+
+	exp := &ChargingIncrement{
+		Usage:          incr.Duration,
+		Cost:           incr.Cost,
+		CompressFactor: incr.CompressFactor,
+	}
+	rcv := ec.newChargingIncrement(incr, rf, false, false)
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+}
+
+func TestECnewChargingIncrementWithUnitInfo(t *testing.T) {
+	ec := &EventCost{
+		Accounting: Accounting{},
+	}
+	incr := &Increment{
+		BalanceInfo: &DebitInfo{
+			Unit:     &UnitInfo{},
+			Monetary: &MonetaryInfo{},
+		},
+	}
+	rf := make(RatingMatchedFilters)
+
+	exp := &ChargingIncrement{
+		Usage:          incr.Duration,
+		Cost:           incr.Cost,
+		CompressFactor: incr.CompressFactor,
+		AccountingID:   utils.MetaPause,
+	}
+	rcv := ec.newChargingIncrement(incr, rf, false, true)
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+}
+
+func TestECnewChargingIncrementNoUnitInfo(t *testing.T) {
+	ec := &EventCost{
+		Accounting: Accounting{},
+	}
+	incr := &Increment{
+		BalanceInfo: &DebitInfo{
+			Monetary: &MonetaryInfo{},
+		},
+	}
+	rf := make(RatingMatchedFilters)
+
+	exp := &ChargingIncrement{
+		Usage:          incr.Duration,
+		Cost:           incr.Cost,
+		CompressFactor: incr.CompressFactor,
+		AccountingID:   utils.MetaPause,
+	}
+	expEC := &EventCost{
+		Accounting: Accounting{
+			utils.MetaPause: &BalanceCharge{},
+		},
+	}
+	rcv := ec.newChargingIncrement(incr, rf, false, true)
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	if !reflect.DeepEqual(ec, expEC) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", expEC, ec)
+	}
+}
+
+func TestECAsRefundIncrementsNoCharges(t *testing.T) {
+	ec := &EventCost{
+		Charges:   []*ChargingInterval{},
+		CGRID:     "asdfgh",
+		RunID:     "runID",
+		StartTime: time.Date(2021, 4, 13, 17, 0, 0, 0, time.UTC),
+		Usage:     utils.DurationPointer(time.Hour),
+		Cost:      utils.Float64Pointer(10),
+	}
+
+	exp := &CallDescriptor{
+		CgrID:         "asdfgh",
+		RunID:         "runID",
+		ToR:           utils.MetaVoice,
+		TimeStart:     time.Date(2021, 4, 13, 17, 0, 0, 0, time.UTC),
+		TimeEnd:       time.Date(2021, 4, 13, 18, 0, 0, 0, time.UTC),
+		DurationIndex: time.Hour,
+	}
+
+	rcv := ec.AsRefundIncrements(utils.MetaVoice)
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+}
+
+func TestECAsRefundIncrements2(t *testing.T) {
+	ec := &EventCost{
+		Charges: []*ChargingInterval{
+			{
+				cost:           utils.Float64Pointer(10),
+				CompressFactor: 1,
+				Increments: []*ChargingIncrement{
+					{
+						Cost:           5,
+						Usage:          2 * time.Second,
+						AccountingID:   "accID",
+						CompressFactor: 1,
+					},
+				},
+			},
+		},
+		CGRID:     "asdfgh",
+		RunID:     "runID",
+		StartTime: time.Date(2021, 4, 13, 17, 0, 0, 0, time.UTC),
+		Usage:     utils.DurationPointer(time.Hour),
+		Cost:      utils.Float64Pointer(10),
+		Accounting: Accounting{
+			"accID": &BalanceCharge{
+				AccountID:     "bcAccID",
+				BalanceUUID:   "bcUUID",
+				ExtraChargeID: "extrachargeID",
+			},
+			"extrachargeID": &BalanceCharge{
+				AccountID:   "extraAccID",
+				BalanceUUID: "extraBcUUID",
+			},
+		},
+		AccountSummary: &AccountSummary{
+			BalanceSummaries: BalanceSummaries{
+				{
+					UUID: "bcUUID",
+					Type: utils.MetaSMS,
+				},
+				{
+					UUID: "extraBcUUID",
+					Type: utils.MetaSMS,
+				},
+			},
+		},
+	}
+
+	exp := &CallDescriptor{
+		CgrID:         "asdfgh",
+		RunID:         "runID",
+		ToR:           utils.MetaVoice,
+		TimeStart:     time.Date(2021, 4, 13, 17, 0, 0, 0, time.UTC),
+		TimeEnd:       time.Date(2021, 4, 13, 18, 0, 0, 0, time.UTC),
+		DurationIndex: time.Hour,
+		Increments: Increments{
+			{
+				Duration: 2 * time.Second,
+				Cost:     5,
+				BalanceInfo: &DebitInfo{
+					Unit: &UnitInfo{
+						UUID: "extraBcUUID",
+					},
+					AccountID: "bcAccID",
+				},
+				CompressFactor: 1,
+			},
+		},
+	}
+	rcv := ec.AsRefundIncrements(utils.MetaVoice)
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+}
+
+func TestECratingGetIDFromEventCostPause(t *testing.T) {
+	ec := &EventCost{
+		Timings: ChargedTimings{
+			utils.MetaPause: &ChargedTiming{},
+		},
+		RatingFilters: RatingFilters{
+			utils.MetaPause: RatingMatchedFilters{},
+		},
+		Rates: ChargedRates{
+			utils.MetaPause: RateGroups{},
+		},
+		Rating: Rating{
+			utils.MetaPause: &RatingUnit{},
+		},
+	}
+	oEC := &EventCost{
+		Rating: Rating{
+			utils.MetaPause: &RatingUnit{
+				ConnectFee:       0.4,
+				RoundingMethod:   "*up",
+				RoundingDecimals: 4,
+				MaxCost:          100,
+				MaxCostStrategy:  "*disconnect",
+				TimingID:         "TM_NOON",
+			},
+		},
+		Timings: ChargedTimings{
+			utils.MetaPause: &ChargedTiming{
+				Years:     utils.Years{2010, 2011},
+				Months:    utils.Months{1, 2},
+				MonthDays: utils.MonthDays{24, 25},
+				WeekDays:  utils.WeekDays{2},
+				StartTime: "00:00:00",
+			},
+		},
+	}
+	oRatingID := utils.MetaPause
+
+	exp := utils.MetaPause
+	rcv := ec.ratingGetIDFromEventCost(oEC, oRatingID)
+
+	if rcv != exp {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+}
+
+func TestECaccountingGetIDFromEventCostPause(t *testing.T) {
+	ec := &EventCost{
+		Timings: ChargedTimings{
+			utils.MetaPause: &ChargedTiming{},
+		},
+		RatingFilters: RatingFilters{
+			utils.MetaPause: RatingMatchedFilters{},
+		},
+		Rates: ChargedRates{
+			utils.MetaPause: RateGroups{},
+		},
+		Rating: Rating{
+			utils.MetaPause: &RatingUnit{},
+		},
+		Accounting: Accounting{
+			utils.MetaPause: &BalanceCharge{},
+		},
+	}
+	oEC := &EventCost{
+		Accounting: Accounting{
+			utils.MetaPause: &BalanceCharge{
+				AccountID:     "1001",
+				BalanceUUID:   "asdfg",
+				RatingID:      utils.MetaPause,
+				Units:         10,
+				ExtraChargeID: "extra",
+			},
+		},
+		Rating: Rating{
+			utils.MetaPause: &RatingUnit{
+				ConnectFee:       0.4,
+				RoundingMethod:   "*up",
+				RoundingDecimals: 4,
+				MaxCost:          100,
+				MaxCostStrategy:  "*disconnect",
+				TimingID:         "TM_NOON",
+			},
+		},
+	}
+	oAccountingID := utils.MetaPause
+
+	exp := utils.MetaPause
+	rcv := ec.accountingGetIDFromEventCost(oEC, oAccountingID)
+
+	if rcv != exp {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+}
+
+func TestECappendChargingIntervalFromEventCost(t *testing.T) {
+	ec := &EventCost{
+		Charges: []*ChargingInterval{
+			{
+				RatingID:       "RT_ID",
+				CompressFactor: 1,
+			},
+		},
+	}
+	oEC := &EventCost{
+		Charges: []*ChargingInterval{
+			{},
+			{
+				RatingID: "RT_ID",
+			},
+		},
+	}
+
+	cIlIdx := 1
+
+	exp := &EventCost{
+		Charges: []*ChargingInterval{
+			{
+				RatingID:       "RT_ID",
+				CompressFactor: 2,
+			},
+		},
+	}
+	ec.appendChargingIntervalFromEventCost(oEC, cIlIdx)
+
+	if !reflect.DeepEqual(ec, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", exp, ec)
+	}
+}
+
+func TestECratingIDForRateIntervalPause(t *testing.T) {
+	ec := &EventCost{
+		RatingFilters: RatingFilters{},
+		Rating:        Rating{},
+		Rates:         ChargedRates{},
+	}
+	ri := &RateInterval{
+		Rating: &RIRate{
+			ConnectFee:       0.4,
+			RoundingMethod:   "*up",
+			MaxCost:          100,
+			MaxCostStrategy:  "*disconnect",
+			RoundingDecimals: 4,
+			Rates: RateGroups{
+				{
+					RateIncrement:      60,
+					RateUnit:           60,
+					Value:              10,
+					GroupIntervalStart: 1,
+				},
+			},
+		},
+	}
+	rf := RatingMatchedFilters{
+		"key": "filter",
+	}
+
+	exp := utils.MetaPause
+	expEC := &EventCost{
+		Rating: Rating{
+			utils.MetaPause: &RatingUnit{
+				ConnectFee:       0.4,
+				RoundingMethod:   "*up",
+				MaxCost:          100,
+				MaxCostStrategy:  "*disconnect",
+				RoundingDecimals: 4,
+				RatesID:          utils.MetaPause,
+				RatingFiltersID:  utils.MetaPause,
+			},
+		},
+		RatingFilters: RatingFilters{
+			utils.MetaPause: RatingMatchedFilters{
+				"key": "filter",
+			},
+		},
+		Rates: ChargedRates{
+			utils.MetaPause: RateGroups{
+				{
+					RateIncrement:      60,
+					RateUnit:           60,
+					Value:              10,
+					GroupIntervalStart: 1,
+				},
+			},
+		},
+	}
+	rcv := ec.ratingIDForRateInterval(ri, rf, true)
+
+	if rcv != exp {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", exp, rcv)
+	}
+
+	if !reflect.DeepEqual(ec, expEC) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", expEC, ec)
+	}
+
+}
+
+func TestECnewIntervalFromCharge(t *testing.T) {
+	ec := &EventCost{
+		Charges: []*ChargingInterval{
+			{
+				Increments: []*ChargingIncrement{
+					{
+						Usage:          100,
+						Cost:           10,
+						AccountingID:   "accID1",
+						CompressFactor: 1,
+					},
+					{
+						Usage:          150,
+						Cost:           15,
+						AccountingID:   "accID2",
+						CompressFactor: 1,
+					},
+				},
+			},
+		},
+		Accounting: Accounting{
+			"accID1": &BalanceCharge{
+				RatingID:    utils.MetaRounding,
+				BalanceUUID: "asdfgh1",
+				AccountID:   "1001",
+			},
+			"accID2": &BalanceCharge{
+				RatingID:    utils.MetaRounding,
+				BalanceUUID: "asdfgh2",
+				AccountID:   "1001",
+			},
+		},
+		Rating: Rating{
+			utils.MetaRounding: &RatingUnit{
+				ConnectFee:       0.4,
+				RoundingMethod:   "*up",
+				RoundingDecimals: 4,
+				MaxCost:          100,
+				MaxCostStrategy:  "*disconnect",
+				RatesID:          "RT_ID",
+				TimingID:         "TM_NOON",
+			},
+		},
+		Timings: ChargedTimings{
+			"TM_NOON": &ChargedTiming{
+				StartTime: "00:00:00",
+			},
+		},
+		AccountSummary: &AccountSummary{
+			Tenant:        "cgrates.org",
+			ID:            "1001",
+			AllowNegative: true,
+			BalanceSummaries: BalanceSummaries{
+				&BalanceSummary{
+					UUID:     "asdfgh1",
+					ID:       "bsID",
+					Type:     utils.MetaData,
+					Initial:  0,
+					Value:    10,
+					Disabled: true,
+				},
+			},
+		},
+	}
+	cInc := &ChargingIncrement{
+		AccountingID: "accID1",
+	}
+
+	exp := &Increment{
+		BalanceInfo: &DebitInfo{
+			AccountID: "1001",
+			Unit: &UnitInfo{
+				UUID: "asdfgh1",
+				RateInterval: &RateInterval{
+					Rating: &RIRate{
+						RoundingDecimals: 4,
+						RoundingMethod:   "*up",
+						ConnectFee:       0.4,
+						MaxCost:          100,
+						MaxCostStrategy:  "*disconnect",
+					},
+					Timing: &RITiming{
+						ID:        "TM_NOON",
+						StartTime: "00:00:00",
+					},
+				},
+			},
+		},
+	}
+	rcv := ec.newIntervalFromCharge(cInc)
+
+	if !reflect.DeepEqual(rcv, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ToJSON(exp), utils.ToJSON(rcv))
+	}
+}
+
+func TestECRemoveStaleReferences(t *testing.T) {
+	ec := &EventCost{
+		Rating: Rating{
+			"unusedKey1": &RatingUnit{
+				ConnectFee:       0.4,
+				RoundingMethod:   "*up",
+				RoundingDecimals: 4,
+				MaxCost:          100,
+				MaxCostStrategy:  "*disconnect",
+				TimingID:         "TM_MORNING",
+				RatesID:          "RT_ID",
+				RatingFiltersID:  "RF_ID",
+			},
+		},
+		RatingFilters: RatingFilters{
+			"unusedKey2": RatingMatchedFilters{},
+		},
+		Rates: ChargedRates{
+			"unusedKey3": RateGroups{
+				{
+					RateIncrement: 60,
+					RateUnit:      60,
+					Value:         10,
+				},
+			},
+		},
+		Timings: ChargedTimings{
+			"unusedKey4": &ChargedTiming{
+				StartTime: "00:00:00",
+			},
+		},
+	}
+
+	exp := &EventCost{
+		Rating:        Rating{},
+		RatingFilters: RatingFilters{},
+		Rates:         ChargedRates{},
+		Timings: ChargedTimings{
+			"unusedKey4": &ChargedTiming{
+				StartTime: "00:00:00",
+			},
+		},
+	}
+	ec.RemoveStaleReferences()
+
+	if !reflect.DeepEqual(ec, exp) {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", utils.ToJSON(exp), utils.ToJSON(ec))
+	}
+}
+
+func TestECTrimUnreachableLastChargingInterval(t *testing.T) {
+	ec := &EventCost{
+		Usage:          utils.DurationPointer(30 * time.Second),
+		AccountSummary: &AccountSummary{},
+		Charges: []*ChargingInterval{
+			{
+				RatingID:   "RT_ID",
+				cost:       utils.Float64Pointer(10),
+				ecUsageIdx: utils.DurationPointer(1),
+			},
+		},
+	}
+	atUsage := 15 * time.Second
+
+	experr := "cannot find last active ChargingInterval"
+	rcv, err := ec.Trim(atUsage)
+
+	if err == nil || err.Error() != experr {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestECTrimNoActiveIncrement(t *testing.T) {
+	ec := &EventCost{
+		Usage:          utils.DurationPointer(30 * time.Second),
+		AccountSummary: &AccountSummary{},
+		Charges: []*ChargingInterval{
+			{
+				RatingID:       "RT_ID",
+				cost:           utils.Float64Pointer(10),
+				ecUsageIdx:     utils.DurationPointer(1 * time.Second),
+				CompressFactor: 4,
+				usage:          utils.DurationPointer(45 * time.Second),
+			},
+		},
+	}
+	atUsage := 15 * time.Second
+
+	experr := "no active increment found"
+	rcv, err := ec.Trim(atUsage)
+
+	if err == nil || err.Error() != experr {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestECTrimUnableToDetectLastActiveChargingInterval(t *testing.T) {
+	ec := &EventCost{
+		Usage:          utils.DurationPointer(30 * time.Second),
+		AccountSummary: &AccountSummary{},
+		Charges: []*ChargingInterval{
+			{
+				RatingID:       "RT_ID1",
+				cost:           utils.Float64Pointer(10),
+				ecUsageIdx:     utils.DurationPointer(30 * time.Second),
+				CompressFactor: 0,
+				usage:          utils.DurationPointer(45 * time.Second),
+			},
+			{
+				RatingID:       "RT_ID2",
+				cost:           utils.Float64Pointer(10),
+				ecUsageIdx:     utils.DurationPointer(25 * time.Second),
+				CompressFactor: 4,
+				usage:          utils.DurationPointer(45 * time.Second),
+			},
+		},
+	}
+	atUsage := 15 * time.Second
+
+	experr := "failed detecting last active ChargingInterval"
+	rcv, err := ec.Trim(atUsage)
+
+	if err == nil || err.Error() != experr {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestECFieldAsInterfaceEmptyFieldPath(t *testing.T) {
+	ec := &EventCost{}
+	fldPath := []string{}
+
+	experr := "empty field path"
+	rcv, err := ec.FieldAsInterface(fldPath)
+
+	if err == nil || err.Error() != experr {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", experr, err)
+	}
+
+	if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestECfieldAsInterfaceNilECUsage(t *testing.T) {
+	ec := &EventCost{}
+	fldPath := []string{utils.Usage}
+
+	rcv, err := ec.fieldAsInterface(fldPath)
+
+	if err != nil {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", nil, err)
+	}
+
+	if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
+	}
+}
+
+func TestECfieldAsInterfaceNilECCost(t *testing.T) {
+	ec := &EventCost{}
+	fldPath := []string{utils.Cost}
+
+	rcv, err := ec.fieldAsInterface(fldPath)
+
+	if err != nil {
+		t.Fatalf("\nexpected: <%+v>, \nreceived: <%+v>", nil, err)
+	}
+
+	if rcv != nil {
+		t.Errorf("\nexpected: <%+v>, \nreceived: <%+v>", nil, rcv)
 	}
 }

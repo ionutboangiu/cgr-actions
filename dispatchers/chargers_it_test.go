@@ -37,7 +37,6 @@ var sTestsDspCpp = []func(t *testing.T){
 	testDspCppGetChtgRoundRobin,
 
 	testDspCppPing,
-	testDspCppPingEmptyCGREventWIthArgDispatcher,
 	testDspCppTestAuthKey,
 	testDspCppTestAuthKey2,
 }
@@ -76,12 +75,11 @@ func testDspCppPingFailover(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	ev := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chrg12345"),
+	ev := utils.CGREvent{
+		Tenant: "cgrates.org",
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chrg12345",
 		},
 	}
 	if err := dispEngine.RPC.Call(utils.ChargerSv1Ping, &ev, &reply); err != nil {
@@ -97,24 +95,23 @@ func testDspCppPingFailover(t *testing.T) {
 	}
 	allEngine2.stopEngine(t)
 	if err := dispEngine.RPC.Call(utils.ChargerSv1Ping, &ev, &reply); err == nil {
-		t.Errorf("Expected error but recived %v and reply %v\n", err, reply)
+		t.Errorf("Expected error but received %v and reply %v\n", err, reply)
 	}
 	allEngine.startEngine(t)
 	allEngine2.startEngine(t)
 }
 
 func testDspCppGetChtgFailover(t *testing.T) {
-	args := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "Event1",
-				utils.Account:    "1001",
-			},
+	args := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventName:    "Event1",
+			utils.AccountField: "1001",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chrg12345"),
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chrg12345",
 		},
 	}
 	eChargers := &engine.ChargerProfiles{
@@ -173,12 +170,10 @@ func testDspCppPing(t *testing.T) {
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := dispEngine.RPC.Call(utils.ChargerSv1Ping, &utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chrg12345"),
+	if err := dispEngine.RPC.Call(utils.ChargerSv1Ping, &utils.CGREvent{
+		Tenant: "cgrates.org",
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chrg12345",
 		},
 	}, &reply); err != nil {
 		t.Error(err)
@@ -187,26 +182,15 @@ func testDspCppPing(t *testing.T) {
 	}
 }
 
-func testDspCppPingEmptyCGREventWIthArgDispatcher(t *testing.T) {
-	expected := "MANDATORY_IE_MISSING: [APIKey]"
-	var reply string
-	if err := dispEngine.RPC.Call(utils.ChargerSv1Ping,
-		&utils.CGREventWithArgDispatcher{}, &reply); err == nil || err.Error() != expected {
-		t.Errorf("Expected %+v, received %+v", expected, err)
-	}
-}
-
 func testDspCppTestAuthKey(t *testing.T) {
-	args := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.Account: "1001",
-			},
+	args := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1001",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "12345",
 		},
 	}
 	var reply *engine.ChargerProfiles
@@ -217,16 +201,15 @@ func testDspCppTestAuthKey(t *testing.T) {
 }
 
 func testDspCppTestAuthKey2(t *testing.T) {
-	args := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.Account: "1001",
-			},
+	args := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.AccountField: "1001",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chrg12345"),
+
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chrg12345",
 		},
 	}
 	eChargers := &engine.ChargerProfiles{
@@ -265,17 +248,15 @@ func testDspCppTestAuthKey2(t *testing.T) {
 }
 
 func testDspCppGetChtgRoundRobin(t *testing.T) {
-	args := utils.CGREventWithArgDispatcher{
-		CGREvent: &utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "event1",
-			Event: map[string]interface{}{
-				utils.EVENT_NAME: "RoundRobin",
-				utils.Account:    "1001",
-			},
+	args := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]any{
+			utils.EventName:    "RoundRobin",
+			utils.AccountField: "1001",
 		},
-		ArgDispatcher: &utils.ArgDispatcher{
-			APIKey: utils.StringPointer("chrg12345"),
+		APIOpts: map[string]any{
+			utils.OptsAPIKey: "chrg12345",
 		},
 	}
 	eChargers := &engine.ChargerProfiles{

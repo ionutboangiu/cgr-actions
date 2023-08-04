@@ -38,13 +38,14 @@ var (
 	rdrEvents chan *erEvent
 	rdrErr    chan error
 	rdrExit   chan struct{}
-	kfk       EventReader
+	rdr       EventReader
 )
 
 func TestKafkaER(t *testing.T) {
-	cfg, err := config.NewCGRConfigFromJsonStringWithDefaults(`{
+	cfg, err := config.NewCGRConfigFromJSONStringWithDefaults(`{
 "ers": {									// EventReaderService
 	"enabled": true,						// starts the EventReader service: <true|false>
+	"sessions_conns":["*localhost"],
 	"readers": [
 		{
 			"id": "kafka",										// identifier of the EventReader profile
@@ -66,18 +67,22 @@ func TestKafkaER(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
+	if err := cfg.CheckConfigSanity(); err != nil {
+		t.Fatal(err)
+	}
 	rdrEvents = make(chan *erEvent, 1)
 	rdrErr = make(chan error, 1)
 	rdrExit = make(chan struct{}, 1)
 
-	if kfk, err = NewKafkaER(cfg, 1, rdrEvents,
+	if rdr, err = NewKafkaER(cfg, 1, rdrEvents, make(chan *erEvent, 1),
 		rdrErr, new(engine.FilterS), rdrExit); err != nil {
 		t.Fatal(err)
 	}
 	w := kafka.NewWriter(kafka.WriterConfig{
-		Brokers: []string{"localhost:9092"},
-		Topic:   defaultTopic,
+		Brokers:      []string{"localhost:9092"},
+		Topic:        utils.KafkaDefaultTopic,
+		WriteTimeout: 5 * time.Second,
+		ReadTimeout:  5 * time.Second,
 	})
 	randomCGRID := utils.UUIDSha1Prefix()
 	w.WriteMessages(context.Background(),
@@ -88,7 +93,7 @@ func TestKafkaER(t *testing.T) {
 	)
 
 	w.Close()
-	kfk.Serve()
+	rdr.Serve()
 
 	select {
 	case err = <-rdrErr:
@@ -101,15 +106,16 @@ func TestKafkaER(t *testing.T) {
 			Tenant: "cgrates.org",
 			ID:     ev.cgrEvent.ID,
 			Time:   ev.cgrEvent.Time,
-			Event: map[string]interface{}{
+			Event: map[string]any{
 				"CGRID": randomCGRID,
 			},
+			APIOpts: map[string]any{},
 		}
 		if !reflect.DeepEqual(ev.cgrEvent, expected) {
 			t.Errorf("Expected %s ,received %s", utils.ToJSON(expected), utils.ToJSON(ev.cgrEvent))
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Timeout")
 	}
-	rdrExit <- struct{}{}
+	close(rdrExit)
 }

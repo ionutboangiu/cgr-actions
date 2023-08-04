@@ -37,7 +37,6 @@ var (
 	costCfg       *config.CGRConfig
 	costRPC       *rpc.Client
 	costConfigDIR string //run tests for specific configuration
-	costDataDir   = "/usr/share/cgrates"
 
 	sTestsCost = []func(t *testing.T){
 		testCostInitCfg,
@@ -72,13 +71,11 @@ func TestCostIT(t *testing.T) {
 
 func testCostInitCfg(t *testing.T) {
 	var err error
-	costCfgPath = path.Join(costDataDir, "conf", "samples", costConfigDIR)
+	costCfgPath = path.Join(*dataDir, "conf", "samples", costConfigDIR)
 	costCfg, err = config.NewCGRConfigFromPath(costCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	costCfg.DataFolderPath = costDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(costCfg)
 }
 
 func testCostInitDataDb(t *testing.T) {
@@ -116,14 +113,14 @@ func testCostLoadFromFolder(t *testing.T) {
 	if err := costRPC.Call(utils.APIerSv1LoadTariffPlanFromFolder, attrs, &reply); err != nil {
 		t.Error(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 }
 
 func testCostGetCost(t *testing.T) {
 	attrs := AttrGetCost{Category: "call", Tenant: "cgrates.org",
 		Subject: "1001", AnswerTime: "*now", Destination: "1002", Usage: "120000000000"} //120s ( 2m)
 	var rply *engine.EventCost
-	if err := costRPC.Call(utils.APIerSv1GetCost, attrs, &rply); err != nil {
+	if err := costRPC.Call(utils.APIerSv1GetCost, &attrs, &rply); err != nil {
 		t.Error("Unexpected nil error received: ", err.Error())
 	} else if *rply.Cost != 0.700200 { // expect to get 0.7 (0.4 connect fee 0.2 first minute 0.1 each minute after)
 		t.Errorf("Unexpected cost received: %f", *rply.Cost)

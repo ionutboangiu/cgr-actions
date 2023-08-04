@@ -36,21 +36,22 @@ import (
 )
 
 func NewXMLFileER(cfg *config.CGRConfig, cfgIdx int,
-	rdrEvents chan *erEvent, rdrErr chan error,
+	rdrEvents, partialEvents chan *erEvent, rdrErr chan error,
 	fltrS *engine.FilterS, rdrExit chan struct{}) (er EventReader, err error) {
 	srcPath := cfg.ERsCfg().Readers[cfgIdx].SourcePath
 	if strings.HasSuffix(srcPath, utils.Slash) {
 		srcPath = srcPath[:len(srcPath)-1]
 	}
 	xmlER := &XMLFileER{
-		cgrCfg:    cfg,
-		cfgIdx:    cfgIdx,
-		fltrS:     fltrS,
-		rdrDir:    srcPath,
-		rdrEvents: rdrEvents,
-		rdrError:  rdrErr,
-		rdrExit:   rdrExit,
-		conReqs:   make(chan struct{}, cfg.ERsCfg().Readers[cfgIdx].ConcurrentReqs)}
+		cgrCfg:        cfg,
+		cfgIdx:        cfgIdx,
+		fltrS:         fltrS,
+		rdrDir:        srcPath,
+		rdrEvents:     rdrEvents,
+		partialEvents: partialEvents,
+		rdrError:      rdrErr,
+		rdrExit:       rdrExit,
+		conReqs:       make(chan struct{}, cfg.ERsCfg().Readers[cfgIdx].ConcurrentReqs)}
 	var processFile struct{}
 	for i := 0; i < cfg.ERsCfg().Readers[cfgIdx].ConcurrentReqs; i++ {
 		xmlER.conReqs <- processFile // Empty initiate so we do not need to wait later when we pop
@@ -61,14 +62,15 @@ func NewXMLFileER(cfg *config.CGRConfig, cfgIdx int,
 // XMLFileER implements EventReader interface for .xml files
 type XMLFileER struct {
 	sync.RWMutex
-	cgrCfg    *config.CGRConfig
-	cfgIdx    int // index of config instance within ERsCfg.Readers
-	fltrS     *engine.FilterS
-	rdrDir    string
-	rdrEvents chan *erEvent // channel to dispatch the events created to
-	rdrError  chan error
-	rdrExit   chan struct{}
-	conReqs   chan struct{} // limit number of opened files
+	cgrCfg        *config.CGRConfig
+	cfgIdx        int // index of config instance within ERsCfg.Readers
+	fltrS         *engine.FilterS
+	rdrDir        string
+	rdrEvents     chan *erEvent // channel to dispatch the events created to
+	partialEvents chan *erEvent // channel to dispatch the partial events created to
+	rdrError      chan error
+	rdrExit       chan struct{}
+	conReqs       chan struct{} // limit number of opened files
 }
 
 func (rdr *XMLFileER) Config() *config.EventReaderCfg {
@@ -80,19 +82,21 @@ func (rdr *XMLFileER) Serve() (err error) {
 	case time.Duration(0): // 0 disables the automatic read, maybe done per API
 		return
 	case time.Duration(-1):
-		return watchDir(rdr.rdrDir, rdr.processFile,
+		return utils.WatchDir(rdr.rdrDir, rdr.processFile,
 			utils.ERs, rdr.rdrExit)
 	default:
 		go func() {
+			tm := time.NewTimer(0)
 			for {
 				// Not automated, process and sleep approach
 				select {
 				case <-rdr.rdrExit:
+					tm.Stop()
 					utils.Logger.Info(
 						fmt.Sprintf("<%s> stop monitoring path <%s>",
 							utils.ERs, rdr.rdrDir))
 					return
-				default:
+				case <-tm.C:
 				}
 				filesInDir, _ := os.ReadDir(rdr.rdrDir)
 				for _, file := range filesInDir {
@@ -107,7 +111,7 @@ func (rdr *XMLFileER) Serve() (err error) {
 						}
 					}(file.Name())
 				}
-				time.Sleep(rdr.Config().RunDelay)
+				tm.Reset(rdr.Config().RunDelay)
 			}
 		}()
 	}
@@ -132,32 +136,46 @@ func (rdr *XMLFileER) processFile(fPath, fName string) (err error) {
 	if err != nil {
 		return err
 	}
-	xmlElmts := xmlquery.Find(doc, rdr.Config().XmlRootPath.AsString("/", true))
+	var xmlRootPath utils.HierarchyPath
+	if rdr.Config().Opts.XMLRootPath != nil {
+		xmlRootPath = utils.ParseHierarchyPath(*rdr.Config().Opts.XMLRootPath, utils.EmptyString)
+	}
+	xmlElmts := xmlquery.Find(doc, xmlRootPath.AsString("/", true))
 	rowNr := 0 // This counts the rows in the file, not really number of CDRs
 	evsPosted := 0
 	timeStart := time.Now()
-	reqVars := utils.NavigableMap2{utils.MetaFileName: utils.NewNMData(fName)}
+	reqVars := &utils.DataNode{Type: utils.NMMapType, Map: map[string]*utils.DataNode{utils.MetaFileName: utils.NewLeafNode(fName)}}
 	for _, xmlElmt := range xmlElmts {
 		rowNr++ // increment the rowNr after checking if it's not the end of file
 		agReq := agents.NewAgentRequest(
-			config.NewXmlProvider(xmlElmt, rdr.Config().XmlRootPath), reqVars,
-			nil, nil, rdr.Config().Tenant,
+			config.NewXMLProvider(xmlElmt, xmlRootPath), reqVars,
+			nil, nil, nil, rdr.Config().Tenant,
 			rdr.cgrCfg.GeneralCfg().DefaultTenant,
 			utils.FirstNonEmpty(rdr.Config().Timezone,
 				rdr.cgrCfg.GeneralCfg().DefaultTimezone),
-			rdr.fltrS, nil, nil) // create an AgentRequest
+			rdr.fltrS, nil) // create an AgentRequest
 		if pass, err := rdr.fltrS.Pass(agReq.Tenant, rdr.Config().Filters,
-			agReq); err != nil || !pass {
+			agReq); err != nil {
+			utils.Logger.Warning(
+				fmt.Sprintf("<%s> reading file: <%s> row <%d>, ignoring due to filter error: <%s>",
+					utils.ERs, absPath, rowNr, err.Error()))
+			return err
+		} else if !pass {
 			continue
 		}
-		if err := agReq.SetFields(rdr.Config().Fields); err != nil {
+		if err = agReq.SetFields(rdr.Config().Fields); err != nil {
 			utils.Logger.Warning(
 				fmt.Sprintf("<%s> reading file: <%s> row <%d>, ignoring due to error: <%s>",
 					utils.ERs, absPath, rowNr, err.Error()))
 			continue
 		}
-		rdr.rdrEvents <- &erEvent{
-			cgrEvent: config.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep),
+		cgrEv := utils.NMAsCGREvent(agReq.CGRRequest, agReq.Tenant, utils.NestingSep, agReq.Opts)
+		rdrEv := rdr.rdrEvents
+		if _, isPartial := cgrEv.APIOpts[utils.PartialOpt]; isPartial {
+			rdrEv = rdr.partialEvents
+		}
+		rdrEv <- &erEvent{
+			cgrEvent: cgrEv,
 			rdrCfg:   rdr.Config(),
 		}
 		evsPosted++
@@ -173,6 +191,6 @@ func (rdr *XMLFileER) processFile(fPath, fName string) (err error) {
 
 	utils.Logger.Info(
 		fmt.Sprintf("%s finished processing file <%s>. Total records processed: %d, events posted: %d, run duration: %s",
-			utils.ERs, absPath, rowNr, evsPosted, time.Now().Sub(timeStart)))
+			utils.ERs, absPath, rowNr, evsPosted, time.Since(timeStart)))
 	return
 }

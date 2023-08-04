@@ -33,22 +33,25 @@ import (
 
 // NewKamailioAgent returns the Kamailio Agent
 func NewKamailioAgent(cfg *config.CGRConfig,
-	exitChan chan bool, connMgr *engine.ConnManager) servmanager.Service {
+	shdChan *utils.SyncedChan, connMgr *engine.ConnManager,
+	srvDep map[string]*sync.WaitGroup) servmanager.Service {
 	return &KamailioAgent{
-		cfg:      cfg,
-		exitChan: exitChan,
-		connMgr:  connMgr,
+		cfg:     cfg,
+		shdChan: shdChan,
+		connMgr: connMgr,
+		srvDep:  srvDep,
 	}
 }
 
 // KamailioAgent implements Agent interface
 type KamailioAgent struct {
 	sync.RWMutex
-	cfg      *config.CGRConfig
-	exitChan chan bool
+	cfg     *config.CGRConfig
+	shdChan *utils.SyncedChan
 
 	kam     *agents.KamailioAgent
 	connMgr *engine.ConnManager
+	srvDep  map[string]*sync.WaitGroup
 }
 
 // Start should handle the sercive start
@@ -63,36 +66,36 @@ func (kam *KamailioAgent) Start() (err error) {
 	kam.kam = agents.NewKamailioAgent(kam.cfg.KamAgentCfg(), kam.connMgr,
 		utils.FirstNonEmpty(kam.cfg.KamAgentCfg().Timezone, kam.cfg.GeneralCfg().DefaultTimezone))
 
-	go func() {
-		if err = kam.kam.Connect(); err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") { // if closed by us do not log
-				return
-			}
+	go func(k *agents.KamailioAgent) {
+		if err = k.Connect(); err != nil &&
+			!strings.Contains(err.Error(), "use of closed network connection") { // if closed by us do not log
 			utils.Logger.Err(fmt.Sprintf("<%s> error: %s", utils.KamailioAgent, err))
-			kam.exitChan <- true
+			kam.shdChan.CloseOnce()
 		}
-	}()
+	}(kam.kam)
 	return
 }
 
 // Reload handles the change of config
 func (kam *KamailioAgent) Reload() (err error) {
-
-	if err = kam.Shutdown(); err != nil {
-		return
-	}
 	kam.Lock()
 	defer kam.Unlock()
+	if err = kam.kam.Shutdown(); err != nil {
+		return
+	}
 	kam.kam.Reload()
-	go func() {
-		if err = kam.kam.Connect(); err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") { // if closed by us do not log
-				return
-			}
-			utils.Logger.Err(fmt.Sprintf("<%s> error: %s", utils.KamailioAgent, err))
-			kam.exitChan <- true
+	go kam.reload(kam.kam)
+	return
+}
+
+func (kam *KamailioAgent) reload(k *agents.KamailioAgent) (err error) {
+	if err = k.Connect(); err != nil {
+		if strings.Contains(err.Error(), "use of closed network connection") { // if closed by us do not log
+			return
 		}
-	}()
+		utils.Logger.Err(fmt.Sprintf("<%s> error: %s", utils.KamailioAgent, err))
+		kam.shdChan.CloseOnce()
+	}
 	return
 }
 
@@ -100,9 +103,7 @@ func (kam *KamailioAgent) Reload() (err error) {
 func (kam *KamailioAgent) Shutdown() (err error) {
 	kam.Lock()
 	defer kam.Unlock()
-	if err = kam.kam.Shutdown(); err != nil {
-		return
-	}
+	err = kam.kam.Shutdown()
 	kam.kam = nil
 	return
 }

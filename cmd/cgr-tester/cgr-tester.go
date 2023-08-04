@@ -28,6 +28,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sync"
 	"time"
 
 	"github.com/cgrates/cgrates/config"
@@ -37,7 +38,7 @@ import (
 
 var (
 	cgrTesterFlags = flag.NewFlagSet("cgr-tester", flag.ContinueOnError)
-	cgrConfig, _   = config.NewDefaultCGRConfig()
+	cgrConfig      = config.NewDefaultCGRConfig()
 	tstCfg         = config.CgrConfig()
 	cpuprofile     = cgrTesterFlags.String("cpuprofile", "", "write cpu profile to file")
 	memprofile     = cgrTesterFlags.String("memprofile", "", "write memory profile to this file")
@@ -45,53 +46,80 @@ var (
 
 	cfgPath = cgrTesterFlags.String("config_path", "",
 		"Configuration directory path.")
-
-	parallel       = cgrTesterFlags.Int("parallel", 0, "run n requests in parallel")
-	datadbType     = cgrTesterFlags.String("datadb_type", cgrConfig.DataDbCfg().DataDbType, "The type of the DataDb database <redis>")
-	datadbHost     = cgrTesterFlags.String("datadb_host", cgrConfig.DataDbCfg().DataDbHost, "The DataDb host to connect to.")
-	datadbPort     = cgrTesterFlags.String("datadb_port", cgrConfig.DataDbCfg().DataDbPort, "The DataDb port to bind to.")
-	datadbName     = cgrTesterFlags.String("datadb_name", cgrConfig.DataDbCfg().DataDbName, "The name/number of the DataDb to connect to.")
-	datadbUser     = cgrTesterFlags.String("datadb_user", cgrConfig.DataDbCfg().DataDbUser, "The DataDb user to sign in as.")
-	datadbPass     = cgrTesterFlags.String("datadb_pass", cgrConfig.DataDbCfg().DataDbPass, "The DataDb user's password.")
-	dbdataEncoding = cgrTesterFlags.String("dbdata_encoding", cgrConfig.GeneralCfg().DBDataEncoding, "The encoding used to store object data in strings.")
-	redisSentinel  = cgrTesterFlags.String("redis_sentinel", cgrConfig.DataDbCfg().DataDbSentinelName, "The name of redis sentinel")
+	exec = cgrTesterFlags.String(utils.ExecCgr, utils.EmptyString, "Pick what you want to test "+
+		"<*sessions|*cost>")
+	cps             = cgrTesterFlags.Int("cps", 100, "run n requests in parallel")
+	datadbType      = cgrTesterFlags.String("datadb_type", cgrConfig.DataDbCfg().Type, "The type of the DataDb database <redis>")
+	datadbHost      = cgrTesterFlags.String("datadb_host", cgrConfig.DataDbCfg().Host, "The DataDb host to connect to.")
+	datadbPort      = cgrTesterFlags.String("datadb_port", cgrConfig.DataDbCfg().Port, "The DataDb port to bind to.")
+	datadbName      = cgrTesterFlags.String("datadb_name", cgrConfig.DataDbCfg().Name, "The name/number of the DataDb to connect to.")
+	datadbUser      = cgrTesterFlags.String("datadb_user", cgrConfig.DataDbCfg().User, "The DataDb user to sign in as.")
+	datadbPass      = cgrTesterFlags.String("datadb_pass", cgrConfig.DataDbCfg().Password, "The DataDb user's password.")
+	dbdataEncoding  = cgrTesterFlags.String("dbdata_encoding", cgrConfig.GeneralCfg().DBDataEncoding, "The encoding used to store object data in strings.")
+	dbRedisMaxConns = cgrTesterFlags.Int(utils.RedisMaxConnsCfg, cgrConfig.DataDbCfg().Opts.RedisMaxConns,
+		"The connection pool size")
+	dbRedisConnectAttempts = cgrTesterFlags.Int(utils.RedisConnectAttemptsCfg, cgrConfig.DataDbCfg().Opts.RedisConnectAttempts,
+		"The maximum amount of dial attempts")
+	redisSentinel  = cgrTesterFlags.String("redisSentinel", cgrConfig.DataDbCfg().Opts.RedisSentinel, "The name of redis sentinel")
+	dbRedisCluster = cgrTesterFlags.Bool("redisCluster", false,
+		"Is the redis datadb a cluster")
+	dbRedisClusterSync = cgrTesterFlags.Duration("redisClusterSync", cgrConfig.DataDbCfg().Opts.RedisClusterSync,
+		"The sync interval for the redis cluster")
+	dbRedisClusterDownDelay = cgrTesterFlags.Duration("redisClusterOndownDelay", cgrConfig.DataDbCfg().Opts.RedisClusterOndownDelay,
+		"The delay before executing the commands if the redis cluster is in the CLUSTERDOWN state")
+	dbQueryTimeout = cgrTesterFlags.Duration("mongoQueryTimeout", cgrConfig.DataDbCfg().Opts.MongoQueryTimeout,
+		"The timeout for queries")
+	dbRedisConnectTimeout = cgrTesterFlags.Duration(utils.RedisConnectTimeoutCfg, cgrConfig.DataDbCfg().Opts.RedisConnectTimeout,
+		"The amount of wait time until timeout for a connection attempt")
+	dbRedisReadTimeout = cgrTesterFlags.Duration(utils.RedisReadTimeoutCfg, cgrConfig.DataDbCfg().Opts.RedisReadTimeout,
+		"The amount of wait time until timeout for reading operations")
+	dbRedisWriteTimeout = cgrTesterFlags.Duration(utils.RedisWriteTimeoutCfg, cgrConfig.DataDbCfg().Opts.RedisWriteTimeout,
+		"The amount of wait time until timeout for writing operations")
 	raterAddress   = cgrTesterFlags.String("rater_address", "", "Rater address for remote tests. Empty for internal rater.")
-	tor            = cgrTesterFlags.String("tor", utils.VOICE, "The type of record to use in queries.")
-	category       = cgrTesterFlags.String("category", "call", "The Record category to test.")
-	tenant         = cgrTesterFlags.String("tenant", "cgrates.org", "The type of record to use in queries.")
-	subject        = cgrTesterFlags.String("subject", "1001", "The rating subject to use in queries.")
-	destination    = cgrTesterFlags.String("destination", "1002", "The destination to use in queries.")
-	json           = cgrTesterFlags.Bool("json", false, "Use JSON RPC")
-	version        = cgrTesterFlags.Bool("version", false, "Prints the application version.")
-	nilDuration    = time.Duration(0)
-	usage          = cgrTesterFlags.String("usage", "1m", "The duration to use in call simulation.")
-	fPath          = cgrTesterFlags.String("file_path", "", "read requests from file with path")
-	reqSep         = cgrTesterFlags.String("req_separator", "\n\n", "separator for requests in file")
+	minUsage       = cgrTesterFlags.Duration("min_usage", 1*time.Second, "Minimum usage a session can have")
+	maxUsage       = cgrTesterFlags.Duration("max_usage", 5*time.Second, "Maximum usage a session can have")
+	updateInterval = cgrTesterFlags.Duration("update_interval", 1*time.Second, "Time duration added for each session update")
+	requestType    = cgrTesterFlags.String("request_type", utils.MetaRated, "Request type of the call")
+	digits         = cgrTesterFlags.Int("digits", 10, "Number of digits Account and Destination will have")
 
-	err error
+	tor         = cgrTesterFlags.String("tor", utils.MetaVoice, "The type of record to use in queries.")
+	category    = cgrTesterFlags.String("category", "call", "The Record category to test.")
+	tenant      = cgrTesterFlags.String("tenant", "cgrates.org", "The type of record to use in queries.")
+	subject     = cgrTesterFlags.String("subject", "1001", "The rating subject to use in queries.")
+	destination = cgrTesterFlags.String("destination", "1002", "The destination to use in queries.")
+	json        = cgrTesterFlags.Bool("json", false, "Use JSON RPC")
+	version     = cgrTesterFlags.Bool("version", false, "Prints the application version.")
+	usage       = cgrTesterFlags.String("usage", "1m", "The duration to use in call simulation.")
+	fPath       = cgrTesterFlags.String("file_path", "", "read requests from file with path")
+	reqSep      = cgrTesterFlags.String("req_separator", "\n\n", "separator for requests in file")
+	verbose     = cgrTesterFlags.Bool(utils.VerboseCgr, false, "Enable detailed verbose logging output")
+	replyCntMux sync.RWMutex
+	err         error
 )
 
-func durInternalRater(cd *engine.CallDescriptorWithArgDispatcher) (time.Duration, error) {
-	dbConn, err := engine.NewDataDBConn(tstCfg.DataDbCfg().DataDbType,
-		tstCfg.DataDbCfg().DataDbHost, tstCfg.DataDbCfg().DataDbPort,
-		tstCfg.DataDbCfg().DataDbName, tstCfg.DataDbCfg().DataDbUser,
-		tstCfg.DataDbCfg().DataDbPass, tstCfg.GeneralCfg().DBDataEncoding,
-		tstCfg.DataDbCfg().DataDbSentinelName, tstCfg.DataDbCfg().Items)
+func durInternalRater(cd *engine.CallDescriptorWithAPIOpts) (time.Duration, error) {
+	dbConn, err := engine.NewDataDBConn(tstCfg.DataDbCfg().Type,
+		tstCfg.DataDbCfg().Host, tstCfg.DataDbCfg().Port,
+		tstCfg.DataDbCfg().Name, tstCfg.DataDbCfg().User,
+		tstCfg.DataDbCfg().Password, tstCfg.GeneralCfg().DBDataEncoding,
+		tstCfg.DataDbCfg().Opts, tstCfg.DataDbCfg().Items)
 	if err != nil {
-		return nilDuration, fmt.Errorf("Could not connect to data database: %s", err.Error())
+		return 0, fmt.Errorf("Could not connect to data database: %s", err.Error())
 	}
 	dm := engine.NewDataManager(dbConn, cgrConfig.CacheCfg(), nil) // for the momentn we use here "" for sentinelName
 	defer dm.DataDB().Close()
 	engine.SetDataStorage(dm)
-	if err := dm.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
-		return nilDuration, fmt.Errorf("Cache rating error: %s", err.Error())
+	if err := engine.LoadAllDataDBToCache(dm); err != nil {
+		return 0, fmt.Errorf("Cache rating error: %s", err.Error())
 	}
 	log.Printf("Runnning %d cycles...", *runs)
 	var result *engine.CallCost
 	start := time.Now()
 	for i := 0; i < *runs; i++ {
 		result, err = cd.GetCost()
+		if err != nil {
+			return 0, err
+		}
 		if *memprofile != "" {
 			runtime.MemProfileRate = 1
 			runtime.GC()
@@ -113,7 +141,7 @@ func durInternalRater(cd *engine.CallDescriptorWithArgDispatcher) (time.Duration
 	return time.Since(start), nil
 }
 
-func durRemoteRater(cd *engine.CallDescriptorWithArgDispatcher) (time.Duration, error) {
+func durRemoteRater(cd *engine.CallDescriptorWithAPIOpts) (time.Duration, error) {
 	result := engine.CallCost{}
 	var client *rpc.Client
 	var err error
@@ -124,13 +152,13 @@ func durRemoteRater(cd *engine.CallDescriptorWithArgDispatcher) (time.Duration, 
 	}
 
 	if err != nil {
-		return nilDuration, fmt.Errorf("Could not connect to engine: %s", err.Error())
+		return 0, fmt.Errorf("Could not connect to engine: %s", err.Error())
 	}
 	defer client.Close()
 	start := time.Now()
-	if *parallel > 0 {
+	if *cps > 0 {
 		// var divCall *rpc.Call
-		var sem = make(chan int, *parallel)
+		var sem = make(chan int, *cps)
 		var finish = make(chan int)
 		for i := 0; i < *runs; i++ {
 			go func() {
@@ -173,29 +201,56 @@ func main() {
 		}
 	}
 
-	if *datadbType != cgrConfig.DataDbCfg().DataDbType {
-		tstCfg.DataDbCfg().DataDbType = *datadbType
+	if *datadbType != cgrConfig.DataDbCfg().Type {
+		tstCfg.DataDbCfg().Type = *datadbType
 	}
-	if *datadbHost != cgrConfig.DataDbCfg().DataDbHost {
-		tstCfg.DataDbCfg().DataDbHost = *datadbHost
+	if *datadbHost != cgrConfig.DataDbCfg().Host {
+		tstCfg.DataDbCfg().Host = *datadbHost
 	}
-	if *datadbPort != cgrConfig.DataDbCfg().DataDbPort {
-		tstCfg.DataDbCfg().DataDbPort = *datadbPort
+	if *datadbPort != cgrConfig.DataDbCfg().Port {
+		tstCfg.DataDbCfg().Port = *datadbPort
 	}
-	if *datadbName != cgrConfig.DataDbCfg().DataDbName {
-		tstCfg.DataDbCfg().DataDbName = *datadbName
+	if *datadbName != cgrConfig.DataDbCfg().Name {
+		tstCfg.DataDbCfg().Name = *datadbName
 	}
-	if *datadbUser != cgrConfig.DataDbCfg().DataDbUser {
-		tstCfg.DataDbCfg().DataDbUser = *datadbUser
+	if *datadbUser != cgrConfig.DataDbCfg().User {
+		tstCfg.DataDbCfg().User = *datadbUser
 	}
-	if *datadbPass != cgrConfig.DataDbCfg().DataDbPass {
-		tstCfg.DataDbCfg().DataDbPass = *datadbPass
+	if *datadbPass != cgrConfig.DataDbCfg().Password {
+		tstCfg.DataDbCfg().Password = *datadbPass
 	}
 	if *dbdataEncoding != "" {
 		tstCfg.GeneralCfg().DBDataEncoding = *dbdataEncoding
 	}
-	if *redisSentinel != "" {
-		tstCfg.DataDbCfg().DataDbSentinelName = *redisSentinel
+	if *dbRedisMaxConns != cgrConfig.DataDbCfg().Opts.RedisMaxConns {
+		tstCfg.DataDbCfg().Opts.RedisMaxConns = *dbRedisMaxConns
+	}
+	if *dbRedisConnectAttempts != cgrConfig.DataDbCfg().Opts.RedisConnectAttempts {
+		tstCfg.DataDbCfg().Opts.RedisConnectAttempts = *dbRedisConnectAttempts
+	}
+	if *redisSentinel != cgrConfig.DataDbCfg().Opts.RedisSentinel {
+		tstCfg.DataDbCfg().Opts.RedisSentinel = *redisSentinel
+	}
+	if *dbRedisCluster != cgrConfig.DataDbCfg().Opts.RedisCluster {
+		tstCfg.DataDbCfg().Opts.RedisCluster = *dbRedisCluster
+	}
+	if *dbRedisClusterSync != cgrConfig.DataDbCfg().Opts.RedisClusterSync {
+		tstCfg.DataDbCfg().Opts.RedisClusterSync = *dbRedisClusterSync
+	}
+	if *dbRedisClusterDownDelay != cgrConfig.DataDbCfg().Opts.RedisClusterOndownDelay {
+		tstCfg.DataDbCfg().Opts.RedisClusterOndownDelay = *dbRedisClusterDownDelay
+	}
+	if *dbRedisConnectTimeout != cgrConfig.DataDbCfg().Opts.RedisConnectTimeout {
+		tstCfg.DataDbCfg().Opts.RedisConnectTimeout = *dbRedisConnectTimeout
+	}
+	if *dbRedisReadTimeout != cgrConfig.DataDbCfg().Opts.RedisReadTimeout {
+		tstCfg.DataDbCfg().Opts.RedisReadTimeout = *dbRedisReadTimeout
+	}
+	if *dbRedisWriteTimeout != cgrConfig.DataDbCfg().Opts.RedisWriteTimeout {
+		tstCfg.DataDbCfg().Opts.RedisWriteTimeout = *dbRedisWriteTimeout
+	}
+	if *dbQueryTimeout != cgrConfig.DataDbCfg().Opts.MongoQueryTimeout {
+		tstCfg.DataDbCfg().Opts.MongoQueryTimeout = *dbQueryTimeout
 	}
 
 	if *cpuprofile != "" {
@@ -208,7 +263,7 @@ func main() {
 	}
 	if *fPath != "" {
 		frt, err := NewFileReaderTester(*fPath, *raterAddress,
-			*parallel, *runs, []byte(*reqSep))
+			*cps, *runs, []byte(*reqSep))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -218,32 +273,65 @@ func main() {
 		return
 	}
 
-	var timeparsed time.Duration
-	var err error
-	tstart := time.Now()
-	timeparsed, err = utils.ParseDurationWithNanosecs(*usage)
-	tend := tstart.Add(timeparsed)
-	cd := &engine.CallDescriptorWithArgDispatcher{
-		CallDescriptor: &engine.CallDescriptor{
-			TimeStart:     tstart,
-			TimeEnd:       tend,
-			DurationIndex: 60 * time.Second,
-			ToR:           *tor,
-			Category:      *category,
-			Tenant:        *tenant,
-			Subject:       *subject,
-			Destination:   *destination,
-		},
+	switch *exec {
+	default: // unsupported task
+		log.Fatalf("task <%s> is not a supported tester task", *exec)
+		return
+	case utils.MetaSessionS:
+		digitMin := int64(math.Pow10(*digits - 1))
+		digitMax := int64(math.Pow10(*digits)) - 1
+		if *verbose {
+			log.Printf("Digit range: <%v - %v>", digitMin, digitMax)
+		}
+		var wg sync.WaitGroup
+		rplyNr := 0
+		for i := 0; i < *cps; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := callSessions(digitMin, digitMax); err != nil {
+					log.Fatal(err.Error())
+				}
+				replyCntMux.Lock()
+				rplyNr++
+				replyCntMux.Unlock()
+
+			}()
+		}
+		wg.Wait()
+		log.Printf("Number of successful calls: %v", rplyNr)
+	case utils.MetaCost:
+		var timeparsed time.Duration
+		var err error
+		tstart := time.Now()
+		timeparsed, err = utils.ParseDurationWithNanosecs(*usage)
+		if err != nil {
+			return
+		}
+		tend := tstart.Add(timeparsed)
+		cd := &engine.CallDescriptorWithAPIOpts{
+			CallDescriptor: &engine.CallDescriptor{
+				TimeStart:     tstart,
+				TimeEnd:       tend,
+				DurationIndex: 60 * time.Second,
+				ToR:           *tor,
+				Category:      *category,
+				Tenant:        *tenant,
+				Subject:       *subject,
+				Destination:   *destination,
+			},
+		}
+		var duration time.Duration
+		if len(*raterAddress) == 0 {
+			duration, err = durInternalRater(cd)
+		} else {
+			duration, err = durRemoteRater(cd)
+		}
+		if err != nil {
+			log.Fatal(err.Error())
+		} else {
+			log.Printf("Elapsed: %s resulted: %f req/s.", duration, float64(*runs)/duration.Seconds())
+		}
 	}
-	var duration time.Duration
-	if len(*raterAddress) == 0 {
-		duration, err = durInternalRater(cd)
-	} else {
-		duration, err = durRemoteRater(cd)
-	}
-	if err != nil {
-		log.Fatal(err.Error())
-	} else {
-		log.Printf("Elapsed: %s resulted: %f req/s.", duration, float64(*runs)/duration.Seconds())
-	}
+
 }

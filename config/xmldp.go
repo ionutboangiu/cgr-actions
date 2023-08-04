@@ -20,7 +20,6 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 
@@ -28,14 +27,18 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-// NewXmlProvider constructs a utils.DataProvider
-func NewXmlProvider(req *xmlquery.Node, cdrPath utils.HierarchyPath) (dP utils.DataProvider) {
-	dP = &XmlProvider{req: req, cdrPath: cdrPath, cache: utils.MapStorage{}}
+// NewXMLProvider constructs a utils.DataProvider
+func NewXMLProvider(req *xmlquery.Node, cdrPath utils.HierarchyPath) (dP utils.DataProvider) {
+	dP = &XMLProvider{
+		req:     req,
+		cdrPath: cdrPath,
+		cache:   utils.MapStorage{},
+	}
 	return
 }
 
-// XmlProvider implements engine.utils.DataProvider so we can pass it to filters
-type XmlProvider struct {
+// XMLProvider implements engine.utils.DataProvider so we can pass it to filters
+type XMLProvider struct {
 	req     *xmlquery.Node
 	cdrPath utils.HierarchyPath //used to compute relative path
 	cache   utils.MapStorage
@@ -43,12 +46,12 @@ type XmlProvider struct {
 
 // String is part of engine.utils.DataProvider interface
 // when called, it will display the already parsed values out of cache
-func (xP *XmlProvider) String() string {
-	return utils.ToJSON(xP)
+func (xP *XMLProvider) String() string {
+	return utils.ToJSON(xP.req)
 }
 
 // FieldAsInterface is part of engine.utils.DataProvider interface
-func (xP *XmlProvider) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+func (xP *XMLProvider) FieldAsInterface(fldPath []string) (data any, err error) {
 	if len(fldPath) == 0 {
 		return nil, utils.ErrNotFound
 	}
@@ -82,18 +85,13 @@ func (xP *XmlProvider) FieldAsInterface(fldPath []string) (data interface{}, err
 }
 
 // FieldAsString is part of engine.utils.DataProvider interface
-func (xP *XmlProvider) FieldAsString(fldPath []string) (data string, err error) {
-	var valIface interface{}
+func (xP *XMLProvider) FieldAsString(fldPath []string) (data string, err error) {
+	var valIface any
 	valIface, err = xP.FieldAsInterface(fldPath)
 	if err != nil {
 		return
 	}
 	return utils.IfaceAsString(valIface), nil
-}
-
-// RemoteHost is part of engine.utils.DataProvider interface
-func (xP *XmlProvider) RemoteHost() net.Addr {
-	return utils.LocalAddr()
 }
 
 // ElementText will process the node to extract the elementName's text out of it (only first one found)

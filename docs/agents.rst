@@ -1,5 +1,4 @@
-.. _agents:
-
+.. _Agents:
 Agents
 ======
 

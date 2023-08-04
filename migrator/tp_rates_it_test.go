@@ -38,7 +38,7 @@ var (
 	tpRatesCfgIn    *config.CGRConfig
 	tpRatesCfgOut   *config.CGRConfig
 	tpRatesMigrator *Migrator
-	tpRates         []*utils.TPRate
+	tpRates         []*utils.TPRateRALs
 )
 
 var sTestsTpRatesIT = []func(t *testing.T){
@@ -71,20 +71,18 @@ func testTpRatesITConnect(t *testing.T) {
 	storDBIn, err := NewMigratorStorDB(tpRatesCfgIn.StorDbCfg().Type,
 		tpRatesCfgIn.StorDbCfg().Host, tpRatesCfgIn.StorDbCfg().Port,
 		tpRatesCfgIn.StorDbCfg().Name, tpRatesCfgIn.StorDbCfg().User,
-		tpRatesCfgIn.StorDbCfg().Password, tpRatesCfgIn.GeneralCfg().DBDataEncoding, tpRatesCfgIn.StorDbCfg().SSLMode,
-		tpRatesCfgIn.StorDbCfg().MaxOpenConns, tpRatesCfgIn.StorDbCfg().MaxIdleConns,
-		tpRatesCfgIn.StorDbCfg().ConnMaxLifetime, tpRatesCfgIn.StorDbCfg().StringIndexedFields,
-		tpRatesCfgIn.StorDbCfg().PrefixIndexedFields, tpRatesCfgIn.StorDbCfg().Items)
+		tpRatesCfgIn.StorDbCfg().Password, tpRatesCfgIn.GeneralCfg().DBDataEncoding,
+		tpRatesCfgIn.StorDbCfg().StringIndexedFields, tpRatesCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpRatesCfgIn.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	storDBOut, err := NewMigratorStorDB(tpRatesCfgOut.StorDbCfg().Type,
 		tpRatesCfgOut.StorDbCfg().Host, tpRatesCfgOut.StorDbCfg().Port,
 		tpRatesCfgOut.StorDbCfg().Name, tpRatesCfgOut.StorDbCfg().User,
-		tpRatesCfgOut.StorDbCfg().Password, tpRatesCfgOut.GeneralCfg().DBDataEncoding, tpRatesCfgIn.StorDbCfg().SSLMode,
-		tpRatesCfgIn.StorDbCfg().MaxOpenConns, tpRatesCfgIn.StorDbCfg().MaxIdleConns,
-		tpRatesCfgIn.StorDbCfg().ConnMaxLifetime, tpRatesCfgIn.StorDbCfg().StringIndexedFields,
-		tpRatesCfgIn.StorDbCfg().PrefixIndexedFields, tpRatesCfgOut.StorDbCfg().Items)
+		tpRatesCfgOut.StorDbCfg().Password, tpRatesCfgOut.GeneralCfg().DBDataEncoding,
+		tpRatesCfgIn.StorDbCfg().StringIndexedFields, tpRatesCfgIn.StorDbCfg().PrefixIndexedFields,
+		tpRatesCfgOut.StorDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -107,7 +105,7 @@ func testTpRatesITFlush(t *testing.T) {
 }
 
 func testTpRatesITPopulate(t *testing.T) {
-	tpRates = []*utils.TPRate{
+	tpRates = []*utils.TPRateRALs{
 		{
 			TPid: "TPidTpRate",
 			ID:   "RT_FS_USERS",
@@ -133,7 +131,7 @@ func testTpRatesITPopulate(t *testing.T) {
 		t.Error("Error when setting TpRate ", err.Error())
 	}
 	currentVersion := engine.CurrentStorDBVersions()
-	err := tpRatesMigrator.storDBOut.StorDB().SetVersions(currentVersion, false)
+	err := tpRatesMigrator.storDBIn.StorDB().SetVersions(currentVersion, false)
 	if err != nil {
 		t.Error("Error when setting version for TpRate ", err.Error())
 	}

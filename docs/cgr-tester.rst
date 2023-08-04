@@ -41,8 +41,16 @@ Command line stress testing tool configurable via command line arguments.
     	run n requests in parallel
   -rater_address string
     	Rater address for remote tests. Empty for internal rater.
-  -redis_sentinel string
+  -redisSentinel string
     	The name of redis sentinel
+  -redisCluster bool
+    	Is the redis datadb a cluster
+  -cluster_sync string
+    	The sync interval for the redis cluster
+  -cluster_ondown_delay string
+    	The delay before executing the commands if thredis cluster is in the CLUSTERDOWN state
+  -mongoQueryTimeout string
+    	The timeout for queries
   -req_separator string
     	separator for requests in file (default "\n\n")
   -runs int

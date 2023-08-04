@@ -26,13 +26,13 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-var sMap = map[string]interface{}{
+var sMap = map[string]any{
 	"test1": nil,
 	"test2": 42,
 	"test3": 42.3,
 	"test4": true,
 	"test5": "test",
-	"test6": time.Duration(10 * time.Second),
+	"test6": 10 * time.Second,
 	"test7": "42s",
 	"test8": time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC),
 	"test9": "2009-11-10T23:00:00Z",
@@ -92,13 +92,6 @@ func TestSafEventFieldAsString(t *testing.T) {
 	}
 }
 
-func TestSafEventRemoteHost(t *testing.T) {
-	data := utils.DataProvider(safEv)
-	if rply, expected := data.RemoteHost(), utils.LocalAddr(); !reflect.DeepEqual(expected, rply) {
-		t.Errorf("Expecting %+v, received: %+v", expected, rply)
-	}
-}
-
 func TestSafEventClone(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		t.Run("clone", func(t *testing.T) {
@@ -129,7 +122,7 @@ func TestSafEventString(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		t.Run("string", func(t *testing.T) {
 			t.Parallel()
-			se.String()
+			_ = se.String()
 		})
 		t.Run("remove", func(t *testing.T) {
 			t.Parallel()
@@ -177,7 +170,7 @@ func TestSafEventGet(t *testing.T) {
 	}
 	safEv.Remove("test4")
 	if rply, has := safEv.Get("test4"); has {
-		t.Errorf("Expecting 'test4' to not be a field, recived: %+v", rply)
+		t.Errorf("Expecting 'test4' to not be a field, received: %+v", rply)
 	}
 	safEv.Set("test4", false)
 	if rply, has := safEv.Get("test4"); !has {
@@ -210,7 +203,7 @@ func TestSafEventGetIgnoreErrors(t *testing.T) {
 	}
 	safEv.Remove("test4")
 	if rply := safEv.GetIgnoreErrors("test4"); rply != nil {
-		t.Errorf("Expecting: null, recived: %+v", rply)
+		t.Errorf("Expecting: null, received: %+v", rply)
 	}
 	safEv.Set("test4", false)
 	if rply := safEv.GetIgnoreErrors("test4"); rply != false {
@@ -241,7 +234,7 @@ func TestSafEventGetString(t *testing.T) {
 	}
 	safEv.Remove("test2")
 	if _, err := safEv.GetString("test2"); err != utils.ErrNotFound {
-		t.Errorf("Expecting: %+v ,recived: %+v", utils.ErrNotFound, err)
+		t.Errorf("Expecting: %+v ,received: %+v", utils.ErrNotFound, err)
 	}
 	safEv.Set("test2", 42.3)
 	if rply, err := safEv.GetString("test2"); err != nil {
@@ -274,7 +267,7 @@ func TestSafEventGetStringIgnoreErrors(t *testing.T) {
 	}
 	safEv.Remove("test2")
 	if rply := safEv.GetStringIgnoreErrors("test2"); rply != "" {
-		t.Errorf("Expecting: ,recived: %+v", err)
+		t.Errorf("Expecting: ,received: %+v", err)
 	}
 	safEv.Set("test2", 42.3)
 	if rply := safEv.GetStringIgnoreErrors("test2"); rply != "42.3" {
@@ -296,7 +289,7 @@ func TestSafEventGetDuration(t *testing.T) {
 		})
 		t.Run("set", func(t *testing.T) {
 			t.Parallel()
-			safEv.Set("test6", time.Duration(10*time.Second))
+			safEv.Set("test6", 10*time.Second)
 		})
 		t.Run("remove", func(t *testing.T) {
 			t.Parallel()
@@ -305,19 +298,19 @@ func TestSafEventGetDuration(t *testing.T) {
 	}
 	safEv.Remove("test7")
 	if _, err := safEv.GetDuration("test7"); err != utils.ErrNotFound {
-		t.Errorf("Expecting: %+v ,recived: %+v", utils.ErrNotFound, err)
+		t.Errorf("Expecting: %+v ,received: %+v", utils.ErrNotFound, err)
 	}
 	if rply, err := safEv.GetDuration("test5"); err == nil {
-		t.Errorf("Expecting: error,recived: %+v", rply)
+		t.Errorf("Expecting: error,received: %+v", rply)
 	}
 	safEv.Set("test7", "42s")
-	expected := time.Duration(42 * time.Second)
+	expected := 42 * time.Second
 	if rply, err := safEv.GetDuration("test7"); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
-	expected = time.Duration(10 * time.Second)
+	expected = 10 * time.Second
 	safEv.Set("test6", expected)
 	if rply, err := safEv.GetDuration("test6"); err != nil {
 		t.Error(err)
@@ -334,7 +327,7 @@ func TestSafEventGetDurationIgnoreErrors(t *testing.T) {
 		})
 		t.Run("set", func(t *testing.T) {
 			t.Parallel()
-			safEv.Set("test6", time.Duration(10*time.Second))
+			safEv.Set("test6", 10*time.Second)
 		})
 		t.Run("remove", func(t *testing.T) {
 			t.Parallel()
@@ -342,15 +335,15 @@ func TestSafEventGetDurationIgnoreErrors(t *testing.T) {
 		})
 	}
 	safEv.Remove("test7")
-	if rply := safEv.GetDurationIgnoreErrors("test7"); rply != time.Duration(0) {
-		t.Errorf("Expecting: %+v ,recived: %+v", time.Duration(0), rply)
+	if rply := safEv.GetDurationIgnoreErrors("test7"); rply != 0 {
+		t.Errorf("Expecting: %+v ,received: %+v", 0, rply)
 	}
 	safEv.Set("test7", "42s")
-	expected := time.Duration(42 * time.Second)
+	expected := 42 * time.Second
 	if rply := safEv.GetDurationIgnoreErrors("test7"); !reflect.DeepEqual(expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
-	expected = time.Duration(10 * time.Second)
+	expected = 10 * time.Second
 	safEv.Set("test6", expected)
 	if rply := safEv.GetDurationIgnoreErrors("test6"); !reflect.DeepEqual(expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
@@ -367,7 +360,7 @@ func TestSafEventGetDurationPtr(t *testing.T) {
 		})
 		t.Run("set", func(t *testing.T) {
 			t.Parallel()
-			safEv.Set("test6", time.Duration(10*time.Second))
+			safEv.Set("test6", 10*time.Second)
 		})
 		t.Run("remove", func(t *testing.T) {
 			t.Parallel()
@@ -376,19 +369,19 @@ func TestSafEventGetDurationPtr(t *testing.T) {
 	}
 	safEv.Remove("test7")
 	if _, err := safEv.GetDurationPtr("test7"); err != utils.ErrNotFound {
-		t.Errorf("Expecting: %+v ,recived: %+v", utils.ErrNotFound, err)
+		t.Errorf("Expecting: %+v ,received: %+v", utils.ErrNotFound, err)
 	}
 	if rply, err := safEv.GetDurationPtr("test5"); err == nil {
-		t.Errorf("Expecting: error,recived: %+v", rply)
+		t.Errorf("Expecting: error,received: %+v", rply)
 	}
 	safEv.Set("test7", "42s")
-	expected := time.Duration(42 * time.Second)
+	expected := 42 * time.Second
 	if rply, err := safEv.GetDurationPtr("test7"); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(&expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
-	expected = time.Duration(10 * time.Second)
+	expected = 10 * time.Second
 	safEv.Set("test6", expected)
 	if rply, err := safEv.GetDurationPtr("test6"); err != nil {
 		t.Error(err)
@@ -398,7 +391,7 @@ func TestSafEventGetDurationPtr(t *testing.T) {
 }
 
 func TestSafEventGetDurationPtrOrDefault(t *testing.T) {
-	def := time.Duration(450)
+	def := 450 * time.Nanosecond
 	for i := 0; i < 10; i++ {
 		t.Run("getDurationPtrDef", func(t *testing.T) {
 			t.Parallel()
@@ -408,7 +401,7 @@ func TestSafEventGetDurationPtrOrDefault(t *testing.T) {
 		})
 		t.Run("set", func(t *testing.T) {
 			t.Parallel()
-			safEv.Set("test6", time.Duration(10*time.Second))
+			safEv.Set("test6", 10*time.Second)
 		})
 		t.Run("remove", func(t *testing.T) {
 			t.Parallel()
@@ -417,21 +410,21 @@ func TestSafEventGetDurationPtrOrDefault(t *testing.T) {
 	}
 	safEv.Remove("test7")
 	if rply, err := safEv.GetDurationPtrOrDefault("test7", &def); err != nil {
-		t.Errorf("Expecting: %+v ,recived: %+v", utils.ErrNotFound, err)
+		t.Errorf("Expecting: %+v ,received: %+v", utils.ErrNotFound, err)
 	} else if !reflect.DeepEqual(&def, rply) {
 		t.Errorf("Expecting %+v, received: %+v", def, rply)
 	}
 	if rply, err := safEv.GetDurationPtrOrDefault("test5", &def); err == nil {
-		t.Errorf("Expecting: error,recived: %+v", rply)
+		t.Errorf("Expecting: error,received: %+v", rply)
 	}
 	safEv.Set("test7", "42s")
-	expected := time.Duration(42 * time.Second)
+	expected := 42 * time.Second
 	if rply, err := safEv.GetDurationPtrOrDefault("test7", &def); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(&expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
-	expected = time.Duration(10 * time.Second)
+	expected = 10 * time.Second
 	safEv.Set("test6", expected)
 	if rply, err := safEv.GetDurationPtrOrDefault("test6", &def); err != nil {
 		t.Error(err)
@@ -459,10 +452,10 @@ func TestSafEventGetTime(t *testing.T) {
 	}
 	safEv.Remove("test9")
 	if _, err := safEv.GetTime("test9", ""); err != utils.ErrNotFound {
-		t.Errorf("Expecting: %+v ,recived: %+v", utils.ErrNotFound, err)
+		t.Errorf("Expecting: %+v ,received: %+v", utils.ErrNotFound, err)
 	}
 	if rply, err := safEv.GetTime("test5", ""); err == nil {
-		t.Errorf("Expecting: error,recived: %+v", rply)
+		t.Errorf("Expecting: error,received: %+v", rply)
 	}
 	safEv.Set("test9", "2010-11-10T23:00:00Z")
 	expected := time.Date(2010, 11, 10, 23, 0, 0, 0, time.UTC)
@@ -530,7 +523,7 @@ func TestSafEventGetSetString(t *testing.T) {
 	if rply, err := safEv.GetSetString("test2", expected); err != nil {
 		t.Error(err)
 	} else if rply != expected {
-		t.Errorf("Expecting: %+v ,recived: %+v", expected, rply)
+		t.Errorf("Expecting: %+v ,received: %+v", expected, rply)
 	}
 	safEv.Set("test2", 42.3)
 	if rply, err := safEv.GetSetString("test2", ""); err != nil {
@@ -631,15 +624,12 @@ func TestSafEventAsCDR(t *testing.T) {
 	} else if !reflect.DeepEqual(expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
-	cfg, err := config.NewDefaultCGRConfig()
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
+	cfg := config.NewDefaultCGRConfig()
 	expected = &CDR{
 		CGRID:       "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 		Cost:        -1.0,
 		RunID:       utils.MetaDefault,
-		ToR:         utils.VOICE,
+		ToR:         utils.MetaVoice,
 		RequestType: cfg.GeneralCfg().DefaultReqType,
 		Tenant:      cfg.GeneralCfg().DefaultTenant,
 		Category:    cfg.GeneralCfg().DefaultCategory,
@@ -702,7 +692,7 @@ func TestSafEventAsCDR(t *testing.T) {
 			"ExtraField2": "extra",
 		},
 		RunID:       utils.MetaDefault,
-		ToR:         utils.VOICE,
+		ToR:         utils.MetaVoice,
 		RequestType: cfg.GeneralCfg().DefaultReqType,
 		Tenant:      cfg.GeneralCfg().DefaultTenant,
 		Category:    cfg.GeneralCfg().DefaultCategory,
@@ -729,14 +719,14 @@ func TestSafEventAsCDR(t *testing.T) {
 		Source:     "1001",
 		CostSource: "1002",
 		PreRated:   true,
-		Usage:      time.Duration(42 * time.Second),
+		Usage:      42 * time.Second,
 		SetupTime:  time.Date(2009, 11, 10, 23, 0, 0, 0, time.UTC),
 		ExtraFields: map[string]string{
 			"ExtraField1": "5",
 			"ExtraField2": "extra",
 		},
 		RunID:       utils.MetaDefault,
-		ToR:         utils.VOICE,
+		ToR:         utils.MetaVoice,
 		RequestType: cfg.GeneralCfg().DefaultReqType,
 		Category:    cfg.GeneralCfg().DefaultCategory,
 	}
@@ -774,15 +764,15 @@ func TestSafEventGetDurationPtrIgnoreErrors(t *testing.T) {
 	if rply := safEv.GetDurationPtrIgnoreErrors("test"); rply != nil {
 		t.Errorf("Expected: %+v, received: %+v", nil, rply)
 	}
-	// expected := utils.DurationPointer(time.Duration(10 * time.Second))
+	// expected := utils.DurationPointer(10*Second)
 	// if rply := safEv.GetDurationPtrIgnoreErrors("test6"); rply == nil || *rply != *expected {
 	// 	t.Errorf("Expected: %+v, received: %+v", expected, rply)
 	// }
-	expected := utils.DurationPointer(time.Duration(42 * time.Second))
+	expected := utils.DurationPointer(42 * time.Second)
 	if rply := safEv.GetDurationPtrIgnoreErrors("test7"); rply == nil || *rply != *expected {
 		t.Errorf("Expected: %+v, received: %+v", expected, rply)
 	}
-	expected = utils.DurationPointer(time.Duration(42))
+	expected = utils.DurationPointer(42)
 	if rply := safEv.GetDurationPtrIgnoreErrors("test2"); rply == nil || *rply != *expected {
 		t.Errorf("Expected: %+v, received: %+v", expected, rply)
 	}
@@ -790,18 +780,35 @@ func TestSafEventGetDurationPtrIgnoreErrors(t *testing.T) {
 
 func TestSafEventGetDurationOrDefault(t *testing.T) {
 	safEv.Remove("test7")
-	expected := time.Duration(10 * time.Second)
-	if rply, err := safEv.GetDurationOrDefault("test7", time.Duration(10*time.Second)); err != nil {
+	expected := 10 * time.Second
+	if rply, err := safEv.GetDurationOrDefault("test7", 10*time.Second); err != nil {
 		t.Error(err)
 	} else if rply != expected {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
 	safEv.Set("test7", "42s")
-	expected = time.Duration(42 * time.Second)
+	expected = 42 * time.Second
 	if rply, err := safEv.GetDurationOrDefault("test7", time.Second); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expected, rply) {
 		t.Errorf("Expecting %+v, received: %+v", expected, rply)
 	}
 
+}
+
+func TestSafEventAsCGREvent(t *testing.T) {
+	se := SafEvent{Me: MapEvent{
+		"ExtraField1": 5,
+		"Source":      1001,
+		"CostSource":  "1002",
+		"ExtraField2": "extra",
+		"SetupTime":   "2009-11-10T23:00:00Z",
+		"Usage":       "42s",
+		"PreRated":    "True",
+		"Cost":        "42.3",
+	}}
+
+	if cgrEv := se.AsCGREvent("cgrates.org"); reflect.DeepEqual(se.Me, cgrEv.Event) {
+		t.Errorf("expected %v,received %v", utils.ToJSON(se.Me), utils.ToJSON(cgrEv.Event))
+	}
 }

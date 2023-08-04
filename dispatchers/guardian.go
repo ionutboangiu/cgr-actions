@@ -25,76 +25,55 @@ import (
 )
 
 // GuardianSv1Ping interogates GuardianSv1 server responsible to process the event
-func (dS *DispatcherService) GuardianSv1Ping(args *utils.CGREventWithArgDispatcher,
+func (dS *DispatcherService) GuardianSv1Ping(args *utils.CGREvent,
 	reply *string) (err error) {
-	if args == nil || (args.CGREvent == nil && args.ArgDispatcher == nil) {
-		args = utils.NewCGREventWithArgDispatcher()
-	} else if args.CGREvent == nil {
-		args.CGREvent = new(utils.CGREvent)
+	if args == nil {
+		args = new(utils.CGREvent)
 	}
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.GuardianSv1Ping,
-			args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+		if err = dS.authorize(utils.GuardianSv1Ping, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaGuardian, routeID,
-		utils.GuardianSv1Ping, args, reply)
+	return dS.Dispatch(args, utils.MetaGuardian, utils.GuardianSv1Ping, args, reply)
 }
 
-// RemoteLock will lock a key from remote
-func (dS *DispatcherService) GuardianSv1RemoteLock(args AttrRemoteLockWithApiKey,
+// GuardianSv1RemoteLock will lock a key from remote
+func (dS *DispatcherService) GuardianSv1RemoteLock(args AttrRemoteLockWithAPIOpts,
 	reply *string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.TenantArg.Tenant != utils.EmptyString {
-		tnt = args.TenantArg.Tenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.GuardianSv1RemoteLock, tnt,
-			args.APIKey, utils.TimePointer(time.Now())); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tnt}, utils.MetaGuardian, routeID,
-		utils.GuardianSv1RemoteLock, args, reply)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaGuardian, utils.GuardianSv1RemoteLock, args, reply)
 }
 
-// RemoteUnlock will unlock a key from remote based on reference ID
-func (dS *DispatcherService) GuardianSv1RemoteUnlock(args AttrRemoteUnlockWithApiKey,
+// GuardianSv1RemoteUnlock will unlock a key from remote based on reference ID
+func (dS *DispatcherService) GuardianSv1RemoteUnlock(args AttrRemoteUnlockWithAPIOpts,
 	reply *[]string) (err error) {
 	tnt := dS.cfg.GeneralCfg().DefaultTenant
-	if args.TenantArg.Tenant != utils.EmptyString {
-		tnt = args.TenantArg.Tenant
+	if args.Tenant != utils.EmptyString {
+		tnt = args.Tenant
 	}
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
 		if err = dS.authorize(utils.GuardianSv1RemoteUnlock, tnt,
-			args.APIKey, utils.TimePointer(time.Now())); err != nil {
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tnt}, utils.MetaGuardian, routeID,
-		utils.GuardianSv1RemoteUnlock, args, reply)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tnt,
+		APIOpts: args.APIOpts,
+	}, utils.MetaGuardian, utils.GuardianSv1RemoteUnlock, args, reply)
 }

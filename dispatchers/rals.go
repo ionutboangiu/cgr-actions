@@ -19,49 +19,35 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package dispatchers
 
 import (
+	"time"
+
 	"github.com/cgrates/cgrates/utils"
 )
 
-func (dS *DispatcherService) RALsV1Ping(args *utils.CGREventWithArgDispatcher, rpl *string) (err error) {
-	if args == nil || (args.CGREvent == nil && args.ArgDispatcher == nil) {
-		args = utils.NewCGREventWithArgDispatcher()
-	} else if args.CGREvent == nil {
-		args.CGREvent = new(utils.CGREvent)
+func (dS *DispatcherService) RALsV1Ping(args *utils.CGREvent, rpl *string) (err error) {
+	if args == nil {
+		args = new(utils.CGREvent)
 	}
-	args.CGREvent.Tenant = utils.FirstNonEmpty(args.CGREvent.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
+	args.Tenant = utils.FirstNonEmpty(args.Tenant, dS.cfg.GeneralCfg().DefaultTenant)
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.RALsV1Ping, args.CGREvent.Tenant,
-			args.APIKey, args.CGREvent.Time); err != nil {
+		if err = dS.authorize(utils.RALsV1Ping, args.Tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), args.Time); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(args.CGREvent, utils.MetaRALs, routeID,
-		utils.RALsV1Ping, args, rpl)
+	return dS.Dispatch(args, utils.MetaRALs, utils.RALsV1Ping, args, rpl)
 }
 
 func (dS *DispatcherService) RALsV1GetRatingPlansCost(args *utils.RatingPlanCostArg, rpl *RatingPlanCost) (err error) {
 	tenant := dS.cfg.GeneralCfg().DefaultTenant
 	if len(dS.cfg.DispatcherSCfg().AttributeSConns) != 0 {
-		if args.ArgDispatcher == nil {
-			return utils.NewErrMandatoryIeMissing(utils.ArgDispatcherField)
-		}
-		if err = dS.authorize(utils.RALsV1GetRatingPlansCost,
-			tenant,
-			args.APIKey, &nowTime); err != nil {
+		if err = dS.authorize(utils.RALsV1GetRatingPlansCost, tenant,
+			utils.IfaceAsString(args.APIOpts[utils.OptsAPIKey]), utils.TimePointer(time.Now())); err != nil {
 			return
 		}
 	}
-	var routeID *string
-	if args.ArgDispatcher != nil {
-		routeID = args.ArgDispatcher.RouteID
-	}
-	return dS.Dispatch(&utils.CGREvent{Tenant: tenant}, utils.MetaRALs, routeID,
-		utils.RALsV1GetRatingPlansCost, args, rpl)
+	return dS.Dispatch(&utils.CGREvent{
+		Tenant:  tenant,
+		APIOpts: args.APIOpts,
+	}, utils.MetaRALs, utils.RALsV1GetRatingPlansCost, args, rpl)
 }

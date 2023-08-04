@@ -49,7 +49,7 @@ func (self *CmdGetAccounts) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdGetAccounts) RpcParams(reset bool) interface{} {
+func (self *CmdGetAccounts) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
 		self.rpcParams = &utils.AttrGetAccounts{}
 	}
@@ -60,13 +60,13 @@ func (self *CmdGetAccounts) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdGetAccounts) RpcResult() interface{} {
-	a := make([]engine.Account, 0)
+func (self *CmdGetAccounts) RpcResult() any {
+	a := make([]*engine.Account, 0)
 	return &a
 }
 
-func (self *CmdGetAccounts) GetFormatedResult(result interface{}) string {
-	return GetFormatedSliceResult(result, map[string]struct{}{
-		"MinSleep": {},
+func (self *CmdGetAccounts) GetFormatedResult(result any) string {
+	return GetFormatedSliceResult(result, utils.StringSet{
+		utils.MinSleep: {},
 	})
 }

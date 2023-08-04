@@ -25,14 +25,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/guardian"
 	"github.com/cgrates/cgrates/utils"
 )
 
 type Responder struct {
-	ExitChan              chan bool
+	FilterS               *FilterS
+	ShdChan               *utils.SyncedChan
 	Timeout               time.Duration
 	Timezone              string
 	MaxComputedUsage      map[string]time.Duration
@@ -54,7 +54,7 @@ func (rs *Responder) usageAllowed(tor string, reqUsage time.Duration) (allowed b
 	rs.maxComputedUsageMutex.RLock()
 	mcu, has := rs.MaxComputedUsage[tor]
 	if !has {
-		mcu = rs.MaxComputedUsage[utils.ANY]
+		mcu = rs.MaxComputedUsage[utils.MetaAny]
 	}
 	rs.maxComputedUsageMutex.RUnlock()
 	if reqUsage <= mcu {
@@ -66,9 +66,9 @@ func (rs *Responder) usageAllowed(tor string, reqUsage time.Duration) (allowed b
 /*
 RPC method that provides the external RPC interface for getting the rating information.
 */
-func (rs *Responder) GetCost(arg *CallDescriptorWithArgDispatcher, reply *CallCost) (err error) {
+func (rs *Responder) GetCost(arg *CallDescriptorWithAPIOpts, reply *CallCost) (err error) {
 	// RPC caching
-	if config.CgrConfig().CacheCfg()[utils.CacheRPCResponses].Limit != 0 {
+	if arg.CgrID != utils.EmptyString && config.CgrConfig().CacheCfg().Partitions[utils.CacheRPCResponses].Limit != 0 {
 		cacheKey := utils.ConcatenatedKey(utils.ResponderGetCost, arg.CgrID)
 		refID := guardian.Guardian.GuardIDs("",
 			config.CgrConfig().GeneralCfg().LockingTimeout, cacheKey) // RPC caching needs to be atomic
@@ -98,25 +98,31 @@ func (rs *Responder) GetCost(arg *CallDescriptorWithArgDispatcher, reply *CallCo
 	if !rs.usageAllowed(arg.ToR, arg.GetDuration()) {
 		return utils.ErrMaxUsageExceeded
 	}
-	r, e := guardian.Guardian.Guard(func() (interface{}, error) {
-		return arg.GetCost()
-	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ACCOUNT_PREFIX+arg.GetAccountKey())
-	if r != nil {
-		*reply = *r.(*CallCost)
+	var r *CallCost
+	guardian.Guardian.Guard(func() (_ error) {
+		r, err = arg.GetCost()
+		return
+	}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.AccountPrefix+arg.GetAccountKey())
+	if err != nil {
+		return
 	}
-	if e != nil {
-		return e
+	if r != nil {
+		*reply = *r
 	}
 	return
 }
 
-// GetCostOnRatingPlans is used by SupplierS to calculate the cost
+// GetCostOnRatingPlans is used by RouteS to calculate the cost
 // Receive a list of RatingPlans and pick the first without error
-func (rs *Responder) GetCostOnRatingPlans(arg *utils.GetCostOnRatingPlansArgs, reply *map[string]interface{}) (err error) {
+func (rs *Responder) GetCostOnRatingPlans(arg *utils.GetCostOnRatingPlansArgs, reply *map[string]any) (err error) {
+	tnt := arg.Tenant
+	if tnt == utils.EmptyString {
+		tnt = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
 	for _, rp := range arg.RatingPlanIDs { // loop through RatingPlans until we find one without errors
 		rPrfl := &RatingProfile{
-			Id: utils.ConcatenatedKey(utils.META_OUT,
-				arg.Tenant, utils.MetaTmp, arg.Subject),
+			Id: utils.ConcatenatedKey(utils.MetaOut,
+				tnt, utils.MetaTmp, arg.Subject),
 			RatingPlanActivations: RatingPlanActivations{
 				&RatingPlanActivation{
 					ActivationTime: arg.SetupTime,
@@ -124,29 +130,38 @@ func (rs *Responder) GetCostOnRatingPlans(arg *utils.GetCostOnRatingPlansArgs, r
 				},
 			},
 		}
-		// force cache set so it can be picked by calldescriptor for cost calculation
-		Cache.Set(utils.CacheRatingProfilesTmp, rPrfl.Id, rPrfl, nil,
-			true, utils.NonTransactional)
-		cd := &CallDescriptor{
-			Category:      utils.MetaTmp,
-			Tenant:        arg.Tenant,
-			Subject:       arg.Subject,
-			Account:       arg.Account,
-			Destination:   arg.Destination,
-			TimeStart:     arg.SetupTime,
-			TimeEnd:       arg.SetupTime.Add(arg.Usage),
-			DurationIndex: arg.Usage,
+		var cc *CallCost
+		if errGuard := guardian.Guardian.Guard(func() (errGuard error) { // prevent cache data concurrency
+			// force cache set so it can be picked by calldescriptor for cost calculation
+			if errGuard := Cache.Set(utils.CacheRatingProfilesTmp, rPrfl.Id, rPrfl, nil,
+				true, utils.NonTransactional); errGuard != nil {
+				return errGuard
+			}
+			cd := &CallDescriptor{
+				Category:      utils.MetaTmp,
+				Tenant:        tnt,
+				Subject:       arg.Subject,
+				Account:       arg.Account,
+				Destination:   arg.Destination,
+				TimeStart:     arg.SetupTime,
+				TimeEnd:       arg.SetupTime.Add(arg.Usage),
+				DurationIndex: arg.Usage,
+			}
+			cc, err = cd.GetCost()
+			return Cache.Remove(utils.CacheRatingProfilesTmp, rPrfl.Id,
+				true, utils.NonTransactional) // Remove here so we don't overload memory
+
+		}, config.CgrConfig().GeneralCfg().LockingTimeout, utils.ConcatenatedKey(utils.CacheRatingProfilesTmp, rPrfl.Id)); errGuard != nil {
+			return errGuard
 		}
-		cc, err := cd.GetCost()
-		Cache.Remove(utils.CacheRatingProfilesTmp, rPrfl.Id,
-			true, utils.NonTransactional) // Remove here so we don't overload memory
+
 		if err != nil {
 			if err != utils.ErrNotFound {
 				return err
 			}
 			continue
 		}
-		*reply = map[string]interface{}{
+		*reply = map[string]any{
 			utils.Cost:         cc.Cost,
 			utils.RatingPlanID: rp,
 		}
@@ -155,9 +170,12 @@ func (rs *Responder) GetCostOnRatingPlans(arg *utils.GetCostOnRatingPlansArgs, r
 	return
 }
 
-func (rs *Responder) Debit(arg *CallDescriptorWithArgDispatcher, reply *CallCost) (err error) {
+func (rs *Responder) Debit(arg *CallDescriptorWithAPIOpts, reply *CallCost) (err error) {
 	// RPC caching
-	if config.CgrConfig().CacheCfg()[utils.CacheRPCResponses].Limit != 0 {
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
+	if arg.CgrID != utils.EmptyString && config.CgrConfig().CacheCfg().Partitions[utils.CacheRPCResponses].Limit != 0 {
 		cacheKey := utils.ConcatenatedKey(utils.ResponderDebit, arg.CgrID)
 		refID := guardian.Guardian.GuardIDs("",
 			config.CgrConfig().GeneralCfg().LockingTimeout, cacheKey) // RPC caching needs to be atomic
@@ -184,7 +202,7 @@ func (rs *Responder) Debit(arg *CallDescriptorWithArgDispatcher, reply *CallCost
 		return
 	}
 	var r *CallCost
-	if r, err = arg.Debit(); err != nil {
+	if r, err = arg.Debit(rs.FilterS); err != nil {
 		return
 	}
 	if r != nil {
@@ -193,9 +211,12 @@ func (rs *Responder) Debit(arg *CallDescriptorWithArgDispatcher, reply *CallCost
 	return
 }
 
-func (rs *Responder) MaxDebit(arg *CallDescriptorWithArgDispatcher, reply *CallCost) (err error) {
+func (rs *Responder) MaxDebit(arg *CallDescriptorWithAPIOpts, reply *CallCost) (err error) {
 	// RPC caching
-	if config.CgrConfig().CacheCfg()[utils.CacheRPCResponses].Limit != 0 {
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
+	if arg.CgrID != utils.EmptyString && config.CgrConfig().CacheCfg().Partitions[utils.CacheRPCResponses].Limit != 0 {
 		cacheKey := utils.ConcatenatedKey(utils.ResponderMaxDebit, arg.CgrID)
 		refID := guardian.Guardian.GuardIDs("",
 			config.CgrConfig().GeneralCfg().LockingTimeout, cacheKey) // RPC caching needs to be atomic
@@ -221,7 +242,7 @@ func (rs *Responder) MaxDebit(arg *CallDescriptorWithArgDispatcher, reply *CallC
 		return
 	}
 	var r *CallCost
-	if r, err = arg.MaxDebit(); err != nil {
+	if r, err = arg.MaxDebit(rs.FilterS); err != nil {
 		return
 	}
 	if r != nil {
@@ -230,9 +251,12 @@ func (rs *Responder) MaxDebit(arg *CallDescriptorWithArgDispatcher, reply *CallC
 	return
 }
 
-func (rs *Responder) RefundIncrements(arg *CallDescriptorWithArgDispatcher, reply *Account) (err error) {
+func (rs *Responder) RefundIncrements(arg *CallDescriptorWithAPIOpts, reply *Account) (err error) {
 	// RPC caching
-	if config.CgrConfig().CacheCfg()[utils.CacheRPCResponses].Limit != 0 {
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
+	if arg.CgrID != utils.EmptyString && config.CgrConfig().CacheCfg().Partitions[utils.CacheRPCResponses].Limit != 0 {
 		cacheKey := utils.ConcatenatedKey(utils.ResponderRefundIncrements, arg.CgrID)
 		refID := guardian.Guardian.GuardIDs("",
 			config.CgrConfig().GeneralCfg().LockingTimeout, cacheKey) // RPC caching needs to be atomic
@@ -259,7 +283,7 @@ func (rs *Responder) RefundIncrements(arg *CallDescriptorWithArgDispatcher, repl
 		return
 	}
 	var acnt *Account
-	if acnt, err = arg.RefundIncrements(); err != nil {
+	if acnt, err = arg.RefundIncrements(rs.FilterS); err != nil {
 		return
 	}
 	if acnt != nil {
@@ -268,9 +292,12 @@ func (rs *Responder) RefundIncrements(arg *CallDescriptorWithArgDispatcher, repl
 	return
 }
 
-func (rs *Responder) RefundRounding(arg *CallDescriptorWithArgDispatcher, reply *Account) (err error) {
+func (rs *Responder) RefundRounding(arg *CallDescriptorWithAPIOpts, reply *Account) (err error) {
 	// RPC caching
-	if config.CgrConfig().CacheCfg()[utils.CacheRPCResponses].Limit != 0 {
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
+	if arg.CgrID != utils.EmptyString && config.CgrConfig().CacheCfg().Partitions[utils.CacheRPCResponses].Limit != 0 {
 		cacheKey := utils.ConcatenatedKey(utils.ResponderRefundRounding, arg.CgrID)
 		refID := guardian.Guardian.GuardIDs("",
 			config.CgrConfig().GeneralCfg().LockingTimeout, cacheKey) // RPC caching needs to be atomic
@@ -296,30 +323,38 @@ func (rs *Responder) RefundRounding(arg *CallDescriptorWithArgDispatcher, reply 
 		return
 	}
 	var acc *Account
-	if acc, err = arg.RefundRounding(); err != nil || acc == nil {
+	if acc, err = arg.RefundRounding(rs.FilterS); err != nil || acc == nil {
 		return
 	}
 	*reply = *acc
 	return
 }
 
-func (rs *Responder) GetMaxSessionTime(arg *CallDescriptorWithArgDispatcher, reply *time.Duration) (err error) {
-	if arg.Subject == "" {
+func (rs *Responder) GetMaxSessionTime(arg *CallDescriptorWithAPIOpts, reply *time.Duration) (err error) {
+	if arg.Tenant == utils.EmptyString {
+		arg.Tenant = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
+	if arg.Subject == utils.EmptyString {
 		arg.Subject = arg.Account
 	}
 	if !rs.usageAllowed(arg.ToR, arg.GetDuration()) {
 		return utils.ErrMaxUsageExceeded
 	}
-	*reply, err = arg.GetMaxSessionDuration()
+	*reply, err = arg.GetMaxSessionDuration(rs.FilterS)
 	return
 }
 
 func (rs *Responder) GetMaxSessionTimeOnAccounts(arg *utils.GetMaxSessionTimeOnAccountsArgs,
-	reply *map[string]interface{}) (err error) {
+	reply *map[string]any) (err error) {
+	var maxDur time.Duration
+	tnt := arg.Tenant
+	if tnt == utils.EmptyString {
+		tnt = config.CgrConfig().GeneralCfg().DefaultTenant
+	}
 	for _, anctID := range arg.AccountIDs {
 		cd := &CallDescriptor{
-			Category:      utils.MetaSuppliers,
-			Tenant:        arg.Tenant,
+			Category:      utils.MetaRoutes,
+			Tenant:        tnt,
 			Subject:       arg.Subject,
 			Account:       anctID,
 			Destination:   arg.Destination,
@@ -327,14 +362,15 @@ func (rs *Responder) GetMaxSessionTimeOnAccounts(arg *utils.GetMaxSessionTimeOnA
 			TimeEnd:       arg.SetupTime.Add(arg.Usage),
 			DurationIndex: arg.Usage,
 		}
-		if maxDur, err := cd.GetMaxSessionDuration(); err != nil {
+		if maxDur, err = cd.GetMaxSessionDuration(rs.FilterS); err != nil {
 			utils.Logger.Warning(
 				fmt.Sprintf("<%s> ignoring cost for account: %s, err: %s",
 					utils.Responder, anctID, err.Error()))
-		} else if maxDur >= arg.Usage {
-			*reply = map[string]interface{}{
-				utils.Cost:    0.0,
-				utils.Account: anctID,
+		} else {
+			*reply = map[string]any{
+				utils.CapMaxUsage:  maxDur,
+				utils.Cost:         0.0,
+				utils.AccountField: anctID,
 			}
 			return nil
 		}
@@ -342,21 +378,21 @@ func (rs *Responder) GetMaxSessionTimeOnAccounts(arg *utils.GetMaxSessionTimeOnA
 	return
 }
 
-func (rs *Responder) Shutdown(arg *utils.TenantWithArgDispatcher, reply *string) (err error) {
+func (rs *Responder) Shutdown(arg *utils.TenantWithAPIOpts, reply *string) (err error) {
 	dm.DataDB().Close()
 	cdrStorage.Close()
-	defer func() { rs.ExitChan <- true }()
+	defer rs.ShdChan.CloseOnce()
 	*reply = "Done!"
 	return
 }
 
 // Ping used to detreminate if component is active
-func (chSv1 *Responder) Ping(ign *utils.CGREventWithArgDispatcher, reply *string) error {
+func (chSv1 *Responder) Ping(ign *utils.CGREvent, reply *string) error {
 	*reply = utils.Pong
 	return nil
 }
 
-func (rs *Responder) Call(ctx *context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+func (rs *Responder) Call(serviceMethod string, args any, reply any) error {
 	parts := strings.Split(serviceMethod, ".")
 	if len(parts) != 2 {
 		return utils.ErrNotImplemented

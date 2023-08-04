@@ -21,7 +21,6 @@ package migrator
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
@@ -34,8 +33,6 @@ type v1ActionPlan struct {
 	Timing     *engine.RateInterval
 	Weight     float64
 	ActionsId  string
-	actions    v1Actions
-	stCache    time.Time // cached time of the next start
 }
 
 type v1ActionPlans []*v1ActionPlan
@@ -44,66 +41,57 @@ func (at *v1ActionPlan) IsASAP() bool {
 	if at.Timing == nil {
 		return false
 	}
-	return at.Timing.Timing.StartTime == utils.ASAP
+	return at.Timing.Timing.StartTime == utils.MetaASAP
 }
 
 func (m *Migrator) migrateCurrentActionPlans() (err error) {
 	var ids []string
-	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ACTION_PLAN_PREFIX)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ActionPlanPrefix)
 	if err != nil {
-		return err
+		return
 	}
 	for _, id := range ids {
-		idg := strings.TrimPrefix(id, utils.ACTION_PLAN_PREFIX)
-		acts, err := m.dmIN.DataManager().GetActionPlan(idg, false, false, utils.NonTransactional)
-		if err != nil {
-			return err
+		idg := strings.TrimPrefix(id, utils.ActionPlanPrefix)
+		var acts *engine.ActionPlan
+		if acts, err = m.dmIN.DataManager().GetActionPlan(idg, false, false, utils.NonTransactional); err != nil {
+			return
 		}
 		if acts == nil || m.dryRun {
 			continue
 		}
-		if err := m.dmOut.DataManager().SetActionPlan(idg, acts, true, utils.NonTransactional); err != nil {
-			return err
+		if err = m.dmOut.DataManager().SetActionPlan(idg, acts, true, utils.NonTransactional); err != nil {
+			return
 		}
-		if err := m.dmIN.DataManager().RemoveActionPlan(idg, utils.NonTransactional); err != nil {
-			return err
+		if err = m.dmIN.DataManager().RemoveActionPlan(idg, utils.NonTransactional); err != nil {
+			return
 		}
-		m.stats[utils.ActionPlans] += 1
+		m.stats[utils.ActionPlans]++
 	}
 	return
 }
-
-func (m *Migrator) migrateV1ActionPlans() (err error) {
-	var v1APs *v1ActionPlans
+func (m *Migrator) removeV1ActionPlans() (err error) {
+	var v1 *v1ActionPlans
 	for {
-		v1APs, err = m.dmIN.getV1ActionPlans()
-		if err != nil && err != utils.ErrNoMoreData {
-			return err
+		if v1, err = m.dmIN.getV1ActionPlans(); err != nil && err != utils.ErrNoMoreData {
+			return
 		}
-		if err == utils.ErrNoMoreData {
-			break
+		if v1 == nil {
+			return nil
 		}
-		if *v1APs == nil || m.dryRun {
-			continue
-		}
-		for _, v1ap := range *v1APs {
-			ap := v1ap.AsActionPlan()
-			if err = m.dmOut.DataManager().SetActionPlan(ap.Id, ap, true, utils.NonTransactional); err != nil {
-				return err
-			}
-			m.stats[utils.ActionPlans] += 1
+		if err = m.dmIN.remV1ActionPlans(v1); err != nil {
+			return
 		}
 	}
-	if m.dryRun {
-		return
+}
+
+func (m *Migrator) migrateV1ActionPlans() (v2 []*engine.ActionPlan, err error) {
+	var v1APs *v1ActionPlans
+	v1APs, err = m.dmIN.getV1ActionPlans()
+	if err != nil {
+		return nil, err
 	}
-	// All done, update version wtih current one
-	vrs := engine.Versions{utils.ActionPlans: engine.CurrentDataDBVersions()[utils.ActionPlans]}
-	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when updating ActionPlans version into dataDB", err.Error()))
+	for _, v1ap := range *v1APs {
+		v2 = append(v2, v1ap.AsActionPlan())
 	}
 	return
 }
@@ -111,55 +99,92 @@ func (m *Migrator) migrateV1ActionPlans() (err error) {
 func (m *Migrator) migrateActionPlans() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmIN.DataManager().DataDB().GetVersions("")
-	if err != nil {
-		return utils.NewCGRError(utils.Migrator,
-			utils.ServerErrorCaps,
-			err.Error(),
-			fmt.Sprintf("error: <%s> when querying oldDataDB for versions", err.Error()))
-	} else if len(vrs) == 0 {
-		return utils.NewCGRError(utils.Migrator,
-			utils.MandatoryIEMissingCaps,
-			utils.UndefinedVersion,
-			"version number is not defined for ActionTriggers model")
+	if vrs, err = m.getVersions(utils.ActionPlans); err != nil {
+		return
 	}
 	if m.dmIN.DataManager().DataDB().GetStorageType() == utils.MetaRedis { // if redis rebuild action plans indexes
 		redisDB, can := m.dmIN.DataManager().DataDB().(*engine.RedisStorage)
 		if !can {
-			return fmt.Errorf("Storage type %s could not be cated to <*engine.RedisStorage>", m.dmIN.DataManager().DataDB().GetStorageType())
+			return fmt.Errorf("Storage type %s could not be casted to <*engine.RedisStorage>", m.dmIN.DataManager().DataDB().GetStorageType())
 		}
 		if err = redisDB.RebbuildActionPlanKeys(); err != nil {
-			return err
+			return
 		}
 	}
-	switch vrs[utils.ActionPlans] {
-	case current[utils.ActionPlans]:
-		if m.sameDataDB {
+	migrated := true
+	migratedFrom := 0
+	var v3 []*engine.ActionPlan
+	for {
+		version := vrs[utils.ActionPlans]
+		migratedFrom = int(version)
+		for {
+			switch version {
+			default:
+				return fmt.Errorf("Unsupported version %v", version)
+			case current[utils.ActionPlans]:
+				migrated = false
+				if m.sameDataDB {
+					break
+				}
+				if err = m.migrateCurrentActionPlans(); err != nil && err != utils.ErrNoMoreData {
+					return
+				}
+			case 1:
+				if v3, err = m.migrateV1ActionPlans(); err != nil && err != utils.ErrNoMoreData {
+					return
+				}
+				version = 3
+			case 2: // neded to rebuild action plan indexes for redis
+				// All done, update version wtih current one
+				vrs := engine.Versions{utils.ActionPlans: engine.CurrentDataDBVersions()[utils.ActionPlans]}
+				if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
+					return utils.NewCGRError(utils.Migrator,
+						utils.ServerErrorCaps,
+						err.Error(),
+						fmt.Sprintf("error: <%s> when updating ActionPlans version into dataDB", err.Error()))
+				}
+				version = 3
+			}
+			if version == current[utils.ActionPlans] || err == utils.ErrNoMoreData {
+				break
+			}
+		}
+		if err == utils.ErrNoMoreData || !migrated {
 			break
 		}
-		if err = m.migrateCurrentActionPlans(); err != nil {
-			return err
+
+		if !m.dryRun {
+			//set action plan
+			for _, ap := range v3 {
+				if err = m.dmOut.DataManager().SetActionPlan(ap.Id, ap, true, utils.NonTransactional); err != nil {
+					return
+				}
+			}
 		}
-	case 2: // neded to rebuild action plan indexes for redis
-		// All done, update version wtih current one
-		vrs := engine.Versions{utils.ActionPlans: engine.CurrentDataDBVersions()[utils.ActionPlans]}
-		if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
-			return utils.NewCGRError(utils.Migrator,
-				utils.ServerErrorCaps,
-				err.Error(),
-				fmt.Sprintf("error: <%s> when updating ActionPlans version into dataDB", err.Error()))
+		m.stats[utils.ActionPlans]++
+	}
+	if m.dryRun || !migrated {
+		return nil
+	}
+	// remove old action plans
+	if !m.sameDataDB {
+		if migratedFrom == 1 {
+			if err = m.removeV1ActionPlans(); err != nil {
+				return
+			}
 		}
-	case 1:
-		if err = m.migrateV1ActionPlans(); err != nil {
-			return err
-		}
+	}
+
+	// All done, update version wtih current one
+	if err = m.setVersions(utils.ActionPlans); err != nil {
+		return err
 	}
 	return m.ensureIndexesDataDB(engine.ColApl)
 }
 
 func (v1AP v1ActionPlan) AsActionPlan() (ap *engine.ActionPlan) {
-	for idx, actionId := range v1AP.AccountIds {
-		idElements := strings.Split(actionId, "_")
+	for idx, actionID := range v1AP.AccountIds {
+		idElements := strings.Split(actionID, "_")
 		if len(idElements) != 2 {
 			continue
 		}

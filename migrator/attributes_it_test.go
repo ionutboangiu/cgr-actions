@@ -54,6 +54,16 @@ var sTestsAttrIT = []func(t *testing.T){
 	testAttrITMigrateV3,
 	testAttrITFlush,
 	testAttrITMigrateV4,
+	testAttrITFlush,
+	testAttrITV1ToV5,
+	testAttrITFlush,
+	testAttrITV2ToV5,
+	testAttrITFlush,
+	testAttrITV3ToV5,
+	testAttrITFlush,
+	testAttrITdryRunV2ToV5,
+	testAttrITFlush,
+	testAttrITdryRunV3ToV5,
 }
 
 func TestAttributeITRedis(t *testing.T) {
@@ -63,7 +73,8 @@ func TestAttributeITRedis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attrCfgOut, err = config.NewCGRConfigFromPath(attrPathIn)
+	attrPathOut = path.Join(*dataDir, "conf", "samples", "tutmysql")
+	attrCfgOut, err = config.NewCGRConfigFromPath(attrPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +92,8 @@ func TestAttributeITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attrCfgOut, err = config.NewCGRConfigFromPath(attrPathIn)
+	attrPathOut = path.Join(*dataDir, "conf", "samples", "tutmongo")
+	attrCfgOut, err = config.NewCGRConfigFromPath(attrPathOut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,25 +200,30 @@ func TestAttributeITMoveEncoding2(t *testing.T) {
 }
 
 func testAttrITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(attrCfgIn.DataDbCfg().DataDbType,
-		attrCfgIn.DataDbCfg().DataDbHost, attrCfgIn.DataDbCfg().DataDbPort,
-		attrCfgIn.DataDbCfg().DataDbName, attrCfgIn.DataDbCfg().DataDbUser,
-		attrCfgIn.DataDbCfg().DataDbPass, attrCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", attrCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(attrCfgIn.DataDbCfg().Type,
+		attrCfgIn.DataDbCfg().Host, attrCfgIn.DataDbCfg().Port,
+		attrCfgIn.DataDbCfg().Name, attrCfgIn.DataDbCfg().User,
+		attrCfgIn.DataDbCfg().Password, attrCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), attrCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(attrCfgOut.DataDbCfg().DataDbType,
-		attrCfgOut.DataDbCfg().DataDbHost, attrCfgOut.DataDbCfg().DataDbPort,
-		attrCfgOut.DataDbCfg().DataDbName, attrCfgOut.DataDbCfg().DataDbUser,
-		attrCfgOut.DataDbCfg().DataDbPass, attrCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", attrCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(attrCfgOut.DataDbCfg().Type,
+		attrCfgOut.DataDbCfg().Host, attrCfgOut.DataDbCfg().Port,
+		attrCfgOut.DataDbCfg().Name, attrCfgOut.DataDbCfg().User,
+		attrCfgOut.DataDbCfg().Password, attrCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), attrCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	attrMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+
+	if reflect.DeepEqual(attrPathIn, attrPathOut) {
+		attrMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		attrMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -219,7 +236,7 @@ func testAttrITFlush(t *testing.T) {
 	if isEmpty, err := attrMigrator.dmOut.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(attrMigrator.dmOut.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -230,7 +247,7 @@ func testAttrITFlush(t *testing.T) {
 	if isEmpty, err := attrMigrator.dmIN.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(attrMigrator.dmIN.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -257,8 +274,11 @@ func testAttrITMigrateOnlyVersion(t *testing.T) {
 
 	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 		t.Error(err)
-	} else if vrs[utils.Attributes] != 5 {
+	} else if vrs[utils.Attributes] != 6 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
+	}
+	if attrMigrator.stats[utils.Attributes] != 0 {
+		t.Errorf("Expecting: 0, received: %+v", attrMigrator.stats[utils.Attributes])
 	}
 }
 
@@ -297,7 +317,7 @@ func testAttrITMigrateAndMove(t *testing.T) {
 				FilterIDs: []string{"*string:FL1:In1"},
 				Path:      utils.MetaReq + utils.NestingSep + "FL1",
 				Type:      utils.MetaVariable,
-				Value:     config.NewRSRParsersMustCompile("Al1", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("Al1", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -316,7 +336,7 @@ func testAttrITMigrateAndMove(t *testing.T) {
 				FilterIDs: []string{"*string:FL1:In1"},
 				Path:      utils.MetaReq + utils.NestingSep + "FL1",
 				Type:      utils.MetaVariable,
-				Value:     config.NewRSRParsersMustCompile("Al1", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("Al1", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -346,7 +366,7 @@ func testAttrITMigrateAndMove(t *testing.T) {
 
 		if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 			t.Error(err)
-		} else if vrs[utils.Attributes] != 5 {
+		} else if vrs[utils.Attributes] != 6 {
 			t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
 		}
 		result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
@@ -358,6 +378,8 @@ func testAttrITMigrateAndMove(t *testing.T) {
 		attrPrf.Compile()
 		if !reflect.DeepEqual(result, attrPrf) {
 			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(attrPrf), utils.ToJSON(result))
+		} else if attrMigrator.stats[utils.Attributes] != 1 {
+			t.Errorf("Expecting: 1, received: %+v", attrMigrator.stats[utils.Attributes])
 		}
 	case utils.Move:
 		if err := attrMigrator.dmIN.DataManager().SetAttributeProfile(attrPrf, false); err != nil {
@@ -367,7 +389,7 @@ func testAttrITMigrateAndMove(t *testing.T) {
 			t.Error(err)
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := attrMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := attrMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for Attributes ", err.Error())
 		}
@@ -415,6 +437,8 @@ func testAttrITMigrateAndMove(t *testing.T) {
 		if _, err = attrMigrator.dmIN.DataManager().GetAttributeProfile("cgrates.com",
 			"ATTR_1", false, false, utils.NonTransactional); err == nil || err != utils.ErrNotFound {
 			t.Error(err)
+		} else if attrMigrator.stats[utils.Attributes] != 2 {
+			t.Errorf("Expecting: 2, received: %+v", attrMigrator.stats[utils.Attributes])
 		}
 	}
 }
@@ -437,7 +461,7 @@ func testAttrITMigrateV2(t *testing.T) {
 			{
 				FieldName:  "FL1",
 				Initial:    "In1",
-				Substitute: config.NewRSRParsersMustCompile("Al1", true, utils.INFIELD_SEP),
+				Substitute: config.NewRSRParsersMustCompile("Al1", utils.InfieldSep),
 				Append:     true,
 			},
 		},
@@ -458,7 +482,7 @@ func testAttrITMigrateV2(t *testing.T) {
 				FilterIDs: []string{"*string:FL1:In1"},
 				Path:      utils.MetaReq + utils.NestingSep + "FL1",
 				Type:      utils.MetaVariable,
-				Value:     config.NewRSRParsersMustCompile("Al1", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("Al1", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -487,7 +511,7 @@ func testAttrITMigrateV2(t *testing.T) {
 
 	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 		t.Error(err)
-	} else if vrs[utils.Attributes] != 5 {
+	} else if vrs[utils.Attributes] != 6 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
 	}
 	result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
@@ -520,7 +544,7 @@ func testAttrITMigrateV3(t *testing.T) {
 			{
 				FilterIDs:  []string{"*string:FL1:In1"},
 				FieldName:  "FL1",
-				Substitute: config.NewRSRParsersMustCompile("Al1", true, utils.INFIELD_SEP),
+				Substitute: config.NewRSRParsersMustCompile("Al1", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -540,7 +564,7 @@ func testAttrITMigrateV3(t *testing.T) {
 				FilterIDs: []string{"*string:FL1:In1"},
 				Path:      utils.MetaReq + utils.NestingSep + "FL1",
 				Type:      utils.MetaVariable,
-				Value:     config.NewRSRParsersMustCompile("Al1", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("Al1", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -569,7 +593,7 @@ func testAttrITMigrateV3(t *testing.T) {
 
 	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 		t.Error(err)
-	} else if vrs[utils.Attributes] != 5 {
+	} else if vrs[utils.Attributes] != 6 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
 	}
 	result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
@@ -581,6 +605,9 @@ func testAttrITMigrateV3(t *testing.T) {
 	attrPrf.Compile()
 	if !reflect.DeepEqual(result, attrPrf) {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(attrPrf), utils.ToJSON(result))
+	}
+	if attrMigrator.stats[utils.Attributes] != 3 {
+		t.Errorf("Expecting: 3, received: %+v", attrMigrator.stats[utils.Attributes])
 	}
 }
 
@@ -602,7 +629,7 @@ func testAttrITMigrateV4(t *testing.T) {
 			{
 				FilterIDs: []string{"*string:~*req.FL1:In1"},
 				FieldName: "FL1",
-				Value:     config.NewRSRParsersMustCompile("~Category:s/(.*)/${1}_UK_Mobile_Vodafone_GBRVF/", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("~Category:s/(.*)/${1}_UK_Mobile_Vodafone_GBRVF/", utils.InfieldSep),
 				Type:      utils.MetaVariable,
 			},
 		},
@@ -623,7 +650,7 @@ func testAttrITMigrateV4(t *testing.T) {
 				FilterIDs: []string{"*string:~*req.FL1:In1"},
 				Path:      utils.MetaReq + utils.NestingSep + "FL1",
 				Type:      utils.MetaVariable,
-				Value:     config.NewRSRParsersMustCompile("~*req.Category:s/(.*)/${1}_UK_Mobile_Vodafone_GBRVF/", true, utils.INFIELD_SEP),
+				Value:     config.NewRSRParsersMustCompile("~*req.Category:s/(.*)/${1}_UK_Mobile_Vodafone_GBRVF/", utils.InfieldSep),
 			},
 		},
 		Weight: 20,
@@ -652,7 +679,7 @@ func testAttrITMigrateV4(t *testing.T) {
 
 	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
 		t.Error(err)
-	} else if vrs[utils.Attributes] != 5 {
+	} else if vrs[utils.Attributes] != 6 {
 		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
 	}
 	result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
@@ -664,5 +691,523 @@ func testAttrITMigrateV4(t *testing.T) {
 	attrPrf.Compile()
 	if !reflect.DeepEqual(result, attrPrf) {
 		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(attrPrf), utils.ToJSON(result))
+	}
+}
+
+func testAttrITV1ToV5(t *testing.T) {
+	// contruct the first v1 attributeProfile with all fields filled up
+	mapSubstitutes := make(map[string]map[string]*v1Attribute)
+	mapSubstitutes["FL1"] = make(map[string]*v1Attribute)
+	mapSubstitutes["FL1"]["In1"] = &v1Attribute{
+		FieldName:  "FL1",
+		Initial:    "In1",
+		Substitute: "Al1",
+		Append:     true,
+	}
+	v1AttributeProfile1 := &v1AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: mapSubstitutes,
+		Weight:     20,
+	}
+	// contruct the second v1 attributeProfile with all fields filled up
+	v1AttributeProfile2 := &v1AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile2",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: mapSubstitutes,
+		Weight:     20,
+	}
+
+	// set the first attributeProfile into DB
+	attrMigrator.dmIN.setV1AttributeProfile(v1AttributeProfile1)
+	// set the second attributeProfile into DB
+	attrMigrator.dmIN.setV1AttributeProfile(v1AttributeProfile2)
+
+	// set attributes version into DB
+	if err := attrMigrator.dmIN.DataManager().DataDB().SetVersions(engine.Versions{utils.Attributes: 1}, true); err != nil {
+		t.Errorf("error: <%s> when updating Attributes version into dataDB", err.Error())
+	}
+
+	// Construct the exepected output
+	sbstPrsr, err := config.NewRSRParsers("Al1", config.CgrConfig().GeneralCfg().RSRSep)
+	if err != nil {
+		t.Error("Error converting Substitute from string to RSRParser: ", err)
+	}
+	eOut1 := &engine.AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*engine.Attribute{
+			{
+				FilterIDs: []string{"*string:FL1:In1"},
+				Path:      utils.MetaReq + utils.NestingSep + "FL1",
+				Type:      utils.MetaVariable,
+				Value:     sbstPrsr,
+			}},
+		Weight: 20,
+	}
+	eOut2 := &engine.AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile2",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*engine.Attribute{
+			{
+				FilterIDs: []string{"*string:FL1:In1"},
+				Path:      utils.MetaReq + utils.NestingSep + "FL1",
+				Type:      utils.MetaVariable,
+				Value:     sbstPrsr,
+			}},
+		Weight: 20,
+	}
+
+	// Migrate to latest version
+	if err := attrMigrator.migrateAttributeProfile(); err != nil {
+		t.Error(err)
+	}
+	// check the version
+	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
+		t.Error(err)
+	} else if vrs[utils.Attributes] != 6 {
+		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
+	}
+
+	// check the first AttributeProfile
+	result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile1", false, false, utils.NonTransactional)
+	if err != nil {
+		t.Error(err)
+
+	} else {
+		result.Compile()
+		eOut1.Compile()
+		if !reflect.DeepEqual(result, eOut1) {
+			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut1), utils.ToJSON(result))
+		}
+	}
+	// check the second AttributeProfile
+	result, err = attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile2", false, false, utils.NonTransactional)
+	if err != nil {
+		t.Error(err)
+	} else {
+		result.Compile()
+		eOut2.Compile()
+		if !reflect.DeepEqual(result, eOut2) {
+			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut2), utils.ToJSON(result))
+		}
+	}
+	if attrAction == utils.Move {
+		if attrMigrator.stats[utils.Attributes] != 4 {
+			t.Errorf("Expecting: 4, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	} else {
+		if attrMigrator.stats[utils.Attributes] != 6 {
+			t.Errorf("Expecting: 6, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	}
+}
+
+func testAttrITV2ToV5(t *testing.T) {
+	// contruct the first v2 attributeProfile with all fields filled up
+	sbstPrsr, err := config.NewRSRParsers("Al1", config.CgrConfig().GeneralCfg().RSRSep)
+	if err != nil {
+		t.Error("Error converting Substitute from string to RSRParser: ", err)
+	}
+	v2AttributeProfile1 := &v2AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*v2Attribute{
+			{
+				FieldName:  "FL1",
+				Initial:    "In1",
+				Substitute: sbstPrsr,
+				Append:     true,
+			}},
+		Weight: 20,
+	}
+	// contruct the second v2 attributeProfile with all fields filled up
+	v2AttributeProfile2 := &v2AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile2",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*v2Attribute{
+			{
+				FieldName:  "FL1",
+				Initial:    "In1",
+				Substitute: sbstPrsr,
+				Append:     true,
+			}},
+		Weight: 20,
+	}
+
+	// set the first attributeProfile into inDB
+	attrMigrator.dmIN.setV2AttributeProfile(v2AttributeProfile1)
+	// set the second attributeProfile into inDB
+	attrMigrator.dmIN.setV2AttributeProfile(v2AttributeProfile2)
+
+	//set attributes version into DB
+	if err := attrMigrator.dmIN.DataManager().DataDB().SetVersions(engine.Versions{utils.Attributes: 2}, true); err != nil {
+		t.Errorf("error: <%s> when updating Attributes version into dataDB", err.Error())
+	}
+
+	// Construct the expected output
+	eOut1 := &engine.AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*engine.Attribute{
+			{
+				FilterIDs: []string{"*string:FL1:In1"},
+				Path:      utils.MetaReq + utils.NestingSep + "FL1",
+				Type:      utils.MetaVariable,
+				Value:     sbstPrsr,
+			}},
+		Weight: 20,
+	}
+	eOut2 := &engine.AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile2",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*engine.Attribute{
+			{
+				FilterIDs: []string{"*string:FL1:In1"},
+				Path:      utils.MetaReq + utils.NestingSep + "FL1",
+				Type:      utils.MetaVariable,
+				Value:     sbstPrsr,
+			}},
+		Weight: 20,
+	}
+
+	//Migrate to latest version
+	if err := attrMigrator.migrateAttributeProfile(); err != nil {
+		t.Error(err)
+	}
+	//check the version
+	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
+		t.Error(err)
+	} else if vrs[utils.Attributes] != 6 {
+		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
+	}
+
+	//check the first AttributeProfile
+	result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile1", false, false, utils.NonTransactional)
+	if err != nil {
+		t.Error(err) //only encoded map or array can be decoded into a struct
+
+	} else {
+		result.Compile()
+		eOut1.Compile()
+		if !reflect.DeepEqual(result, eOut1) {
+			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut1), utils.ToJSON(result))
+		}
+	}
+	//check the second AttributeProfile
+	result, err = attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile2", false, false, utils.NonTransactional)
+	if err != nil {
+		t.Error(err)
+	} else {
+		result.Compile()
+		eOut2.Compile()
+		if !reflect.DeepEqual(result, eOut2) {
+			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut2), utils.ToJSON(result))
+		}
+	}
+}
+
+func testAttrITV3ToV5(t *testing.T) {
+	// contruct the first v3 attributeProfile with all fields filled up
+	sbstPrsr, err := config.NewRSRParsers("Al1", config.CgrConfig().GeneralCfg().RSRSep)
+	if err != nil {
+		t.Error("Error converting Substitute from string to RSRParser: ", err)
+	}
+	v3AttributeProfile1 := &v3AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*v3Attribute{
+			{
+				FieldName:  "FL1",
+				Substitute: sbstPrsr,
+				FilterIDs:  []string{"*string:FL1:In1"},
+			}},
+		Weight: 20,
+	}
+	// contruct the second v3 attributeProfile with all fields filled up
+	v3AttributeProfile2 := &v3AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile2",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*v3Attribute{
+			{
+				FieldName:  "FL1",
+				Substitute: sbstPrsr,
+				FilterIDs:  []string{"*string:FL1:In1"},
+			}},
+		Weight: 20,
+	}
+
+	// set the first attributeProfile into inDB
+	attrMigrator.dmIN.setV3AttributeProfile(v3AttributeProfile1)
+	// set the second attributeProfile into inDB
+	attrMigrator.dmIN.setV3AttributeProfile(v3AttributeProfile2)
+
+	//set attributes version into DB
+	if err := attrMigrator.dmIN.DataManager().DataDB().SetVersions(engine.Versions{utils.Attributes: 3}, true); err != nil {
+		t.Errorf("error: <%s> when updating Attributes version into dataDB", err.Error())
+	}
+
+	// Construct the expected output
+	eOut1 := &engine.AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*engine.Attribute{
+			{
+				FilterIDs: []string{"*string:FL1:In1"},
+				Path:      utils.MetaReq + utils.NestingSep + "FL1",
+				Type:      utils.MetaVariable,
+				Value:     sbstPrsr,
+			}},
+		Weight: 20,
+	}
+	eOut2 := &engine.AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile2",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*engine.Attribute{
+			{
+				FilterIDs: []string{"*string:FL1:In1"},
+				Path:      utils.MetaReq + utils.NestingSep + "FL1",
+				Type:      utils.MetaVariable,
+				Value:     sbstPrsr,
+			}},
+		Weight: 20,
+	}
+
+	//Migrate to latest version
+	if err := attrMigrator.migrateAttributeProfile(); err != nil {
+		t.Error(err)
+	}
+	//check the version
+	if vrs, err := attrMigrator.dmOut.DataManager().DataDB().GetVersions(""); err != nil {
+		t.Error(err)
+	} else if vrs[utils.Attributes] != 6 {
+		t.Errorf("Unexpected version returned: %d", vrs[utils.Attributes])
+	}
+
+	//check the first AttributeProfile
+	result, err := attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile1", false, false, utils.NonTransactional)
+	if err != nil {
+		t.Error(err) //only encoded map or array can be decoded into a struct
+
+	} else {
+		result.Compile()
+		eOut1.Compile()
+		if !reflect.DeepEqual(result, eOut1) {
+			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut1), utils.ToJSON(result))
+		}
+	}
+	//check the second AttributeProfile
+	result, err = attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile2", false, false, utils.NonTransactional)
+	if err != nil {
+		t.Error(err)
+	} else {
+		result.Compile()
+		eOut2.Compile()
+		if !reflect.DeepEqual(result, eOut2) {
+			t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(eOut2), utils.ToJSON(result))
+		}
+	}
+	if attrAction == utils.Move {
+		if attrMigrator.stats[utils.Attributes] != 8 {
+			t.Errorf("Expecting: 8, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	} else {
+		if attrMigrator.stats[utils.Attributes] != 10 {
+			t.Errorf("Expecting: 10, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	}
+}
+
+func testAttrITdryRunV2ToV5(t *testing.T) {
+	// Test with dryRun on true
+	// contruct the v2 attributeProfile with all fields filled up
+	sbstPrsr, err := config.NewRSRParsers("Al1", config.CgrConfig().GeneralCfg().RSRSep)
+	if err != nil {
+		t.Error("Error converting Substitute from string to RSRParser: ", err)
+	}
+	v2AttributeProfile := &v2AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*v2Attribute{
+			{
+				FieldName:  "FL1",
+				Initial:    "In1",
+				Substitute: sbstPrsr,
+				Append:     true,
+			}},
+		Weight: 20,
+	}
+	//set dryRun on true
+	attrMigrator.dryRun = true
+	//set attributeProfile into inDB
+	attrMigrator.dmIN.setV2AttributeProfile(v2AttributeProfile)
+
+	//set attributes version into DB
+	if err := attrMigrator.dmIN.DataManager().DataDB().SetVersions(engine.Versions{utils.Attributes: 2}, true); err != nil {
+		t.Errorf("error: <%s> when updating Attributes version into dataDB", err.Error())
+	}
+
+	// Should migrate with no errors and no data modified
+	if err := attrMigrator.migrateAttributeProfile(); err != nil {
+		t.Error(err)
+	}
+
+	// Check if the attribute profile was set into DB
+	// Expecting NOT_FOUND as it was a dryRun migration
+	_, err = attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile1", false, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	}
+
+	if attrAction == utils.Move {
+		if attrMigrator.stats[utils.Attributes] != 9 {
+			t.Errorf("Expecting: 9, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	} else {
+		if attrMigrator.stats[utils.Attributes] != 11 {
+			t.Errorf("Expecting: 11, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	}
+}
+
+func testAttrITdryRunV3ToV5(t *testing.T) {
+	// Test with dryRun on true
+	// contruct the v3 attributeProfile with all fields filled up
+	sbstPrsr, err := config.NewRSRParsers("Al1", config.CgrConfig().GeneralCfg().RSRSep)
+	if err != nil {
+		t.Error("Error converting Substitute from string to RSRParser: ", err)
+	}
+	v3AttributeProfile := &v3AttributeProfile{
+		Tenant:    "cgrates.org",
+		ID:        "attributeprofile1",
+		Contexts:  []string{utils.MetaSessionS},
+		FilterIDs: []string{"*string:test:test"},
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			ExpiryTime:     time.Date(2020, 4, 18, 14, 25, 0, 0, time.UTC),
+		},
+		Attributes: []*v3Attribute{
+			{
+				FieldName:  "FL1",
+				Substitute: sbstPrsr,
+				FilterIDs:  []string{"*string:FL1:In1"},
+			}},
+		Weight: 20,
+	}
+	//set dryRun on true
+	attrMigrator.dryRun = true
+	//set attributeProfile into inDB
+	attrMigrator.dmIN.setV3AttributeProfile(v3AttributeProfile)
+
+	//set attributes version into DB
+	if err := attrMigrator.dmIN.DataManager().DataDB().SetVersions(engine.Versions{utils.Attributes: 3}, true); err != nil {
+		t.Errorf("error: <%s> when updating Attributes version into dataDB", err.Error())
+	}
+
+	// Should migrate with no errors and no data modified
+	if err := attrMigrator.migrateAttributeProfile(); err != nil {
+		t.Error(err)
+	}
+
+	// Check if the attribute profile was set into DB
+	// Expecting NOT_FOUND as it was a dryRun migration
+	_, err = attrMigrator.dmOut.DataManager().GetAttributeProfile("cgrates.org",
+		"attributeprofile1", false, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ErrNotFound, err)
+	}
+	if attrAction == utils.Move {
+		if attrMigrator.stats[utils.Attributes] != 10 {
+			t.Errorf("Expecting: 10, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
+	} else {
+		if attrMigrator.stats[utils.Attributes] != 12 {
+			t.Errorf("Expecting: 12, received: %+v", attrMigrator.stats[utils.Attributes])
+		}
 	}
 }

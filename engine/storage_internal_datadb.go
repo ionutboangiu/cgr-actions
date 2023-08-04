@@ -26,316 +26,44 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/ltcache"
 
 	"github.com/cgrates/cgrates/utils"
-	"github.com/cgrates/ltcache"
 )
 
-// internalDBCacheCfg indexes the internal DataDB partitions
-func newInternalDBCfg(itemsCacheCfg map[string]*config.ItemOpt, isDataDB bool) map[string]*ltcache.CacheConfig {
-	if isDataDB {
-		return map[string]*ltcache.CacheConfig{
-			utils.CacheDestinations: {
-				MaxItems:  itemsCacheCfg[utils.CacheDestinations].Limit,
-				TTL:       itemsCacheCfg[utils.CacheDestinations].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheDestinations].StaticTTL,
-			},
-			utils.CacheReverseDestinations: {
-				MaxItems:  itemsCacheCfg[utils.CacheReverseDestinations].Limit,
-				TTL:       itemsCacheCfg[utils.CacheReverseDestinations].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheReverseDestinations].StaticTTL,
-			},
-			utils.CacheActions: {
-				MaxItems:  itemsCacheCfg[utils.CacheActions].Limit,
-				TTL:       itemsCacheCfg[utils.CacheActions].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheActions].StaticTTL,
-			},
-			utils.CacheActionPlans: {
-				MaxItems:  itemsCacheCfg[utils.CacheActionPlans].Limit,
-				TTL:       itemsCacheCfg[utils.CacheActionPlans].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheActionPlans].StaticTTL,
-			},
-			utils.CacheAccountActionPlans: {
-				MaxItems:  itemsCacheCfg[utils.CacheAccountActionPlans].Limit,
-				TTL:       itemsCacheCfg[utils.CacheAccountActionPlans].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheAccountActionPlans].StaticTTL,
-			},
-			utils.CacheActionTriggers: {
-				MaxItems:  itemsCacheCfg[utils.CacheActionTriggers].Limit,
-				TTL:       itemsCacheCfg[utils.CacheActionTriggers].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheActionTriggers].StaticTTL,
-			},
-			utils.CacheRatingPlans: {
-				MaxItems:  itemsCacheCfg[utils.CacheRatingPlans].Limit,
-				TTL:       itemsCacheCfg[utils.CacheRatingPlans].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheRatingPlans].StaticTTL,
-			},
-			utils.CacheRatingProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheRatingProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheRatingProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheRatingProfiles].StaticTTL,
-			},
-			utils.CacheAccounts: {
-				MaxItems:  itemsCacheCfg[utils.CacheAccounts].Limit,
-				TTL:       itemsCacheCfg[utils.CacheAccounts].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheAccounts].StaticTTL,
-			},
-			utils.CacheSharedGroups: {
-				MaxItems:  itemsCacheCfg[utils.CacheSharedGroups].Limit,
-				TTL:       itemsCacheCfg[utils.CacheSharedGroups].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheSharedGroups].StaticTTL,
-			},
-
-			utils.CacheTimings: {
-				MaxItems:  itemsCacheCfg[utils.CacheTimings].Limit,
-				TTL:       itemsCacheCfg[utils.CacheTimings].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheTimings].StaticTTL,
-			},
-			utils.CacheFilters: {
-				MaxItems:  itemsCacheCfg[utils.CacheFilters].Limit,
-				TTL:       itemsCacheCfg[utils.CacheFilters].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheFilters].StaticTTL,
-			},
-			utils.CacheResourceProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheResourceProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheResourceProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheResourceProfiles].StaticTTL,
-			},
-			utils.CacheResourceFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheResources: {
-				MaxItems:  itemsCacheCfg[utils.CacheResources].Limit,
-				TTL:       itemsCacheCfg[utils.CacheResources].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheResources].StaticTTL,
-			},
-			utils.CacheStatFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheStatQueueProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheStatQueueProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheStatQueueProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheStatQueueProfiles].StaticTTL,
-			},
-			utils.CacheStatQueues: {
-				MaxItems:  itemsCacheCfg[utils.CacheStatQueues].Limit,
-				TTL:       itemsCacheCfg[utils.CacheStatQueues].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheStatQueues].StaticTTL,
-			},
-			utils.CacheThresholdFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheThresholdProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheThresholdProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheThresholdProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheThresholdProfiles].StaticTTL,
-			},
-			utils.CacheThresholds: {
-				MaxItems:  itemsCacheCfg[utils.CacheThresholds].Limit,
-				TTL:       itemsCacheCfg[utils.CacheThresholds].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheThresholds].StaticTTL,
-			},
-			utils.CacheSupplierFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheSupplierProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheSupplierProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheSupplierProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheSupplierProfiles].StaticTTL,
-			},
-			utils.CacheChargerFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheChargerProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheChargerProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheChargerProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheChargerProfiles].StaticTTL,
-			},
-			utils.CacheAttributeFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheAttributeProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheAttributeProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheAttributeProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheAttributeProfiles].StaticTTL,
-			},
-			utils.CacheDispatcherFilterIndexes: {
-				MaxItems:  itemsCacheCfg[utils.MetaFilterIndexes].Limit,
-				TTL:       itemsCacheCfg[utils.MetaFilterIndexes].TTL,
-				StaticTTL: itemsCacheCfg[utils.MetaFilterIndexes].StaticTTL,
-			},
-			utils.CacheDispatcherProfiles: {
-				MaxItems:  itemsCacheCfg[utils.CacheDispatcherProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.CacheDispatcherProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheDispatcherProfiles].StaticTTL,
-			},
-			utils.CacheDispatcherHosts: {
-				MaxItems:  itemsCacheCfg[utils.CacheDispatcherHosts].Limit,
-				TTL:       itemsCacheCfg[utils.CacheDispatcherHosts].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheDispatcherHosts].StaticTTL,
-			},
-			utils.CacheLoadIDs: {
-				MaxItems:  itemsCacheCfg[utils.CacheLoadIDs].Limit,
-				TTL:       itemsCacheCfg[utils.CacheLoadIDs].TTL,
-				StaticTTL: itemsCacheCfg[utils.CacheLoadIDs].StaticTTL,
-			},
-		}
-	} else {
-		return map[string]*ltcache.CacheConfig{
-			utils.TBLVersions: {
-				MaxItems:  itemsCacheCfg[utils.TBLVersions].Limit,
-				TTL:       itemsCacheCfg[utils.TBLVersions].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLVersions].StaticTTL,
-			},
-			utils.TBLTPTimings: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPTimings].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPTimings].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPTimings].StaticTTL,
-			},
-			utils.TBLTPDestinations: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPDestinations].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPDestinations].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPDestinations].StaticTTL,
-			},
-			utils.TBLTPRates: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPRates].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPRates].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPRates].StaticTTL,
-			},
-			utils.TBLTPDestinationRates: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPDestinationRates].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPDestinationRates].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPDestinationRates].StaticTTL,
-			},
-			utils.TBLTPRatingPlans: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPRatingPlans].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPRatingPlans].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPRatingPlans].StaticTTL,
-			},
-			utils.TBLTPRateProfiles: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPRateProfiles].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPRateProfiles].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPRateProfiles].StaticTTL,
-			},
-			utils.TBLTPSharedGroups: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPSharedGroups].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPSharedGroups].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPSharedGroups].StaticTTL,
-			},
-			utils.TBLTPActions: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPActions].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPActions].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPActions].StaticTTL,
-			},
-			utils.TBLTPActionTriggers: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPActionTriggers].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPActionTriggers].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPActionTriggers].StaticTTL,
-			},
-			utils.TBLTPAccountActions: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPAccountActions].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPAccountActions].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPAccountActions].StaticTTL,
-			},
-			utils.TBLTPResources: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPResources].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPResources].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPResources].StaticTTL,
-			},
-			utils.TBLTPStats: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPStats].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPStats].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPStats].StaticTTL,
-			},
-			utils.TBLTPThresholds: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPThresholds].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPThresholds].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPThresholds].StaticTTL,
-			},
-			utils.TBLTPFilters: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPFilters].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPFilters].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPFilters].StaticTTL,
-			},
-			utils.SessionCostsTBL: {
-				MaxItems:  itemsCacheCfg[utils.SessionCostsTBL].Limit,
-				TTL:       itemsCacheCfg[utils.SessionCostsTBL].TTL,
-				StaticTTL: itemsCacheCfg[utils.SessionCostsTBL].StaticTTL,
-			},
-			utils.TBLTPActionPlans: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPActionPlans].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPActionPlans].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPActionPlans].StaticTTL,
-			},
-			utils.TBLTPSuppliers: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPSuppliers].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPSuppliers].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPSuppliers].StaticTTL,
-			},
-			utils.TBLTPAttributes: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPAttributes].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPAttributes].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPAttributes].StaticTTL,
-			},
-			utils.TBLTPChargers: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPChargers].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPChargers].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPChargers].StaticTTL,
-			},
-			utils.TBLTPDispatchers: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPDispatchers].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPDispatchers].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPDispatchers].StaticTTL,
-			},
-			utils.TBLTPDispatcherHosts: {
-				MaxItems:  itemsCacheCfg[utils.TBLTPDispatcherHosts].Limit,
-				TTL:       itemsCacheCfg[utils.TBLTPDispatcherHosts].TTL,
-				StaticTTL: itemsCacheCfg[utils.TBLTPDispatcherHosts].StaticTTL,
-			},
-			utils.CDRsTBL: {
-				MaxItems:  itemsCacheCfg[utils.CDRsTBL].Limit,
-				TTL:       itemsCacheCfg[utils.CDRsTBL].TTL,
-				StaticTTL: itemsCacheCfg[utils.CDRsTBL].StaticTTL,
-			},
-		}
-	}
-}
-
+// InternalDB is used as a DataDB and a StorDB
 type InternalDB struct {
 	tasks               []*Task
-	db                  *ltcache.TransCache
 	mu                  sync.RWMutex
 	stringIndexedFields []string
 	prefixIndexedFields []string
 	indexedFieldsMutex  sync.RWMutex   // used for reload
 	cnter               *utils.Counter // used for OrderID for cdr
 	ms                  Marshaler
+	db                  *ltcache.TransCache
+	isDataDB            bool
 }
 
 // NewInternalDB constructs an InternalDB
-func NewInternalDB(stringIndexedFields, prefixIndexedFields []string,
-	isDataDB bool, itemsCacheCfg map[string]*config.ItemOpt) (iDB *InternalDB) {
+func NewInternalDB(stringIndexedFields, prefixIndexedFields []string, isDataDB bool,
+	itmsCfg map[string]*config.ItemOpt) *InternalDB {
+	tcCfg := make(map[string]*ltcache.CacheConfig, len(itmsCfg))
+	for k, cPcfg := range itmsCfg {
+		tcCfg[k] = &ltcache.CacheConfig{
+			MaxItems:  cPcfg.Limit,
+			TTL:       cPcfg.TTL,
+			StaticTTL: cPcfg.StaticTTL,
+		}
+	}
 	ms, _ := NewMarshaler(config.CgrConfig().GeneralCfg().DBDataEncoding)
-	iDB = &InternalDB{
-		db:                  ltcache.NewTransCache(newInternalDBCfg(itemsCacheCfg, isDataDB)),
+	return &InternalDB{
 		stringIndexedFields: stringIndexedFields,
 		prefixIndexedFields: prefixIndexedFields,
 		cnter:               utils.NewCounter(time.Now().UnixNano(), 0),
 		ms:                  ms,
+		db:                  ltcache.NewTransCache(tcCfg),
+		isDataDB:            isDataDB,
 	}
-	return
 }
 
 // SetStringIndexedFields set the stringIndexedFields, used at StorDB reload (is thread safe)
@@ -352,34 +80,40 @@ func (iDB *InternalDB) SetPrefixIndexedFields(prefixIndexedFields []string) {
 	iDB.indexedFieldsMutex.Unlock()
 }
 
+// Close only to implement Storage interface
 func (iDB *InternalDB) Close() {}
 
-func (iDB *InternalDB) Flush(_ string) error {
+// Flush clears the cache
+func (iDB *InternalDB) Flush(string) error {
 	iDB.db.Clear(nil)
 	return nil
 }
 
-func (iDB *InternalDB) SelectDatabase(dbName string) (err error) {
+// SelectDatabase only to implement Storage interface
+func (iDB *InternalDB) SelectDatabase(string) (err error) {
 	return nil
 }
 
-func (iDB *InternalDB) GetKeysForPrefix(prefix string) ([]string, error) {
-	keyLen := len(utils.DESTINATION_PREFIX)
+// GetKeysForPrefix returns the keys from cache that have the given prefix
+func (iDB *InternalDB) GetKeysForPrefix(prefix string) (ids []string, err error) {
+	keyLen := len(utils.DestinationPrefix)
 	if len(prefix) < keyLen {
-		return nil, fmt.Errorf("unsupported prefix in GetKeysForPrefix: %s", prefix)
+		err = fmt.Errorf("unsupported prefix in GetKeysForPrefix: %s", prefix)
+		return
 	}
 	category := prefix[:keyLen] // prefix length
-	ids := iDB.db.GetItemIDs(utils.CachePrefixToInstance[category], prefix[keyLen:])
+	queryPrefix := prefix[keyLen:]
+	ids = iDB.db.GetItemIDs(utils.CachePrefixToInstance[category], queryPrefix)
 	for i := range ids {
 		ids[i] = category + ids[i]
 	}
-	return ids, nil
+	return
 }
 
 func (iDB *InternalDB) RemoveKeysForPrefix(prefix string) (err error) {
-	keyLen := len(utils.DESTINATION_PREFIX)
+	keyLen := len(utils.DestinationPrefix)
 	if len(prefix) < keyLen {
-		return fmt.Errorf("unsupported prefix in GetKeysForPrefix: %s", prefix)
+		return fmt.Errorf("unsupported prefix in RemoveKeysForPrefix: %s", prefix)
 	}
 	cacheID := utils.CachePrefixToInstance[prefix[:keyLen]]
 	for _, key := range iDB.db.GetItemIDs(cacheID, prefix[keyLen:]) {
@@ -390,7 +124,7 @@ func (iDB *InternalDB) RemoveKeysForPrefix(prefix string) (err error) {
 }
 
 func (iDB *InternalDB) GetVersions(itm string) (vrs Versions, err error) {
-	x, ok := iDB.db.Get(utils.TBLVersions, utils.Version)
+	x, ok := iDB.db.Get(utils.CacheVersions, utils.VersionName)
 	if !ok || x == nil {
 		return nil, utils.ErrNotFound
 	}
@@ -407,12 +141,12 @@ func (iDB *InternalDB) GetVersions(itm string) (vrs Versions, err error) {
 func (iDB *InternalDB) SetVersions(vrs Versions, overwrite bool) (err error) {
 	if overwrite {
 		if err = iDB.RemoveVersions(nil); err != nil {
-			return err
+			return
 		}
 	}
-	x, ok := iDB.db.Get(utils.TBLVersions, utils.Version)
+	x, ok := iDB.db.Get(utils.CacheVersions, utils.VersionName)
 	if !ok || x == nil {
-		iDB.db.Set(utils.TBLVersions, utils.Version, vrs, nil,
+		iDB.db.Set(utils.CacheVersions, utils.VersionName, vrs, nil,
 			true, utils.NonTransactional)
 		return
 	}
@@ -420,7 +154,7 @@ func (iDB *InternalDB) SetVersions(vrs Versions, overwrite bool) (err error) {
 	for key, val := range vrs {
 		provVrs[key] = val
 	}
-	iDB.db.Set(utils.TBLVersions, utils.Version, provVrs, nil,
+	iDB.db.Set(utils.CacheVersions, utils.VersionName, provVrs, nil,
 		true, utils.NonTransactional)
 	return
 }
@@ -428,7 +162,7 @@ func (iDB *InternalDB) SetVersions(vrs Versions, overwrite bool) (err error) {
 func (iDB *InternalDB) RemoveVersions(vrs Versions) (err error) {
 	if len(vrs) != 0 {
 		var internalVersions Versions
-		x, ok := iDB.db.Get(utils.TBLVersions, utils.Version)
+		x, ok := iDB.db.Get(utils.CacheVersions, utils.VersionName)
 		if !ok || x == nil {
 			return utils.ErrNotFound
 		}
@@ -436,36 +170,43 @@ func (iDB *InternalDB) RemoveVersions(vrs Versions) (err error) {
 		for key := range vrs {
 			delete(internalVersions, key)
 		}
-		iDB.db.Set(utils.TBLVersions, utils.Version, internalVersions, nil,
+		iDB.db.Set(utils.CacheVersions, utils.VersionName, internalVersions, nil,
 			true, utils.NonTransactional)
-		return nil
+		return
 	}
-	iDB.db.Remove(utils.TBLVersions, utils.Version,
+	iDB.db.Remove(utils.CacheVersions, utils.VersionName,
 		true, utils.NonTransactional)
 	return
 }
 
+// GetStorageType returns the storage type
 func (iDB *InternalDB) GetStorageType() string {
 	return utils.MetaInternal
 }
 
-func (iDB *InternalDB) IsDBEmpty() (resp bool, err error) {
-	for cacheInstance := range utils.CacheInstanceToPrefix {
+// IsDBEmpty returns true if the cache is empty
+func (iDB *InternalDB) IsDBEmpty() (isEmpty bool, _ error) {
+	partitions := utils.DataDBPartitions
+	if !iDB.isDataDB {
+		partitions = utils.StorDBPartitions
+	}
+	for cacheInstance := range partitions {
 		if len(iDB.db.GetItemIDs(cacheInstance, utils.EmptyString)) != 0 {
-			return false, nil
+			return
 		}
 	}
-	return true, nil
+	isEmpty = true
+	return
 }
 
 func (iDB *InternalDB) HasDataDrv(category, subject, tenant string) (bool, error) {
 	switch category {
-	case utils.DESTINATION_PREFIX, utils.RATING_PLAN_PREFIX, utils.RATING_PROFILE_PREFIX,
-		utils.ACTION_PREFIX, utils.ACTION_PLAN_PREFIX, utils.ACCOUNT_PREFIX:
+	case utils.DestinationPrefix, utils.RatingPlanPrefix, utils.RatingProfilePrefix,
+		utils.ActionPrefix, utils.ActionPlanPrefix, utils.AccountPrefix:
 		return iDB.db.HasItem(utils.CachePrefixToInstance[category], subject), nil
 	case utils.ResourcesPrefix, utils.ResourceProfilesPrefix, utils.StatQueuePrefix,
 		utils.StatQueueProfilePrefix, utils.ThresholdPrefix, utils.ThresholdProfilePrefix,
-		utils.FilterPrefix, utils.SupplierProfilePrefix, utils.AttributeProfilePrefix,
+		utils.FilterPrefix, utils.RouteProfilePrefix, utils.AttributeProfilePrefix,
 		utils.ChargerProfilePrefix, utils.DispatcherProfilePrefix, utils.DispatcherHostPrefix:
 		return iDB.db.HasItem(utils.CachePrefixToInstance[category], utils.ConcatenatedKey(tenant, subject)), nil
 	}
@@ -512,178 +253,77 @@ func (iDB *InternalDB) RemoveRatingProfileDrv(id string) (err error) {
 	return
 }
 
-func (iDB *InternalDB) GetDestinationDrv(key string, skipCache bool, transactionID string) (dest *Destination, err error) {
-	cCommit := cacheCommit(transactionID)
-
-	if !skipCache {
-		if x, ok := Cache.Get(utils.CacheDestinations, key); ok {
-			if x != nil {
-				return x.(*Destination), nil
-			}
-			return nil, utils.ErrNotFound
-		}
+func (iDB *InternalDB) GetDestinationDrv(key, _ string) (dest *Destination, err error) {
+	if x, ok := iDB.db.Get(utils.CacheDestinations, key); ok && x != nil {
+		return x.(*Destination), nil
 	}
-
-	x, ok := iDB.db.Get(utils.CacheDestinations, key)
-	if !ok || x == nil {
-		Cache.Set(utils.CacheDestinations, key, nil, nil, cCommit, transactionID)
-		return nil, utils.ErrNotFound
-	}
-	dest = x.(*Destination)
-	Cache.Set(utils.CacheDestinations, key, dest, nil, cCommit, transactionID)
-	return
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetDestinationDrv(dest *Destination, transactionID string) (err error) {
 	iDB.db.Set(utils.CacheDestinations, dest.Id, dest, nil,
 		true, utils.NonTransactional)
-	Cache.Remove(utils.CacheDestinations, dest.Id,
-		cacheCommit(transactionID), transactionID)
 	return
 }
 
 func (iDB *InternalDB) RemoveDestinationDrv(destID string, transactionID string) (err error) {
-	// get destination for prefix list
-	d, err := iDB.GetDestinationDrv(destID, false, transactionID)
-	if err != nil {
-		return
-	}
 	iDB.db.Remove(utils.CacheDestinations, destID,
-		true, utils.NonTransactional)
-	Cache.Remove(utils.CacheDestinations, destID,
 		cacheCommit(transactionID), transactionID)
-	for _, prefix := range d.Prefixes {
-		iDB.db.Remove(utils.CacheReverseDestinations, prefix,
-			true, utils.NonTransactional)
-		iDB.GetReverseDestinationDrv(prefix, true, transactionID) // it will recache the destination
-	}
 	return
 }
 
-func (iDB *InternalDB) SetReverseDestinationDrv(dest *Destination, transactionID string) (err error) {
-	var mpRevDst utils.StringMap
-	for _, p := range dest.Prefixes {
-		if iDB.db.HasItem(utils.CacheReverseDestinations, p) {
-			x, ok := iDB.db.Get(utils.CacheReverseDestinations, p)
-			if !ok || x == nil {
-				return utils.ErrNotFound
-			}
-			mpRevDst = x.(utils.StringMap)
-		} else {
-			mpRevDst = make(utils.StringMap)
+func (iDB *InternalDB) RemoveReverseDestinationDrv(dstID, prfx, transactionID string) (err error) {
+	var revDst []string
+	if iDB.db.HasItem(utils.CacheReverseDestinations, prfx) {
+		x, ok := iDB.db.Get(utils.CacheReverseDestinations, prfx)
+		if !ok || x == nil {
+			return utils.ErrNotFound
 		}
-		mpRevDst[dest.Id] = true
-		// for ReverseDestination we will use Groups
-		iDB.db.Set(utils.CacheReverseDestinations, p, mpRevDst, nil,
-			true, utils.NonTransactional)
+		revDst = x.([]string)
 	}
-	return
-}
-
-func (iDB *InternalDB) GetReverseDestinationDrv(prefix string,
-	skipCache bool, transactionID string) (ids []string, err error) {
-	if !skipCache {
-		if x, ok := Cache.Get(utils.CacheReverseDestinations, prefix); ok {
-			if x != nil {
-				return x.([]string), nil
-			}
-			return nil, utils.ErrNotFound
-		}
-	}
-	x, ok := iDB.db.Get(utils.CacheReverseDestinations, prefix)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
-	}
-	ids = x.(utils.StringMap).Slice()
-	if len(ids) == 0 {
-		Cache.Set(utils.CacheReverseDestinations, prefix, nil, nil,
+	mpRevDst := utils.NewStringSet(revDst)
+	mpRevDst.Remove(dstID)
+	if mpRevDst.Size() != 0 {
+		iDB.db.Set(utils.CacheReverseDestinations, prfx, mpRevDst.AsSlice(), nil,
 			cacheCommit(transactionID), transactionID)
-		return nil, utils.ErrNotFound
+	} else {
+		iDB.db.Remove(utils.CacheReverseDestinations, prfx,
+			cacheCommit(transactionID), transactionID)
 	}
-	Cache.Set(utils.CacheReverseDestinations, prefix, ids, nil,
-		cacheCommit(transactionID), transactionID)
 	return
 }
 
-func (iDB *InternalDB) UpdateReverseDestinationDrv(oldDest, newDest *Destination,
-	transactionID string) error {
-	var obsoletePrefixes []string
-	var mpRevDst utils.StringMap
-	var addedPrefixes []string
-	var found bool
-	if oldDest == nil {
-		oldDest = new(Destination) // so we can process prefixes
-	}
-	for _, oldPrefix := range oldDest.Prefixes {
-		found = false
-		for _, newPrefix := range newDest.Prefixes {
-			if oldPrefix == newPrefix {
-				found = true
-				break
+func (iDB *InternalDB) SetReverseDestinationDrv(destID string, prefixes []string, transactionID string) (err error) {
+	for _, p := range prefixes {
+		var revDst []string
+		if iDB.db.HasItem(utils.CacheReverseDestinations, p) {
+			if x, ok := iDB.db.Get(utils.CacheReverseDestinations, p); ok && x != nil {
+				revDst = x.([]string)
 			}
 		}
-		if !found {
-			obsoletePrefixes = append(obsoletePrefixes, oldPrefix)
-		}
-	}
-	for _, newPrefix := range newDest.Prefixes {
-		found = false
-		for _, oldPrefix := range oldDest.Prefixes {
-			if newPrefix == oldPrefix {
-				found = true
-				break
-			}
-		}
-		if !found {
-			addedPrefixes = append(addedPrefixes, newPrefix)
-		}
-	}
-	// remove id for all obsolete prefixes
-	cCommit := cacheCommit(transactionID)
-	var err error
-	for _, obsoletePrefix := range obsoletePrefixes {
-		if iDB.db.HasItem(utils.CacheReverseDestinations, obsoletePrefix) {
-			x, ok := iDB.db.Get(utils.CacheReverseDestinations, obsoletePrefix)
-			if !ok || x == nil {
-				return utils.ErrNotFound
-			}
-			mpRevDst = x.(utils.StringMap)
-			if _, has := mpRevDst[oldDest.Id]; has {
-				delete(mpRevDst, oldDest.Id)
-			}
-			// for ReverseDestination we will use Groups
-			iDB.db.Set(utils.CacheReverseDestinations, obsoletePrefix, mpRevDst, nil,
-				true, utils.NonTransactional)
-		}
-
-		Cache.Remove(utils.CacheReverseDestinations, obsoletePrefix,
-			cCommit, transactionID)
-	}
-	// add the id to all new prefixes
-	for _, addedPrefix := range addedPrefixes {
-		if iDB.db.HasItem(utils.CacheReverseDestinations, addedPrefix) {
-			x, ok := iDB.db.Get(utils.CacheReverseDestinations, addedPrefix)
-			if !ok || x == nil {
-				return utils.ErrNotFound
-			}
-			mpRevDst = x.(utils.StringMap)
-		} else {
-			mpRevDst = make(utils.StringMap)
-		}
-		mpRevDst[newDest.Id] = true
+		mpRevDst := utils.NewStringSet(revDst)
+		mpRevDst.Add(destID)
 		// for ReverseDestination we will use Groups
-		iDB.db.Set(utils.CacheReverseDestinations, addedPrefix, mpRevDst, nil,
+		iDB.db.Set(utils.CacheReverseDestinations, p, mpRevDst.AsSlice(), nil,
 			true, utils.NonTransactional)
 	}
-	return err
+	return
+}
+
+func (iDB *InternalDB) GetReverseDestinationDrv(prefix, transactionID string) (ids []string, err error) {
+	if x, ok := iDB.db.Get(utils.CacheReverseDestinations, prefix); ok && x != nil {
+		if ids = x.([]string); len(ids) != 0 {
+			return
+		}
+	}
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) GetActionsDrv(id string) (acts Actions, err error) {
-	x, ok := iDB.db.Get(utils.CacheActions, id)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheActions, id); ok && x != nil {
+		return x.(Actions), err
 	}
-	return x.(Actions), err
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetActionsDrv(id string, acts Actions) (err error) {
@@ -699,11 +339,10 @@ func (iDB *InternalDB) RemoveActionsDrv(id string) (err error) {
 }
 
 func (iDB *InternalDB) GetSharedGroupDrv(id string) (sh *SharedGroup, err error) {
-	x, ok := iDB.db.Get(utils.CacheSharedGroups, id)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheSharedGroups, id); ok && x != nil {
+		return x.(*SharedGroup).Clone(), err
 	}
-	return x.(*SharedGroup).Clone(), nil
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetSharedGroupDrv(sh *SharedGroup) (err error) {
@@ -719,11 +358,10 @@ func (iDB *InternalDB) RemoveSharedGroupDrv(id string) (err error) {
 }
 
 func (iDB *InternalDB) GetActionTriggersDrv(id string) (at ActionTriggers, err error) {
-	x, ok := iDB.db.Get(utils.CacheActionTriggers, id)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheActionTriggers, id); ok && x != nil {
+		return x.(ActionTriggers).Clone(), err
 	}
-	return x.(ActionTriggers).Clone(), nil
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetActionTriggersDrv(id string, at ActionTriggers) (err error) {
@@ -739,12 +377,10 @@ func (iDB *InternalDB) RemoveActionTriggersDrv(id string) (err error) {
 }
 
 func (iDB *InternalDB) GetActionPlanDrv(key string) (ats *ActionPlan, err error) {
-	x, ok := iDB.db.Get(utils.CacheActionPlans, key)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheActionPlans, key); ok && x != nil {
+		return x.(*ActionPlan), nil
 	}
-	ats = x.(*ActionPlan)
-	return
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetActionPlanDrv(key string, ats *ActionPlan) (err error) {
@@ -754,35 +390,33 @@ func (iDB *InternalDB) SetActionPlanDrv(key string, ats *ActionPlan) (err error)
 }
 
 func (iDB *InternalDB) RemoveActionPlanDrv(key string) (err error) {
-	iDB.db.Remove(utils.CacheActionPlans, key,
-		true, utils.NonTransactional)
+	iDB.db.Remove(utils.CacheActionPlans, key, true, utils.NonTransactional)
 	return
 }
 
 func (iDB *InternalDB) GetAllActionPlansDrv() (ats map[string]*ActionPlan, err error) {
-	keys, err := iDB.GetKeysForPrefix(utils.ACTION_PLAN_PREFIX)
-	if err != nil {
-		return nil, err
+	var keys []string
+	if keys, err = iDB.GetKeysForPrefix(utils.ActionPlanPrefix); err != nil {
+		return
 	}
 
 	ats = make(map[string]*ActionPlan, len(keys))
 	for _, key := range keys {
-		ap, err := iDB.GetActionPlanDrv(key[len(utils.ACTION_PLAN_PREFIX):])
-		if err != nil {
-			return nil, err
+		var ap *ActionPlan
+		if ap, err = iDB.GetActionPlanDrv(key[len(utils.ActionPlanPrefix):]); err != nil {
+			ats = nil
+			return
 		}
-		ats[key[len(utils.ACTION_PLAN_PREFIX):]] = ap
+		ats[key[len(utils.ActionPlanPrefix):]] = ap
 	}
 	return
 }
 
 func (iDB *InternalDB) GetAccountActionPlansDrv(acntID string) (apIDs []string, err error) {
-	x, ok := iDB.db.Get(utils.CacheAccountActionPlans, acntID)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheAccountActionPlans, acntID); ok && x != nil {
+		return x.([]string), nil
 	}
-	apIDs = x.([]string)
-	return
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetAccountActionPlansDrv(acntID string, apIDs []string) (err error) {
@@ -818,11 +452,10 @@ func (iDB *InternalDB) PopTask() (t *Task, err error) {
 }
 
 func (iDB *InternalDB) GetAccountDrv(id string) (acc *Account, err error) {
-	x, ok := iDB.db.Get(utils.CacheAccounts, id)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheAccounts, id); ok && x != nil {
+		return x.(*Account).Clone(), nil
 	}
-	return x.(*Account).Clone(), nil
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetAccountDrv(acc *Account) (err error) {
@@ -851,11 +484,10 @@ func (iDB *InternalDB) RemoveAccountDrv(id string) (err error) {
 }
 
 func (iDB *InternalDB) GetResourceProfileDrv(tenant, id string) (rp *ResourceProfile, err error) {
-	x, ok := iDB.db.Get(utils.CacheResourceProfiles, utils.ConcatenatedKey(tenant, id))
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheResourceProfiles, utils.ConcatenatedKey(tenant, id)); ok && x != nil {
+		return x.(*ResourceProfile), nil
 	}
-	return x.(*ResourceProfile), nil
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetResourceProfileDrv(rp *ResourceProfile) (err error) {
@@ -871,11 +503,10 @@ func (iDB *InternalDB) RemoveResourceProfileDrv(tenant, id string) (err error) {
 }
 
 func (iDB *InternalDB) GetResourceDrv(tenant, id string) (r *Resource, err error) {
-	x, ok := iDB.db.Get(utils.CacheResources, utils.ConcatenatedKey(tenant, id))
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+	if x, ok := iDB.db.Get(utils.CacheResources, utils.ConcatenatedKey(tenant, id)); ok && x != nil {
+		return x.(*Resource), nil
 	}
-	return x.(*Resource), nil
+	return nil, utils.ErrNotFound
 }
 
 func (iDB *InternalDB) SetResourceDrv(r *Resource) (err error) {
@@ -916,99 +547,6 @@ func (iDB *InternalDB) GetLoadHistory(int, bool, string) ([]*utils.LoadInstance,
 
 func (iDB *InternalDB) AddLoadHistory(*utils.LoadInstance, int, string) error {
 	return nil
-}
-
-func (iDB *InternalDB) GetFilterIndexesDrv(cacheID, tntCtx, filterType string,
-	fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error) {
-	if len(fldNameVal) == 0 { // return all
-		indexes = make(map[string]utils.StringMap)
-		for _, dbKey := range iDB.db.GetGroupItemIDs(cacheID, tntCtx) {
-			x, ok := iDB.db.Get(cacheID, dbKey)
-			if !ok || x == nil {
-				continue
-			}
-			dbKey = strings.TrimPrefix(dbKey, tntCtx+utils.CONCATENATED_KEY_SEP)
-			indexes[dbKey] = x.(utils.StringMap).Clone()
-		}
-		if len(indexes) == 0 {
-			return nil, utils.ErrNotFound
-		}
-		return
-	}
-	indexes = make(map[string]utils.StringMap)
-	for fldName, fldVal := range fldNameVal {
-		idxKey := utils.ConcatenatedKey(filterType, fldName, fldVal)
-		dbKey := utils.ConcatenatedKey(tntCtx, idxKey)
-		x, ok := iDB.db.Get(cacheID, dbKey)
-		if !ok || x == nil {
-			return nil, utils.ErrNotFound
-		}
-		rcvidx := x.(utils.StringMap)
-
-		if _, has := indexes[idxKey]; !has || len(indexes[idxKey]) == 0 {
-			indexes[idxKey] = rcvidx
-		} else {
-			for key := range rcvidx {
-				indexes[idxKey][key] = true
-			}
-		}
-	}
-	return
-}
-
-func (iDB *InternalDB) SetFilterIndexesDrv(cacheID, tntCtx string,
-	indexes map[string]utils.StringMap, commit bool, transactionID string) (err error) {
-	if commit && transactionID != utils.EmptyString {
-		for _, dbKey := range iDB.db.GetGroupItemIDs(cacheID, tntCtx) {
-			if !strings.HasPrefix(dbKey, "tmp_") || !strings.HasSuffix(dbKey, transactionID) {
-				continue
-			}
-			x, ok := iDB.db.Get(cacheID, dbKey)
-			if !ok || x == nil {
-				continue
-			}
-			iDB.db.Remove(cacheID, dbKey,
-				true, utils.NonTransactional)
-			key := strings.TrimSuffix(strings.TrimPrefix(dbKey, "tmp_"), utils.CONCATENATED_KEY_SEP+transactionID)
-			iDB.db.Set(cacheID, key, x, []string{tntCtx},
-				true, utils.NonTransactional)
-		}
-		return
-	}
-	for idxKey, indx := range indexes {
-		dbKey := utils.ConcatenatedKey(tntCtx, idxKey)
-		if transactionID != utils.EmptyString {
-			dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
-		}
-		if len(indx) == 0 {
-			iDB.db.Remove(cacheID, dbKey,
-				true, utils.NonTransactional)
-			continue
-		}
-		iDB.db.Set(cacheID, dbKey, indx, []string{tntCtx},
-			true, utils.NonTransactional)
-	}
-	return
-}
-func (iDB *InternalDB) RemoveFilterIndexesDrv(cacheID, tntCtx string) (err error) {
-	iDB.db.RemoveGroup(cacheID, tntCtx, true, utils.EmptyString)
-	return
-}
-
-func (iDB *InternalDB) MatchFilterIndexDrv(cacheID, tntCtx,
-	filterType, fieldName, fieldVal string) (itemIDs utils.StringMap, err error) {
-	dbKey := utils.ConcatenatedKey(tntCtx, filterType, fieldName, fieldVal)
-	x, ok := iDB.db.Get(cacheID, dbKey)
-	if !ok || x == nil {
-		return nil, utils.ErrNotFound
-	}
-
-	itemIDs = x.(utils.StringMap)
-
-	if len(itemIDs) == 0 {
-		return nil, utils.ErrNotFound
-	}
-	return
 }
 
 func (iDB *InternalDB) GetStatQueueProfileDrv(tenant string, id string) (sq *StatQueueProfile, err error) {
@@ -1105,6 +643,9 @@ func (iDB *InternalDB) GetFilterDrv(tenant, id string) (fltr *Filter, err error)
 }
 
 func (iDB *InternalDB) SetFilterDrv(fltr *Filter) (err error) {
+	if err = fltr.Compile(); err != nil {
+		return
+	}
 	iDB.db.Set(utils.CacheFilters, fltr.TenantID(), fltr, nil,
 		true, utils.NonTransactional)
 	return
@@ -1116,24 +657,29 @@ func (iDB *InternalDB) RemoveFilterDrv(tenant, id string) (err error) {
 	return
 }
 
-func (iDB *InternalDB) GetSupplierProfileDrv(tenant, id string) (spp *SupplierProfile, err error) {
-	x, ok := iDB.db.Get(utils.CacheSupplierProfiles, utils.ConcatenatedKey(tenant, id))
+func (iDB *InternalDB) GetRouteProfileDrv(tenant, id string) (spp *RouteProfile, err error) {
+	x, ok := iDB.db.Get(utils.CacheRouteProfiles, utils.ConcatenatedKey(tenant, id))
 	if !ok || x == nil {
 		return nil, utils.ErrNotFound
 	}
-	return x.(*SupplierProfile), nil
+	return x.(*RouteProfile), nil
+}
 
-}
-func (iDB *InternalDB) SetSupplierProfileDrv(spp *SupplierProfile) (err error) {
-	iDB.db.Set(utils.CacheSupplierProfiles, spp.TenantID(), spp, nil,
+func (iDB *InternalDB) SetRouteProfileDrv(spp *RouteProfile) (err error) {
+	if err = spp.Compile(); err != nil {
+		return
+	}
+	iDB.db.Set(utils.CacheRouteProfiles, spp.TenantID(), spp, nil,
 		true, utils.NonTransactional)
 	return
 }
-func (iDB *InternalDB) RemoveSupplierProfileDrv(tenant, id string) (err error) {
-	iDB.db.Remove(utils.CacheSupplierProfiles, utils.ConcatenatedKey(tenant, id),
+
+func (iDB *InternalDB) RemoveRouteProfileDrv(tenant, id string) (err error) {
+	iDB.db.Remove(utils.CacheRouteProfiles, utils.ConcatenatedKey(tenant, id),
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) GetAttributeProfileDrv(tenant, id string) (attr *AttributeProfile, err error) {
 	x, ok := iDB.db.Get(utils.CacheAttributeProfiles, utils.ConcatenatedKey(tenant, id))
 	if !ok || x == nil {
@@ -1141,16 +687,22 @@ func (iDB *InternalDB) GetAttributeProfileDrv(tenant, id string) (attr *Attribut
 	}
 	return x.(*AttributeProfile), nil
 }
+
 func (iDB *InternalDB) SetAttributeProfileDrv(attr *AttributeProfile) (err error) {
+	if err = attr.Compile(); err != nil {
+		return
+	}
 	iDB.db.Set(utils.CacheAttributeProfiles, attr.TenantID(), attr, nil,
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) RemoveAttributeProfileDrv(tenant, id string) (err error) {
 	iDB.db.Remove(utils.CacheAttributeProfiles, utils.ConcatenatedKey(tenant, id),
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) GetChargerProfileDrv(tenant, id string) (ch *ChargerProfile, err error) {
 	x, ok := iDB.db.Get(utils.CacheChargerProfiles, utils.ConcatenatedKey(tenant, id))
 	if !ok || x == nil {
@@ -1158,33 +710,39 @@ func (iDB *InternalDB) GetChargerProfileDrv(tenant, id string) (ch *ChargerProfi
 	}
 	return x.(*ChargerProfile), nil
 }
+
 func (iDB *InternalDB) SetChargerProfileDrv(chr *ChargerProfile) (err error) {
 	iDB.db.Set(utils.CacheChargerProfiles, chr.TenantID(), chr, nil,
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) RemoveChargerProfileDrv(tenant, id string) (err error) {
 	iDB.db.Remove(utils.CacheChargerProfiles, utils.ConcatenatedKey(tenant, id),
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) GetDispatcherProfileDrv(tenant, id string) (dpp *DispatcherProfile, err error) {
 	x, ok := iDB.db.Get(utils.CacheDispatcherProfiles, utils.ConcatenatedKey(tenant, id))
 	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+		return nil, utils.ErrDSPProfileNotFound
 	}
 	return x.(*DispatcherProfile), nil
 }
+
 func (iDB *InternalDB) SetDispatcherProfileDrv(dpp *DispatcherProfile) (err error) {
 	iDB.db.Set(utils.CacheDispatcherProfiles, dpp.TenantID(), dpp, nil,
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) RemoveDispatcherProfileDrv(tenant, id string) (err error) {
 	iDB.db.Remove(utils.CacheDispatcherProfiles, utils.ConcatenatedKey(tenant, id),
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) GetItemLoadIDsDrv(itemIDPrefix string) (loadIDs map[string]int64, err error) {
 	x, ok := iDB.db.Get(utils.CacheLoadIDs, utils.LoadIDs)
 	if !ok || x == nil {
@@ -1195,25 +753,28 @@ func (iDB *InternalDB) GetItemLoadIDsDrv(itemIDPrefix string) (loadIDs map[strin
 		return map[string]int64{itemIDPrefix: loadIDs[itemIDPrefix]}, nil
 	}
 	return
-
 }
+
 func (iDB *InternalDB) SetLoadIDsDrv(loadIDs map[string]int64) (err error) {
 	iDB.db.Set(utils.CacheLoadIDs, utils.LoadIDs, loadIDs, nil,
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) GetDispatcherHostDrv(tenant, id string) (dpp *DispatcherHost, err error) {
 	x, ok := iDB.db.Get(utils.CacheDispatcherHosts, utils.ConcatenatedKey(tenant, id))
 	if !ok || x == nil {
-		return nil, utils.ErrNotFound
+		return nil, utils.ErrDSPHostNotFound
 	}
 	return x.(*DispatcherHost), nil
 }
+
 func (iDB *InternalDB) SetDispatcherHostDrv(dpp *DispatcherHost) (err error) {
 	iDB.db.Set(utils.CacheDispatcherHosts, dpp.TenantID(), dpp, nil,
 		true, utils.NonTransactional)
 	return
 }
+
 func (iDB *InternalDB) RemoveDispatcherHostDrv(tenant, id string) (err error) {
 	iDB.db.Remove(utils.CacheDispatcherHosts, utils.ConcatenatedKey(tenant, id),
 		true, utils.NonTransactional)
@@ -1222,4 +783,74 @@ func (iDB *InternalDB) RemoveDispatcherHostDrv(tenant, id string) (err error) {
 
 func (iDB *InternalDB) RemoveLoadIDsDrv() (err error) {
 	return utils.ErrNotImplemented
+}
+
+func (iDB *InternalDB) GetIndexesDrv(idxItmType, tntCtx, idxKey string) (indexes map[string]utils.StringSet, err error) {
+	if idxKey == utils.EmptyString { // return all
+		indexes = make(map[string]utils.StringSet)
+		for _, dbKey := range iDB.db.GetGroupItemIDs(idxItmType, tntCtx) {
+			x, ok := iDB.db.Get(idxItmType, dbKey)
+			if !ok || x == nil {
+				continue
+			}
+			dbKey = strings.TrimPrefix(dbKey, tntCtx+utils.ConcatenatedKeySep)
+			indexes[dbKey] = x.(utils.StringSet).Clone()
+		}
+		if len(indexes) == 0 {
+			return nil, utils.ErrNotFound
+		}
+		return
+	}
+	dbKey := utils.ConcatenatedKey(tntCtx, idxKey)
+	x, ok := iDB.db.Get(idxItmType, dbKey)
+	if !ok || x == nil {
+		return nil, utils.ErrNotFound
+	}
+	return map[string]utils.StringSet{
+		idxKey: x.(utils.StringSet).Clone(),
+	}, nil
+}
+
+func (iDB *InternalDB) SetIndexesDrv(idxItmType, tntCtx string,
+	indexes map[string]utils.StringSet, commit bool, transactionID string) (err error) {
+	if commit && transactionID != utils.EmptyString {
+		for _, dbKey := range iDB.db.GetGroupItemIDs(idxItmType, tntCtx) {
+			if !strings.HasPrefix(dbKey, "tmp_") || !strings.HasSuffix(dbKey, transactionID) {
+				continue
+			}
+			x, ok := iDB.db.Get(idxItmType, dbKey)
+			if !ok || x == nil {
+				continue
+			}
+			iDB.db.Remove(idxItmType, dbKey,
+				true, utils.NonTransactional)
+			key := strings.TrimSuffix(strings.TrimPrefix(dbKey, "tmp_"), utils.ConcatenatedKeySep+transactionID)
+			iDB.db.Set(idxItmType, key, x, []string{tntCtx},
+				true, utils.NonTransactional)
+		}
+		return
+	}
+	for idxKey, indx := range indexes {
+		dbKey := utils.ConcatenatedKey(tntCtx, idxKey)
+		if transactionID != utils.EmptyString {
+			dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
+		}
+		if len(indx) == 0 {
+			iDB.db.Remove(idxItmType, dbKey,
+				true, utils.NonTransactional)
+			continue
+		}
+		iDB.db.Set(idxItmType, dbKey, indx, []string{tntCtx},
+			true, utils.NonTransactional)
+	}
+	return
+}
+
+func (iDB *InternalDB) RemoveIndexesDrv(idxItmType, tntCtx, idxKey string) (err error) {
+	if idxKey == utils.EmptyString {
+		iDB.db.RemoveGroup(idxItmType, tntCtx, true, utils.EmptyString)
+		return
+	}
+	iDB.db.Remove(idxItmType, utils.ConcatenatedKey(tntCtx, idxKey), true, utils.NonTransactional)
+	return
 }

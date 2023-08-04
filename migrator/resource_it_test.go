@@ -125,25 +125,29 @@ func TestResourceITMoveEncoding2(t *testing.T) {
 }
 
 func testResITConnect(t *testing.T) {
-	dataDBIn, err := NewMigratorDataDB(resCfgIn.DataDbCfg().DataDbType,
-		resCfgIn.DataDbCfg().DataDbHost, resCfgIn.DataDbCfg().DataDbPort,
-		resCfgIn.DataDbCfg().DataDbName, resCfgIn.DataDbCfg().DataDbUser,
-		resCfgIn.DataDbCfg().DataDbPass, resCfgIn.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", resCfgIn.DataDbCfg().Items)
+	dataDBIn, err := NewMigratorDataDB(resCfgIn.DataDbCfg().Type,
+		resCfgIn.DataDbCfg().Host, resCfgIn.DataDbCfg().Port,
+		resCfgIn.DataDbCfg().Name, resCfgIn.DataDbCfg().User,
+		resCfgIn.DataDbCfg().Password, resCfgIn.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), resCfgIn.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dataDBOut, err := NewMigratorDataDB(resCfgOut.DataDbCfg().DataDbType,
-		resCfgOut.DataDbCfg().DataDbHost, resCfgOut.DataDbCfg().DataDbPort,
-		resCfgOut.DataDbCfg().DataDbName, resCfgOut.DataDbCfg().DataDbUser,
-		resCfgOut.DataDbCfg().DataDbPass, resCfgOut.GeneralCfg().DBDataEncoding,
-		config.CgrConfig().CacheCfg(), "", resCfgOut.DataDbCfg().Items)
+	dataDBOut, err := NewMigratorDataDB(resCfgOut.DataDbCfg().Type,
+		resCfgOut.DataDbCfg().Host, resCfgOut.DataDbCfg().Port,
+		resCfgOut.DataDbCfg().Name, resCfgOut.DataDbCfg().User,
+		resCfgOut.DataDbCfg().Password, resCfgOut.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().CacheCfg(), resCfgOut.DataDbCfg().Opts, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	resMigrator, err = NewMigrator(dataDBIn, dataDBOut,
-		nil, nil,
-		false, false, false, false)
+	if reflect.DeepEqual(resPathIn, resPathOut) {
+		resMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, true, false, false)
+	} else {
+		resMigrator, err = NewMigrator(dataDBIn, dataDBOut, nil, nil,
+			false, false, false, false)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -156,7 +160,7 @@ func testResITFlush(t *testing.T) {
 	if isEmpty, err := resMigrator.dmOut.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(resMigrator.dmOut.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -167,7 +171,7 @@ func testResITFlush(t *testing.T) {
 	if isEmpty, err := resMigrator.dmIN.DataManager().DataDB().IsDBEmpty(); err != nil {
 		t.Error(err)
 	} else if isEmpty != true {
-		t.Errorf("\nExpecting: true got :%+v", isEmpty)
+		t.Errorf("Expecting: true got :%+v", isEmpty)
 	}
 	if err := engine.SetDBVersions(resMigrator.dmIN.DataManager().DataDB()); err != nil {
 		t.Error("Error  ", err.Error())
@@ -178,7 +182,7 @@ func testResITMigrateAndMove(t *testing.T) {
 	resPrfl := &engine.ResourceProfile{
 		Tenant:       "cgrates.org",
 		ID:           "RES1",
-		FilterIDs:    []string{"*string:~Account:1001"},
+		FilterIDs:    []string{"*string:~*opts.Account:1001"},
 		UsageTTL:     time.Second,
 		Limit:        1,
 		Weight:       10,
@@ -191,7 +195,7 @@ func testResITMigrateAndMove(t *testing.T) {
 			t.Error(err)
 		}
 		currentVersion := engine.CurrentDataDBVersions()
-		err := resMigrator.dmOut.DataManager().DataDB().SetVersions(currentVersion, false)
+		err := resMigrator.dmIN.DataManager().DataDB().SetVersions(currentVersion, false)
 		if err != nil {
 			t.Error("Error when setting version for Resource ", err.Error())
 		}
@@ -215,6 +219,8 @@ func testResITMigrateAndMove(t *testing.T) {
 		result, err = resMigrator.dmIN.DataManager().GetResourceProfile("cgrates.org", "RES1", false, false, utils.NonTransactional)
 		if err != utils.ErrNotFound {
 			t.Error(err)
+		} else if resMigrator.stats[utils.Resource] != 1 {
+			t.Errorf("Expected 1, received: %v", resMigrator.stats[utils.Resource])
 		}
 	}
 }

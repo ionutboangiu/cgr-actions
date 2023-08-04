@@ -1,4 +1,5 @@
 #!/bin/bash
+# set -e
 go clean --cache
 results=()
 ./test.sh
@@ -34,8 +35,14 @@ results+=($?)
 echo "go test github.com/cgrates/cgrates/dispatchers -tags=integration $@"
 go test github.com/cgrates/cgrates/dispatchers -tags=integration $@
 results+=($?)
+echo "go test github.com/cgrates/cgrates/registrarc -tags=integration $@"
+go test github.com/cgrates/cgrates/registrarc -tags=integration $@
+results+=($?)
 echo "go test github.com/cgrates/cgrates/apier/v1 -tags=offline $@"
 go test github.com/cgrates/cgrates/apier/v1 -tags=offline $@
+results+=($?)
+echo "go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration $@"
+go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration $@
 results+=($?)
 else
 # Internal
@@ -66,8 +73,14 @@ results+=($?)
 echo 'go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*internal'
 go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*internal
 results+=($?)
+echo "go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*internal"
+go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*internal
+results+=($?)
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*internal'
 go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*internal
+results+=($?)
+echo "go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*internal"
+go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*internal
 results+=($?)
 # SQL
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=integration -dbtype=*mysql'
@@ -97,8 +110,14 @@ results+=($?)
 echo 'go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*mysql'
 go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*mysql
 results+=($?)
+echo "go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*mysql"
+go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*mysql
+results+=($?)
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*mysql'
 go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*mysql
+results+=($?)
+echo "go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*mysql"
+go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*mysql
 results+=($?)
 # Mongo
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=integration -dbtype=*mongo'
@@ -128,8 +147,14 @@ results+=($?)
 echo 'go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*mongo'
 go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*mongo
 results+=($?)
+echo "go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*mongo"
+go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*mongo
+results+=($?)
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*mongo'
 go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*mongo
+results+=($?)
+echo "go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*mongo"
+go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*mongo
 results+=($?)
 # Postgres
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=integration -dbtype=*postgres'
@@ -159,17 +184,35 @@ results+=($?)
 echo 'go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*postgres'
 go test github.com/cgrates/cgrates/dispatchers -tags=integration -dbtype=*postgres
 results+=($?)
+echo "go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*postgres"
+go test github.com/cgrates/cgrates/registrarc -tags=integration -dbtype=*postgres
+results+=($?)
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*postgres'
 go test github.com/cgrates/cgrates/apier/v1 -tags=offline -dbtype=*postgres
+results+=($?)
+echo "go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*postgres"
+go test github.com/cgrates/cgrates/cmd/cgr-loader -tags=integration -dbtype=*postgres
 results+=($?)
 
 fi
 
+echo "go test github.com/cgrates/cgrates/analyzers -tags=integration"
+go test github.com/cgrates/cgrates/analyzers -tags=integration
+results+=($?)
+echo "go test github.com/cgrates/cgrates/ees -tags=integration"
+go test github.com/cgrates/cgrates/ees -tags=integration
+results+=($?)
 echo 'go test github.com/cgrates/cgrates/config -tags=integration'
 go test github.com/cgrates/cgrates/config -tags=integration
 results+=($?)
+echo 'go test github.com/cgrates/cgrates/utils -tags=integration'
+go test github.com/cgrates/cgrates/utils -tags=integration
+results+=($?)
+echo 'go test github.com/cgrates/cgrates/cores -tags=integration'
+go test github.com/cgrates/cgrates/cores -tags=integration
+results+=($?)
 echo 'go test github.com/cgrates/cgrates/migrator -tags=integration'
-go test github.com/cgrates/cgrates/migrator -tags=integration -timeout=14m
+go test github.com/cgrates/cgrates/migrator -tags=integration
 results+=($?)
 echo 'go test github.com/cgrates/cgrates/services -tags=integration'
 go test github.com/cgrates/cgrates/services -tags=integration

@@ -27,7 +27,7 @@ func init() {
 	c := &CmdMaxDebit{
 		name:       "debit_max",
 		rpcMethod:  utils.ResponderMaxDebit,
-		clientArgs: []string{"Category", "ToR", "Tenant", "Subject", "Account", "Destination", "TimeStart", "TimeEnd", "CallDuration", "FallbackSubject"},
+		clientArgs: []string{utils.Category, utils.ToR, utils.Tenant, utils.Subject, utils.AccountField, utils.Destination, utils.TimeStart, utils.TimeEnd, utils.CallDuration, utils.FallbackSubject},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -37,7 +37,7 @@ func init() {
 type CmdMaxDebit struct {
 	name       string
 	rpcMethod  string
-	rpcParams  *engine.CallDescriptorWithArgDispatcher
+	rpcParams  *engine.CallDescriptorWithAPIOpts
 	clientArgs []string
 	*CommandExecuter
 }
@@ -50,11 +50,11 @@ func (self *CmdMaxDebit) RpcMethod() string {
 	return self.rpcMethod
 }
 
-func (self *CmdMaxDebit) RpcParams(reset bool) interface{} {
+func (self *CmdMaxDebit) RpcParams(reset bool) any {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.CallDescriptorWithArgDispatcher{
+		self.rpcParams = &engine.CallDescriptorWithAPIOpts{
 			CallDescriptor: new(engine.CallDescriptor),
-			ArgDispatcher:  new(utils.ArgDispatcher),
+			APIOpts:        make(map[string]any),
 		}
 	}
 	return self.rpcParams
@@ -64,7 +64,7 @@ func (self *CmdMaxDebit) PostprocessRpcParams() error {
 	return nil
 }
 
-func (self *CmdMaxDebit) RpcResult() interface{} {
+func (self *CmdMaxDebit) RpcResult() any {
 	return &engine.CallCost{}
 }
 

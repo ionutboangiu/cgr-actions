@@ -20,7 +20,9 @@ package engine
 
 import (
 	"fmt"
+	"net"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -35,7 +37,6 @@ func NewFilterS(cfg *config.CGRConfig, connMgr *ConnManager, dm *DataManager) (f
 		cfg:     cfg,
 		connMgr: connMgr,
 	}
-
 	return
 }
 
@@ -47,18 +48,18 @@ type FilterS struct {
 	connMgr *ConnManager
 }
 
-// Pass will check all filters wihin filterIDs and require them passing for dataProvider
+// Pass will check all filters within filterIDs and require them passing for dataProvider
 // there should be at least one filter passing, ie: if filters are not active event will fail to pass
 // receives the event as DataProvider so we can accept undecoded data (ie: HttpRequest)
 func (fS *FilterS) Pass(tenant string, filterIDs []string,
 	ev utils.DataProvider) (pass bool, err error) {
-	var fieldNameDP utils.DataProvider
-	var fieldValuesDP []utils.DataProvider
 	if len(filterIDs) == 0 {
 		return true, nil
 	}
+	dDP := newDynamicDP(fS.cfg.FilterSCfg().ResourceSConns, fS.cfg.FilterSCfg().StatSConns,
+		fS.cfg.FilterSCfg().ApierSConns, tenant, ev)
 	for _, fltrID := range filterIDs {
-		f, err := GetFilter(fS.dm, tenant, fltrID,
+		f, err := fS.dm.GetFilter(tenant, fltrID,
 			true, true, utils.NonTransactional)
 		if err != nil {
 			if err == utils.ErrNotFound {
@@ -71,15 +72,7 @@ func (fS *FilterS) Pass(tenant string, filterIDs []string,
 			continue
 		}
 		for _, fltr := range f.Rules {
-			fieldNameDP, err = fS.getFieldNameDataProvider(ev, fltr.Element, tenant)
-			if err != nil {
-				return pass, err
-			}
-			fieldValuesDP, err = fS.getFieldValuesDataProviders(ev, fltr.Values, tenant)
-			if err != nil {
-				return pass, err
-			}
-			if pass, err = fltr.Pass(fieldNameDP, fieldValuesDP); err != nil || !pass {
+			if pass, err = fltr.Pass(dDP); err != nil || !pass {
 				return pass, err
 			}
 		}
@@ -88,11 +81,103 @@ func (fS *FilterS) Pass(tenant string, filterIDs []string,
 	return
 }
 
+// checkPrefix verify if the value has as prefix one of the prefixes
+func checkPrefix(value string, prefixes []string) (hasPrefix bool) {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
+			hasPrefix = true
+			break
+		}
+	}
+	if !hasPrefix {
+		return false
+	}
+	return
+}
+
+// verifyPrefixes verify the Element and the Values from FilterRule if has as prefix one of the prefixes
+func verifyPrefixes(rule *FilterRule, prefixes []string) (hasPrefix bool) {
+	if strings.HasPrefix(rule.Element, utils.DynamicDataPrefix) {
+		if hasPrefix = checkPrefix(rule.Element, prefixes); !hasPrefix {
+			return
+		}
+	}
+	for _, value := range rule.Values {
+		hasPrefix = false // reset hasPrefix
+		if strings.HasPrefix(value, utils.DynamicDataPrefix) {
+			if hasPrefix = checkPrefix(value, prefixes); !hasPrefix {
+				return
+			}
+		}
+	}
+	return true
+}
+
+// LazyPass is almost the same as Pass except that it verify if the
+// Element of the Values from FilterRules has as prefix one of the pathPrfxs
+func (fS *FilterS) LazyPass(tenant string, filterIDs []string,
+	ev utils.DataProvider, pathPrfxs []string) (pass bool, lazyCheckRules []*FilterRule, err error) {
+	if len(filterIDs) == 0 {
+		return true, nil, nil
+	}
+	pass = true
+	dDP := newDynamicDP(fS.cfg.FilterSCfg().ResourceSConns, fS.cfg.FilterSCfg().StatSConns,
+		fS.cfg.FilterSCfg().ApierSConns, tenant, ev)
+	for _, fltrID := range filterIDs {
+		var f *Filter
+		f, err = fS.dm.GetFilter(tenant, fltrID,
+			true, true, utils.NonTransactional)
+		if err != nil {
+			if err == utils.ErrNotFound {
+				err = utils.ErrPrefixNotFound(fltrID)
+			}
+			return
+		}
+		if f.ActivationInterval != nil &&
+			!f.ActivationInterval.IsActiveAtTime(time.Now()) { // not active
+			continue
+		}
+
+		for _, rule := range f.Rules {
+			if !verifyPrefixes(rule, pathPrfxs) {
+				lazyCheckRules = append(lazyCheckRules, rule)
+				continue
+			}
+			if pass, err = rule.Pass(dDP); err != nil || !pass {
+				return
+			}
+		}
+	}
+	return
+}
+
+func splitDynFltrValues(val, sep string) (vals []string) {
+	startIdx := strings.IndexByte(val, utils.RSRDynStartChar)
+	endIdx := strings.IndexByte(val, utils.RSRDynEndChar)
+	if startIdx == -1 || endIdx == -1 {
+		return strings.Split(val, sep)
+	}
+
+	vals = strings.Split(val[:startIdx], sep)
+	vals[len(vals)-1] += val[startIdx : endIdx+1]
+	val = val[endIdx+1:]
+	if len(val) == 0 {
+		return
+	}
+	valsEnd := splitDynFltrValues(val, sep)
+	vals[len(vals)-1] += valsEnd[0]
+	return append(vals, valsEnd[1:]...)
+}
+
 // NewFilterFromInline parses an inline rule into a compiled Filter
 func NewFilterFromInline(tenant, inlnRule string) (f *Filter, err error) {
-	ruleSplt := strings.Split(inlnRule, utils.InInFieldSep)
-	if len(ruleSplt) < 3 {
+	ruleSplt := utils.SplitPath(inlnRule, utils.InInFieldSep[0], 3)
+	if len(ruleSplt) != 3 {
 		return nil, fmt.Errorf("inline parse error for string: <%s>", inlnRule)
+	}
+	var vals []string
+	if ruleSplt[2] != utils.EmptyString {
+		vals = splitDynFltrValues(ruleSplt[2], utils.PipeSep)
 	}
 	f = &Filter{
 		Tenant: tenant,
@@ -100,7 +185,7 @@ func NewFilterFromInline(tenant, inlnRule string) (f *Filter, err error) {
 		Rules: []*FilterRule{{
 			Type:    ruleSplt[0],
 			Element: ruleSplt[1],
-			Values:  strings.Split(strings.Join(ruleSplt[2:], utils.InInFieldSep), utils.INFIELD_SEP),
+			Values:  vals,
 		}},
 	}
 	if err = f.Compile(); err != nil {
@@ -115,6 +200,12 @@ type Filter struct {
 	ID                 string
 	Rules              []*FilterRule
 	ActivationInterval *utils.ActivationInterval
+}
+
+// FilterWithOpts the arguments for the replication
+type FilterWithAPIOpts struct {
+	*Filter
+	APIOpts map[string]any
 }
 
 // TenantID returns the tenant wit the ID
@@ -132,26 +223,32 @@ func (fltr *Filter) Compile() (err error) {
 	return
 }
 
-var supportedFiltersType utils.StringSet = utils.NewStringSet([]string{utils.MetaString, utils.MetaPrefix, utils.MetaSuffix,
+var supportedFiltersType utils.StringSet = utils.NewStringSet([]string{
+	utils.MetaString, utils.MetaPrefix, utils.MetaSuffix,
 	utils.MetaTimings, utils.MetaRSR, utils.MetaDestinations,
 	utils.MetaEmpty, utils.MetaExists, utils.MetaLessThan, utils.MetaLessOrEqual,
 	utils.MetaGreaterThan, utils.MetaGreaterOrEqual, utils.MetaEqual,
-	utils.MetaNotEqual})
-var needsFieldName utils.StringSet = utils.NewStringSet([]string{utils.MetaString, utils.MetaPrefix,
-	utils.MetaSuffix, utils.MetaTimings, utils.MetaDestinations, utils.MetaLessThan,
+	utils.MetaIPNet, utils.MetaAPIBan, utils.MetaSentryPeer, utils.MetaActivationInterval,
+	utils.MetaRegex})
+var needsFieldName utils.StringSet = utils.NewStringSet([]string{
+	utils.MetaString, utils.MetaPrefix, utils.MetaSuffix,
+	utils.MetaTimings, utils.MetaRSR, utils.MetaDestinations, utils.MetaLessThan,
 	utils.MetaEmpty, utils.MetaExists, utils.MetaLessOrEqual, utils.MetaGreaterThan,
-	utils.MetaGreaterOrEqual, utils.MetaEqual, utils.MetaNotEqual})
+	utils.MetaGreaterOrEqual, utils.MetaEqual, utils.MetaIPNet, utils.MetaAPIBan, utils.MetaSentryPeer,
+	utils.MetaActivationInterval,
+	utils.MetaRegex})
 var needsValues utils.StringSet = utils.NewStringSet([]string{utils.MetaString, utils.MetaPrefix,
 	utils.MetaSuffix, utils.MetaTimings, utils.MetaRSR, utils.MetaDestinations,
 	utils.MetaLessThan, utils.MetaLessOrEqual, utils.MetaGreaterThan, utils.MetaGreaterOrEqual,
-	utils.MetaEqual, utils.MetaNotEqual})
+	utils.MetaEqual, utils.MetaIPNet, utils.MetaAPIBan, utils.MetaSentryPeer, utils.MetaActivationInterval,
+	utils.MetaRegex})
 
 // NewFilterRule returns a new filter
 func NewFilterRule(rfType, fieldName string, vals []string) (*FilterRule, error) {
 	var negative bool
 	rType := rfType
 	if strings.HasPrefix(rfType, utils.MetaNot) {
-		rType = "*" + strings.TrimPrefix(rfType, utils.MetaNot)
+		rType = utils.Meta + strings.TrimPrefix(rfType, utils.MetaNot)
 		negative = true
 	}
 	if !supportedFiltersType.Has(rType) {
@@ -176,54 +273,90 @@ func NewFilterRule(rfType, fieldName string, vals []string) (*FilterRule, error)
 }
 
 // FilterRule filters requests coming into various places
-// Pass rule: default negative, one mathing rule should pass the filter
+// Pass rule: default negative, one matching rule should pass the filter
 type FilterRule struct {
-	Type      string            // Filter type (*string, *timing, *rsr_filters, *stats, *lt, *lte, *gt, *gte)
-	Element   string            // Name of the field providing us the Values to check (used in case of some )
-	Values    []string          // Filter definition
-	rsrFields config.RSRParsers // Cache here the RSRFilter Values
-	negative  *bool
+	Type        string            // Filter type (*string, *timing, *rsr_filters, *stats, *lt, *lte, *gt, *gte)
+	Element     string            // Name of the field providing us the Values to check (used in case of some )
+	Values      []string          // Filter definition
+	rsrValues   config.RSRParsers // Cache here the
+	rsrElement  *config.RSRParser // Cache here the
+	rsrFilters  utils.RSRFilters  // Cache here the RSRFilter Values
+	regexValues []*regexp.Regexp
+	negative    *bool
 }
 
 // CompileValues compiles RSR fields
 func (fltr *FilterRule) CompileValues() (err error) {
 	switch fltr.Type {
+	case utils.MetaRegex, utils.MetaNotRegex:
+		fltr.regexValues = make([]*regexp.Regexp, len(fltr.Values))
+		for i, val := range fltr.Values {
+			if fltr.regexValues[i], err = regexp.Compile(val); err != nil {
+				return
+			}
+		}
 	case utils.MetaRSR, utils.MetaNotRSR:
-		if fltr.rsrFields, err = config.NewRSRParsersFromSlice(fltr.Values, true); err != nil {
+		if fltr.rsrFilters, err = utils.ParseRSRFiltersFromSlice(fltr.Values); err != nil {
 			return
 		}
+	case utils.MetaExists, utils.MetaNotExists, utils.MetaEmpty, utils.MetaNotEmpty: // only the element is builded
+	case utils.MetaActivationInterval, utils.MetaNotActivationInterval:
+		fltr.rsrValues = make(config.RSRParsers, len(fltr.Values))
+		for i, strVal := range fltr.Values {
+			if fltr.rsrValues[i], err = config.NewRSRParser(strVal); err != nil {
+				return
+			}
+		}
+	default:
+		if fltr.rsrValues, err = config.NewRSRParsersFromSlice(fltr.Values); err != nil {
+			return
+		}
+	}
+	if fltr.rsrElement, err = config.NewRSRParser(fltr.Element); err != nil {
+		return
+	} else if fltr.rsrElement == nil {
+		return fmt.Errorf("empty RSRParser in rule: <%s>", fltr.Element)
 	}
 	return
 }
 
 // Pass is the method which should be used from outside.
-func (fltr *FilterRule) Pass(fieldNameDP utils.DataProvider,
-	fieldValuesDP []utils.DataProvider) (result bool, err error) {
+func (fltr *FilterRule) Pass(dDP utils.DataProvider) (result bool, err error) {
 	if fltr.negative == nil {
 		fltr.negative = utils.BoolPointer(strings.HasPrefix(fltr.Type, utils.MetaNot))
 	}
 
 	switch fltr.Type {
 	case utils.MetaString, utils.MetaNotString:
-		result, err = fltr.passString(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passString(dDP)
 	case utils.MetaEmpty, utils.MetaNotEmpty:
-		result, err = fltr.passEmpty(fieldNameDP)
+		result, err = fltr.passEmpty(dDP)
 	case utils.MetaExists, utils.MetaNotExists:
-		result, err = fltr.passExists(fieldNameDP)
+		result, err = fltr.passExists(dDP)
 	case utils.MetaPrefix, utils.MetaNotPrefix:
-		result, err = fltr.passStringPrefix(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passStringPrefix(dDP)
 	case utils.MetaSuffix, utils.MetaNotSuffix:
-		result, err = fltr.passStringSuffix(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passStringSuffix(dDP)
 	case utils.MetaTimings, utils.MetaNotTimings:
-		result, err = fltr.passTimings(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passTimings(dDP)
 	case utils.MetaDestinations, utils.MetaNotDestinations:
-		result, err = fltr.passDestinations(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passDestinations(dDP)
 	case utils.MetaRSR, utils.MetaNotRSR:
-		result, err = fltr.passRSR(fieldValuesDP)
+		result, err = fltr.passRSR(dDP)
 	case utils.MetaLessThan, utils.MetaLessOrEqual, utils.MetaGreaterThan, utils.MetaGreaterOrEqual:
-		result, err = fltr.passGreaterThan(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passGreaterThan(dDP)
 	case utils.MetaEqual, utils.MetaNotEqual:
-		result, err = fltr.passEqualTo(fieldNameDP, fieldValuesDP)
+		result, err = fltr.passEqualTo(dDP)
+	case utils.MetaIPNet, utils.MetaNotIPNet:
+		result, err = fltr.passIPNet(dDP)
+	case utils.MetaAPIBan, utils.MetaNotAPIBan:
+		result, err = fltr.passAPIBan(dDP)
+	case utils.MetaSentryPeer, utils.MetaNotSentryPeer:
+		result, err = fltr.passSentryPeer(dDP)
+	case utils.MetaActivationInterval, utils.MetaNotActivationInterval:
+		result, err = fltr.passActivationInterval(dDP)
+	case utils.MetaRegex, utils.MetaNotRegex:
+		result, err = fltr.passRegex(dDP)
 	default:
 		err = utils.ErrPrefixNotErrNotImplemented(fltr.Type)
 	}
@@ -233,16 +366,16 @@ func (fltr *FilterRule) Pass(fieldNameDP utils.DataProvider,
 	return result != *(fltr.negative), nil
 }
 
-func (fltr *FilterRule) passString(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	strVal, err := utils.DPDynamicString(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passString(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
 		}
 		return false, err
 	}
-	for i, val := range fltr.Values {
-		sval, err := utils.DPDynamicString(val, fieldValuesDP[i])
+	for _, val := range fltr.rsrValues {
+		sval, err := val.ParseDataProvider(dDP)
 		if err != nil {
 			continue
 		}
@@ -253,9 +386,12 @@ func (fltr *FilterRule) passString(fielNameDP utils.DataProvider, fieldValuesDP 
 	return false, nil
 }
 
-func (fltr *FilterRule) passExists(fielNameDP utils.DataProvider) (bool, error) {
-	_, err := utils.DPDynamicInterface(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passExists(dDP utils.DataProvider) (bool, error) {
+	path, err := fltr.rsrElement.CompileDynRule(dDP)
 	if err != nil {
+		return false, err
+	}
+	if _, err := utils.DPDynamicInterface(path, dDP); err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
 		}
@@ -264,8 +400,12 @@ func (fltr *FilterRule) passExists(fielNameDP utils.DataProvider) (bool, error) 
 	return true, nil
 }
 
-func (fltr *FilterRule) passEmpty(fielNameDP utils.DataProvider) (bool, error) {
-	val, err := utils.DPDynamicInterface(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passEmpty(dDP utils.DataProvider) (bool, error) {
+	path, err := fltr.rsrElement.CompileDynRule(dDP)
+	if err != nil {
+		return false, err
+	}
+	val, err := utils.DPDynamicInterface(path, dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return true, nil
@@ -294,16 +434,16 @@ func (fltr *FilterRule) passEmpty(fielNameDP utils.DataProvider) (bool, error) {
 	}
 }
 
-func (fltr *FilterRule) passStringPrefix(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	strVal, err := utils.DPDynamicString(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passStringPrefix(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
 		}
 		return false, err
 	}
-	for i, prfx := range fltr.Values {
-		prfx, err := utils.DPDynamicString(prfx, fieldValuesDP[i])
+	for _, prfxVal := range fltr.rsrValues {
+		prfx, err := prfxVal.ParseDataProvider(dDP)
 		if err != nil {
 			continue
 		}
@@ -314,16 +454,16 @@ func (fltr *FilterRule) passStringPrefix(fielNameDP utils.DataProvider, fieldVal
 	return false, nil
 }
 
-func (fltr *FilterRule) passStringSuffix(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	strVal, err := utils.DPDynamicString(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passStringSuffix(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
 		}
 		return false, err
 	}
-	for i, prfx := range fltr.Values {
-		prfx, err := utils.DPDynamicString(prfx, fieldValuesDP[i])
+	for _, prfxVal := range fltr.rsrValues {
+		prfx, err := prfxVal.ParseDataProvider(dDP)
 		if err != nil {
 			continue
 		}
@@ -334,13 +474,47 @@ func (fltr *FilterRule) passStringSuffix(fielNameDP utils.DataProvider, fieldVal
 	return false, nil
 }
 
-// ToDo when Timings will be available in DataDb
-func (fltr *FilterRule) passTimings(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	return false, utils.ErrNotImplemented
+func (fltr *FilterRule) passTimings(dDP utils.DataProvider) (bool, error) {
+	tmVal, err := fltr.rsrElement.ParseDataProviderWithInterfaces(dDP)
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+
+	tmTime, err := utils.IfaceAsTime(tmVal, config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return false, err
+	}
+
+	for _, valTmIDVal := range fltr.rsrValues {
+		valTmID, err := valTmIDVal.ParseDataProvider(dDP)
+		if err != nil {
+			return false, err
+		}
+		var tm utils.TPTiming
+		if err = connMgr.Call(config.CgrConfig().FilterSCfg().ApierSConns, nil, utils.APIerSv1GetTiming, &utils.ArgsGetTimingID{ID: valTmID}, &tm); err != nil {
+			continue
+		}
+		ritm := &RITiming{
+			ID:        tm.ID,
+			Years:     tm.Years,
+			Months:    tm.Months,
+			MonthDays: tm.MonthDays,
+			WeekDays:  tm.WeekDays,
+			StartTime: tm.StartTime,
+			EndTime:   tm.EndTime,
+		}
+		if ritm.IsActiveAt(tmTime) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
-func (fltr *FilterRule) passDestinations(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	dst, err := utils.DPDynamicString(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passDestinations(dDP utils.DataProvider) (bool, error) {
+	dst, err := fltr.rsrElement.ParseDataProvider(dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
@@ -348,16 +522,18 @@ func (fltr *FilterRule) passDestinations(fielNameDP utils.DataProvider, fieldVal
 		return false, err
 	}
 	for _, p := range utils.SplitPrefix(dst, MIN_PREFIX_MATCH) {
-		if destIDs, err := dm.GetReverseDestination(p, false, utils.NonTransactional); err == nil {
-			for _, dID := range destIDs {
-				for i, valDstID := range fltr.Values {
-					valDstID, err := utils.DPDynamicString(valDstID, fieldValuesDP[i])
-					if err != nil {
-						continue
-					}
-					if valDstID == dID {
-						return true, nil
-					}
+		var destIDs []string
+		if err = connMgr.Call(config.CgrConfig().FilterSCfg().ApierSConns, nil, utils.APIerSv1GetReverseDestination, &p, &destIDs); err != nil {
+			continue
+		}
+		for _, dID := range destIDs {
+			for _, valDstIDVal := range fltr.rsrValues {
+				valDstID, err := valDstIDVal.ParseDataProvider(dDP)
+				if err != nil {
+					continue
+				}
+				if valDstID == dID {
+					return true, nil
 				}
 			}
 		}
@@ -365,66 +541,61 @@ func (fltr *FilterRule) passDestinations(fielNameDP utils.DataProvider, fieldVal
 	return false, nil
 }
 
-func (fltr *FilterRule) passRSR(fieldValuesDP []utils.DataProvider) (bool, error) {
-	_, err := fltr.rsrFields.ParseDataProviderWithInterfaces(fieldValuesDP[0], utils.NestingSep)
+func (fltr *FilterRule) passRSR(dDP utils.DataProvider) (bool, error) {
+	fld, err := fltr.rsrElement.ParseDataProvider(dDP)
 	if err != nil {
-		if err == utils.ErrNotFound || err == utils.ErrFilterNotPassingNoCaps {
-			return false, nil
+		if err == utils.ErrNotFound {
+			match := fltr.rsrFilters.FilterRules() == "^$"
+			return match, nil
 		}
 		return false, err
 	}
-	return true, nil
+	match := fltr.rsrFilters.Pass(fld, false)
+	return match, nil
 }
 
-func (fltr *FilterRule) passGreaterThan(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	fldIf, err := utils.DPDynamicInterface(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passGreaterThan(dDP utils.DataProvider) (bool, error) {
+	fldStr, err := fltr.rsrElement.ParseDataProviderWithInterfaces(dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
 		}
 		return false, err
 	}
-	if fldStr, castStr := fldIf.(string); castStr { // attempt converting string since deserialization fails here (ie: time.Time fields)
-		fldIf = utils.StringToInterface(fldStr)
-	}
-	orEqual := false
-	if fltr.Type == utils.MetaGreaterOrEqual ||
-		fltr.Type == utils.MetaLessThan {
-		orEqual = true
-	}
-	for i, val := range fltr.Values {
-		sval, err := utils.DPDynamicInterface(val, fieldValuesDP[i])
+	fldIf := utils.StringToInterface(fldStr)
+	orEqual := fltr.Type == utils.MetaGreaterOrEqual ||
+		fltr.Type == utils.MetaLessThan
+	for _, val := range fltr.rsrValues {
+		sval, err := val.ParseDataProviderWithInterfaces(dDP)
 		if err != nil {
 			continue
 		}
-		if gte, err := utils.GreaterThan(fldIf, sval, orEqual); err != nil {
+		if gte, err := utils.GreaterThan(fldIf, utils.StringToInterface(sval), orEqual); err != nil {
 			return false, err
-		} else if utils.SliceHasMember([]string{utils.MetaGreaterThan, utils.MetaGreaterOrEqual}, fltr.Type) && gte {
+		} else if (utils.MetaGreaterThan == fltr.Type || utils.MetaGreaterOrEqual == fltr.Type) && gte {
 			return true, nil
-		} else if utils.SliceHasMember([]string{utils.MetaLessThan, utils.MetaLessOrEqual}, fltr.Type) && !gte {
+		} else if (utils.MetaLessThan == fltr.Type || utils.MetaLessOrEqual == fltr.Type) && !gte {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (fltr *FilterRule) passEqualTo(fielNameDP utils.DataProvider, fieldValuesDP []utils.DataProvider) (bool, error) {
-	fldIf, err := utils.DPDynamicInterface(fltr.Element, fielNameDP)
+func (fltr *FilterRule) passEqualTo(dDP utils.DataProvider) (bool, error) {
+	fldStr, err := fltr.rsrElement.ParseDataProviderWithInterfaces(dDP)
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
 		}
 		return false, err
 	}
-	if fldStr, castStr := fldIf.(string); castStr { // attempt converting string since deserialization fails here (ie: time.Time fields)
-		fldIf = utils.StringToInterface(fldStr)
-	}
-	for i, val := range fltr.Values {
-		sval, err := utils.DPDynamicInterface(val, fieldValuesDP[i])
+	fldIf := utils.StringToInterface(fldStr)
+	for _, val := range fltr.rsrValues {
+		sval, err := val.ParseDataProviderWithInterfaces(dDP)
 		if err != nil {
 			continue
 		}
-		if eq, err := utils.EqualTo(fldIf, sval); err != nil {
+		if eq, err := utils.EqualTo(fldIf, utils.StringToInterface(sval)); err != nil {
 			return false, err
 		} else if eq {
 			return true, nil
@@ -433,152 +604,143 @@ func (fltr *FilterRule) passEqualTo(fielNameDP utils.DataProvider, fieldValuesDP
 	return false, nil
 }
 
-func (fS *FilterS) getFieldNameDataProvider(initialDP utils.DataProvider,
-	fieldName string, tenant string) (dp utils.DataProvider, err error) {
-	switch {
-	case strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaAccounts):
-		// sample of fieldName : ~*accounts.1001.BalanceMap.*monetary[0].Value
-		// split the field name in 3 parts
-		// fieldNameType (~*accounts), accountID(1001) and quried part (BalanceMap.*monetary[0].Value)
-		splitFldName := strings.SplitN(fieldName, utils.NestingSep, 3)
-		if len(splitFldName) != 3 {
-			return nil, fmt.Errorf("invalid fieldname <%s>", fieldName)
+func (fltr *FilterRule) passIPNet(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
 		}
-		var account *Account
-		if account, err = fS.dm.GetAccount(utils.ConcatenatedKey(tenant, splitFldName[1])); err != nil {
-			return
-		}
-		//construct dataProvider from account and set it furthder
-		dp = config.NewObjectDP(account, []string{utils.MetaAccounts, splitFldName[1]})
-	case strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaResources):
-		// sample of fieldName : ~*resources.ResourceID.Field
-		splitFldName := strings.SplitN(fieldName, utils.NestingSep, 3)
-		if len(splitFldName) != 3 {
-			return nil, fmt.Errorf("invalid fieldname <%s>", fieldName)
-		}
-		var reply *Resource
-		if err := fS.connMgr.Call(fS.cfg.FilterSCfg().ResourceSConns, nil, utils.ResourceSv1GetResource,
-			&utils.TenantID{Tenant: tenant, ID: splitFldName[1]}, &reply); err != nil {
-			return nil, err
-		}
-		dp = config.NewObjectDP(reply, []string{utils.MetaResources, reply.ID})
-	case strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaStats):
-		// sample of fieldName : ~*stats.StatID.*acd
-		splitFldName := strings.SplitN(fieldName, utils.NestingSep, 3)
-		if len(splitFldName) != 3 {
-			return nil, fmt.Errorf("invalid fieldname <%s>", fieldName)
-		}
-		var statValues map[string]float64
-
-		if err := fS.connMgr.Call(fS.cfg.FilterSCfg().StatSConns, nil, utils.StatSv1GetQueueFloatMetrics,
-			&utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: tenant, ID: splitFldName[1]}},
-			&statValues); err != nil {
-			return nil, err
-		}
-		evNm := utils.MapStorage{}
-		for k, v := range statValues {
-			evNm.Set([]string{utils.MetaStats, splitFldName[1], k}, v)
-		}
-		dp = evNm
-	case strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaReq),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaVars),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaCgreq),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaCgrep),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaRep),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaCGRAReq),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaAct),
-		strings.HasPrefix(fieldName, utils.DynamicDataPrefix+utils.MetaEC):
-		dp = initialDP
-	// don't need to take out the prefix because the navigable map have ~*req prefix
-	case fieldName == utils.EmptyString:
-	default:
-		return nil, fmt.Errorf("filter path: <%s> doesn't have a valid prefix", fieldName)
+		return false, err
 	}
-	return
-}
-
-func (fS *FilterS) getFieldValuesDataProviders(initialDP utils.DataProvider,
-	values []string, tenant string) (dp []utils.DataProvider, err error) {
-	dp = make([]utils.DataProvider, len(values))
-	for i := range values {
-		if dp[i], err = fS.getFieldValueDataProvider(initialDP, values[i], tenant); err != nil {
-			return
-		}
-	}
-	return
-}
-
-func (fS *FilterS) getFieldValueDataProvider(initialDP utils.DataProvider,
-	fieldValue string, tenant string) (dp utils.DataProvider, err error) {
-	switch {
-	case strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaAccounts):
-		// sample of fieldName : ~*accounts.1001.BalanceMap.*monetary[0].Value
-		// split the field name in 3 parts
-		// fieldNameType (~*accounts), accountID(1001) and quried part (BalanceMap.*monetary[0].Value)
-		splitFldName := strings.SplitN(fieldValue, utils.NestingSep, 3)
-		if len(splitFldName) != 3 {
-			return nil, fmt.Errorf("invalid fieldname <%s>", fieldValue)
-		}
-		var account *Account
-		if account, err = fS.dm.GetAccount(utils.ConcatenatedKey(tenant, splitFldName[1])); err != nil {
-			return
-		}
-		//construct dataProvider from account and set it furthder
-		dp = config.NewObjectDP(account, []string{utils.MetaAccounts, account.ID})
-	case strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaResources):
-		// sample of fieldName : ~*resources.ResourceID.Field
-		splitFldName := strings.SplitN(fieldValue, utils.NestingSep, 3)
-		if len(splitFldName) != 3 {
-			return nil, fmt.Errorf("invalid fieldname <%s>", fieldValue)
-		}
-		var reply *Resource
-		if err := fS.connMgr.Call(fS.cfg.FilterSCfg().ResourceSConns, nil, utils.ResourceSv1GetResource,
-			&utils.TenantID{Tenant: tenant, ID: splitFldName[1]}, &reply); err != nil {
-			return nil, err
-		}
-		dp = config.NewObjectDP(reply, []string{utils.MetaResources, reply.ID})
-	case strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaStats):
-		// sample of fieldName : ~*resources.ResourceID.Field
-		splitFldName := strings.SplitN(fieldValue, utils.NestingSep, 3)
-		if len(splitFldName) != 3 {
-			return nil, fmt.Errorf("invalid fieldname <%s>", fieldValue)
-		}
-		var statValues map[string]float64
-
-		if err := fS.connMgr.Call(fS.cfg.FilterSCfg().StatSConns, nil, utils.StatSv1GetQueueFloatMetrics,
-			&utils.TenantIDWithArgDispatcher{TenantID: &utils.TenantID{Tenant: tenant, ID: splitFldName[1]}},
-			&statValues); err != nil {
-			return nil, err
-		}
-		ifaceMetric := make(map[string]interface{})
-		for k, v := range statValues {
-			ifaceMetric[k] = v
-		}
-		evNm := utils.MapStorage{}
-		evNm.Set([]string{utils.MetaStats, splitFldName[1]}, ifaceMetric)
-		dp = evNm
-	case strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaReq),
-		strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaVars),
-		strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaCgreq),
-		strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaCgrep),
-		strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaRep),
-		strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaCGRAReq),
-		strings.HasPrefix(fieldValue, utils.DynamicDataPrefix+utils.MetaAct):
-		dp = initialDP
-	default: // in case of constant we give an empty DataProvider ( empty navigable map )
-		dp = utils.MapStorage{}
+	ip := net.ParseIP(strVal)
+	if ip == nil {
+		return false, nil
 	}
 
-	return
+	for _, val := range fltr.rsrValues {
+		sval, err := val.ParseDataProvider(dDP)
+		if err != nil {
+			continue
+		}
+		_, ipNet, err := net.ParseCIDR(sval)
+		if err != nil {
+			continue
+		}
+		if ipNet.Contains(ip) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
-func validateInlineFilters(fltrs []string) (err error) {
-	for _, fltr := range fltrs {
-		if strings.HasPrefix(fltr, utils.Meta) {
-			if _, err = NewFilterFromInline(utils.EmptyString, fltr); err != nil {
+func (fltr *FilterRule) passAPIBan(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	if fltr.Values[0] != utils.MetaAll &&
+		fltr.Values[0] != utils.MetaSingle { // force only valid values
+		return false, fmt.Errorf("invalid value for apiban filter: <%s>", fltr.Values[0])
+	}
+	return dm.GetAPIBan(strVal, config.CgrConfig().APIBanCfg().Keys, fltr.Values[0] != utils.MetaAll, true, true)
+}
+
+func (fltr *FilterRule) passSentryPeer(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	if fltr.Values[0] != utils.MetaNumber && fltr.Values[0] != utils.MetaIp {
+		return false, fmt.Errorf("invalid value for sentrypeer filter: <%s>", fltr.Values[0])
+	}
+	return GetSentryPeer(strVal, config.CgrConfig().SentryPeerCfg(), fltr.Values[0])
+}
+
+func parseTime(rsr *config.RSRParser, dDp utils.DataProvider) (_ time.Time, err error) {
+	var str string
+	if str, err = rsr.ParseDataProvider(dDp); err != nil {
+		return
+	}
+	return utils.ParseTimeDetectLayout(str, config.CgrConfig().GeneralCfg().DefaultTimezone)
+}
+
+func (fltr *FilterRule) passActivationInterval(dDp utils.DataProvider) (bool, error) {
+	timeVal, err := parseTime(fltr.rsrElement, dDp)
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if len(fltr.rsrValues) == 2 {
+		endTime, err := parseTime(fltr.rsrValues[1], dDp)
+		if err != nil {
+			return false, err
+		}
+		if fltr.rsrValues[0] == nil {
+			return timeVal.Before(endTime), nil
+		}
+		startTime, err := parseTime(fltr.rsrValues[0], dDp)
+		if err != nil {
+			return false, err
+		}
+		return startTime.Before(timeVal) && timeVal.Before(endTime), nil
+	}
+	startTime, err := parseTime(fltr.rsrValues[0], dDp)
+	if err != nil {
+		return false, err
+	}
+	return startTime.Before(timeVal), nil
+}
+
+func verifyInlineFilterS(fltrs []string) (err error) {
+	for _, fl := range fltrs {
+		if strings.HasPrefix(fl, utils.Meta) {
+			if _, err = NewFilterFromInline(utils.EmptyString, fl); err != nil {
 				return
 			}
 		}
 	}
 	return
+}
+
+func CheckFilter(fltr *Filter) (err error) {
+	for _, rls := range fltr.Rules {
+		valFunc := utils.IsPathValid
+		if rls.Type == utils.MetaEmpty || rls.Type == utils.MetaExists {
+			valFunc = utils.IsPathValidForExporters
+		}
+		if err = valFunc(rls.Element); err != nil {
+			return fmt.Errorf("%s for filter <%v>", err, fltr) //encapsulated error
+		}
+		for _, val := range rls.Values {
+			if err = valFunc(val); err != nil {
+				return fmt.Errorf("%s for filter <%v>", err, fltr) //encapsulated error
+			}
+		}
+	}
+	return nil
+}
+
+func (fltr *FilterRule) passRegex(dDP utils.DataProvider) (bool, error) {
+	strVal, err := fltr.rsrElement.ParseDataProvider(dDP)
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, val := range fltr.regexValues {
+		if val.MatchString(strVal) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

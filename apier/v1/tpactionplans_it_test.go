@@ -37,7 +37,6 @@ var (
 	tpAccPlansCfgPath   string
 	tpAccPlansCfg       *config.CGRConfig
 	tpAccPlansRPC       *rpc.Client
-	tpAccPlansDataDir   = "/usr/share/cgrates"
 	tpAccPlan           *utils.TPActionPlan
 	tpAccPlansDelay     int
 	tpAccPlansConfigDIR string //run tests for specific configuration
@@ -81,13 +80,11 @@ func TestTPAccPlansIT(t *testing.T) {
 
 func testTPAccPlansInitCfg(t *testing.T) {
 	var err error
-	tpAccPlansCfgPath = path.Join(tpAccPlansDataDir, "conf", "samples", tpAccPlansConfigDIR)
+	tpAccPlansCfgPath = path.Join(*dataDir, "conf", "samples", tpAccPlansConfigDIR)
 	tpAccPlansCfg, err = config.NewCGRConfigFromPath(tpAccPlansCfgPath)
 	if err != nil {
 		t.Error(err)
 	}
-	tpAccPlansCfg.DataFolderPath = tpAccPlansDataDir // Share DataFolderPath through config towards StoreDb for Flush()
-	config.SetCgrConfig(tpAccPlansCfg)
 	switch tpAccPlansConfigDIR {
 	case "tutmongo": // Mongo needs more time to reset db, need to investigate
 		tpAccPlansDelay = 2000

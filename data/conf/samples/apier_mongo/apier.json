@@ -74,15 +74,8 @@
 },
 
 
-"suppliers": {
+"routes": {
 	"enabled": true,
-},
-
-
-"cdre": {
-	"*default": {
-		"export_path": "/tmp/cgrates/cdr/cdrexport/csv",			// path where the exported CDRs will be placed
-	}
 },
 
 

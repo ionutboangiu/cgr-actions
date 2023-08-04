@@ -25,7 +25,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/birpc/context"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/sessions"
@@ -86,22 +85,22 @@ func testTLSStartEngine(t *testing.T) {
 
 func testTLSRpcConn(t *testing.T) {
 	var err error
-	tlsRpcClientJson, err = rpcclient.NewRPCClient(context.Background(), utils.TCP, "localhost:2022", true, tlsCfg.TlsCfg().ClientKey,
-		tlsCfg.TlsCfg().ClientCerificate, tlsCfg.TlsCfg().CaCertificate, 3, 3, 0, utils.FibDuration,
+	tlsRpcClientJson, err = rpcclient.NewRPCClient(utils.TCP, "localhost:2022", true, tlsCfg.TLSCfg().ClientKey,
+		tlsCfg.TLSCfg().ClientCerificate, tlsCfg.TLSCfg().CaCertificate, 3, 3,
 		time.Second, 5*time.Minute, rpcclient.JSONrpc, nil, false, nil)
 	if err != nil {
 		t.Errorf("Error: %s when dialing", err)
 	}
 
-	tlsRpcClientGob, err = rpcclient.NewRPCClient(context.Background(), utils.TCP, "localhost:2023", true, tlsCfg.TlsCfg().ClientKey,
-		tlsCfg.TlsCfg().ClientCerificate, tlsCfg.TlsCfg().CaCertificate, 3, 3, 0, utils.FibDuration,
+	tlsRpcClientGob, err = rpcclient.NewRPCClient(utils.TCP, "localhost:2023", true, tlsCfg.TLSCfg().ClientKey,
+		tlsCfg.TLSCfg().ClientCerificate, tlsCfg.TLSCfg().CaCertificate, 3, 3,
 		time.Second, 5*time.Minute, rpcclient.GOBrpc, nil, false, nil)
 	if err != nil {
 		t.Errorf("Error: %s when dialing", err)
 	}
 
-	tlsHTTPJson, err = rpcclient.NewRPCClient(context.Background(), utils.TCP, "https://localhost:2280/jsonrpc", true, tlsCfg.TlsCfg().ClientKey,
-		tlsCfg.TlsCfg().ClientCerificate, tlsCfg.TlsCfg().CaCertificate, 3, 3, 0, utils.FibDuration,
+	tlsHTTPJson, err = rpcclient.NewRPCClient(utils.TCP, "https://localhost:2280/jsonrpc", true, tlsCfg.TLSCfg().ClientKey,
+		tlsCfg.TLSCfg().ClientCerificate, tlsCfg.TLSCfg().CaCertificate, 3, 3,
 		time.Second, 5*time.Minute, rpcclient.HTTPjson, nil, false, nil)
 	if err != nil {
 		t.Errorf("Error: %s when dialing", err)
@@ -111,56 +110,57 @@ func testTLSRpcConn(t *testing.T) {
 func testTLSPing(t *testing.T) {
 	var reply string
 
-	if err := tlsRpcClientJson.Call(context.Background(), utils.ThresholdSv1Ping, new(utils.CGREvent), &reply); err != nil {
+	if err := tlsRpcClientJson.Call(utils.ThresholdSv1Ping, new(utils.CGREvent), &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := tlsRpcClientGob.Call(context.Background(), utils.ThresholdSv1Ping, new(utils.CGREvent), &reply); err != nil {
+	if err := tlsRpcClientGob.Call(utils.ThresholdSv1Ping, new(utils.CGREvent), &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := tlsHTTPJson.Call(context.Background(), utils.ThresholdSv1Ping, new(utils.CGREvent), &reply); err != nil {
+	if err := tlsHTTPJson.Call(utils.ThresholdSv1Ping, new(utils.CGREvent), &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.Pong {
 		t.Errorf("Received: %s", reply)
 	}
-	if err := tlsRpcClientJson.Call(context.Background(), utils.DispatcherSv1Ping, "", &reply); err == nil {
+	if err := tlsRpcClientJson.Call(utils.DispatcherSv1Ping, "", &reply); err == nil {
 		t.Error(err)
 	}
-	if err := tlsRpcClientGob.Call(context.Background(), utils.DispatcherSv1Ping, "", &reply); err == nil {
+	if err := tlsRpcClientGob.Call(utils.DispatcherSv1Ping, "", &reply); err == nil {
 		t.Error(err)
 	}
-	if err := tlsHTTPJson.Call(context.Background(), utils.DispatcherSv1Ping, "", &reply); err == nil {
+	if err := tlsHTTPJson.Call(utils.DispatcherSv1Ping, "", &reply); err == nil {
 		t.Error(err)
 	}
 
-	initUsage := time.Duration(5 * time.Minute)
+	initUsage := 5 * time.Minute
 	args := &sessions.V1InitSessionArgs{
 		InitSession:       true,
 		AllocateResources: true,
 		GetAttributes:     true,
+
 		CGREvent: &utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItInitiateSession",
-			Event: map[string]interface{}{
-				utils.Tenant:      "cgrates.org",
-				utils.Category:    "call",
-				utils.ToR:         utils.VOICE,
-				utils.OriginID:    "TestSSv1It1",
-				utils.RequestType: utils.META_PREPAID,
-				utils.Account:     "1001",
-				utils.Subject:     "ANY2CNT",
-				utils.Destination: "1002",
-				utils.SetupTime:   time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
-				utils.AnswerTime:  time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
-				utils.Usage:       initUsage,
+			Event: map[string]any{
+				utils.Tenant:       "cgrates.org",
+				utils.Category:     "call",
+				utils.ToR:          utils.MetaVoice,
+				utils.OriginID:     "TestSSv1It1",
+				utils.RequestType:  utils.MetaPrepaid,
+				utils.AccountField: "1001",
+				utils.Subject:      "ANY2CNT",
+				utils.Destination:  "1002",
+				utils.SetupTime:    time.Date(2018, time.January, 7, 16, 60, 0, 0, time.UTC),
+				utils.AnswerTime:   time.Date(2018, time.January, 7, 16, 60, 10, 0, time.UTC),
+				utils.Usage:        initUsage,
 			},
 		},
 	}
 	var rply sessions.V1InitReplyWithDigest
-	if err := tlsHTTPJson.Call(context.Background(), utils.SessionSv1InitiateSessionWithDigest,
+	if err := tlsHTTPJson.Call(utils.SessionSv1InitiateSessionWithDigest,
 		args, &rply); err == nil {
 		t.Error(err)
 	}
